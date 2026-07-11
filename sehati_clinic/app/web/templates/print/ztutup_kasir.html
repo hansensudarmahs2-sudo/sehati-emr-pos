@@ -1,0 +1,75 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Tutup Kasir #{{ sesi.id_closing }}{% endblock %}
+{% block paper_class %}paper-thermal{% endblock %}
+
+{% block doc_content %}
+{# ===== Header klinik ===== #}
+<div class="text-center">
+    {% if klinik.logo_path %}
+    <img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo" style="max-height: 36px;">
+    {% endif %}
+    <div class="font-bold">{{ klinik.nama_klinik }}</div>
+    {% if klinik.alamat_baris1 %}<div>{{ klinik.alamat_baris1 }}</div>{% endif %}
+    {% if klinik.no_telepon %}<div>Telp: {{ klinik.no_telepon }}</div>{% endif %}
+</div>
+
+<div class="divider"></div>
+<div class="text-center font-bold">TUTUP KASIR (Z-REPORT)</div>
+
+<div style="margin-top: 4px;">
+    <div>Sesi  : #{{ sesi.id_closing }}</div>
+    <div>Kasir : {{ kasir_nama }}</div>
+    <div>Buka  : {{ sesi.shift_mulai.strftime('%d/%m/%Y %H:%M') if sesi.shift_mulai else '-' }}</div>
+    <div>Tutup : {{ sesi.shift_tutup.strftime('%d/%m/%Y %H:%M') if sesi.shift_tutup else '-' }}</div>
+    <div>Modal : {{ "{:,.0f}".format(sesi.modal_awal|float).replace(",", ".") }}</div>
+</div>
+
+<div class="divider"></div>
+
+{# ===== Per metode ===== #}
+{% for d in detail %}
+<div class="font-bold">{{ d.metode_bayar }}</div>
+<div style="display:flex; justify-content:space-between;">
+    <span>  Expected</span>
+    <span>{{ "{:,.0f}".format(d.expected|float).replace(",", ".") }}</span>
+</div>
+<div style="display:flex; justify-content:space-between;">
+    <span>  Counted</span>
+    <span>{{ "{:,.0f}".format(d.counted|float).replace(",", ".") }}</span>
+</div>
+<div style="display:flex; justify-content:space-between;">
+    <span>  Selisih</span>
+    <span>{{ "{:+,.0f}".format(d.selisih|float).replace(",", ".") }}</span>
+</div>
+{% endfor %}
+
+<div class="divider"></div>
+
+{# ===== Total ===== #}
+<div style="display:flex; justify-content:space-between;" class="font-bold">
+    <span>TOTAL Expected</span>
+    <span>{{ "{:,.0f}".format(sesi.total_expected|float).replace(",", ".") }}</span>
+</div>
+<div style="display:flex; justify-content:space-between;" class="font-bold">
+    <span>TOTAL Counted</span>
+    <span>{{ "{:,.0f}".format(sesi.total_counted|float).replace(",", ".") }}</span>
+</div>
+<div style="display:flex; justify-content:space-between;" class="font-bold">
+    <span>SELISIH</span>
+    <span>{{ "{:+,.0f}".format(sesi.total_selisih|float).replace(",", ".") }}</span>
+</div>
+
+{% if sesi.catatan %}
+<div class="divider"></div>
+<div>Catatan:</div>
+<div>{{ sesi.catatan }}</div>
+{% endif %}
+
+<div class="divider"></div>
+<div class="text-center">Cetak: {{ tgl_cetak }}</div>
+<div class="text-center" style="margin-top:4px; font-size:0.85em;">
+    *Slip ini tidak disimpan sebagai file (transien).
+</div>
+
+<div style="height: 18mm;">&nbsp;</div>
+{% endblock %}

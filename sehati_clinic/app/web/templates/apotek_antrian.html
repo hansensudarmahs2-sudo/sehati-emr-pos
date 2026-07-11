@@ -1,0 +1,80 @@
+{% extends "_app.html" %}
+{% block title %}Apotek — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Apotek{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    {# #363E - Stok Critical widget #}
+    {% if stok_out_count > 0 or stok_low_count > 0 %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        {% if stok_out_count > 0 %}
+        <a href="/web/apotek/stok?filter_stok=out"
+           class="bg-red-50 border border-red-300 rounded-lg p-4 hover:bg-red-100 transition flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-200 flex items-center justify-center text-xl">❌</div>
+            <div class="flex-1">
+                <div class="text-xs text-red-700 uppercase font-medium">Stok Habis</div>
+                <div class="text-xl font-bold text-red-800">{{ stok_out_count }} produk</div>
+                <div class="text-xs text-red-700">tidak bisa dispensing, klik untuk lihat →</div>
+            </div>
+        </a>
+        {% endif %}
+        {% if stok_low_count > 0 %}
+        <a href="/web/apotek/stok?filter_stok=low"
+           class="bg-amber-50 border border-amber-300 rounded-lg p-4 hover:bg-amber-100 transition flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-amber-200 flex items-center justify-center text-xl">⚠</div>
+            <div class="flex-1">
+                <div class="text-xs text-amber-700 uppercase font-medium">Stok Rendah</div>
+                <div class="text-xl font-bold text-amber-800">{{ stok_low_count }} produk</div>
+                <div class="text-xs text-amber-700">stok ≤ minimal, klik untuk lihat →</div>
+            </div>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <div class="text-sm text-slate-500">
+            Auto-refresh setiap 10 detik.
+            <span id="last-updated" class="font-mono text-xs ml-2"></span>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/web/apotek/suggested-order"
+               class="text-sm px-3 py-1.5 border border-amber-300 text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition flex items-center gap-2 font-medium">
+                📊 Suggested Order
+            </a>
+            <button hx-get="/web/apotek/list" hx-target="#antrian-content" hx-swap="innerHTML"
+                class="text-sm px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition flex items-center gap-2">
+                🔄 Refresh
+            </button>
+        </div>
+    </div>
+
+    <div id="antrian-content"
+         hx-get="/web/apotek/list"
+         hx-trigger="load, every 10s"
+         hx-swap="innerHTML">
+        <div class="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+            <div class="text-3xl mb-2">⏳</div>
+            Memuat antrian apotek…
+        </div>
+    </div>
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'antrian-content') {
+            var now = new Date();
+            document.getElementById('last-updated').textContent =
+                '· Update: ' + now.toLocaleTimeString('id-ID');
+        }
+    });
+</script>
+{% endblock %}

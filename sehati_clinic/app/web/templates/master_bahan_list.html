@@ -1,0 +1,79 @@
+{% extends "_app.html" %}
+{% block title %}Master Bahan Klinik{% endblock %}
+{% block page_title %}Master Bahan Klinik{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <form method="GET" class="flex items-center gap-2">
+            <input type="text" name="q" value="{{ q or '' }}" placeholder="Cari nama bahan..."
+                   class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <button type="submit" class="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700">Filter</button>
+            {% if q %}
+            <a href="/web/master/bahan" class="text-sm text-slate-500 hover:underline">Reset</a>
+            {% endif %}
+        </form>
+        <a href="/web/master/bahan/tambah"
+           class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1.5 font-medium">
+            ➕ Tambah Bahan
+        </a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            Total: {{ total }} bahan
+        </div>
+        <div class="px-5 py-2 bg-amber-50/50 border-b border-amber-100 text-xs text-amber-800">
+            ℹ️ Bahan ini dipakai untuk komponen treatment (auto-deduct saat tindakan selesai).
+            Stok punya 2 lokasi: <strong>Gudang Utama</strong> (cadangan) dan <strong>Kabin</strong> (yang dipotong saat tindakan).
+        </div>
+
+        {% if data %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Nama Bahan</th>
+                    <th class="text-left px-4 py-2 font-medium">Satuan Pakai</th>
+                    <th class="text-right px-4 py-2 font-medium">Stok Kabin</th>
+                    <th class="text-right px-4 py-2 font-medium">Stok Gudang</th>
+                    <th class="text-center px-4 py-2 font-medium">Satuan Beli</th>
+                    <th class="text-right px-4 py-2 font-medium">Rasio</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for b in data %}
+                <tr class="hover:bg-blue-50/30 transition">
+                    <td class="px-4 py-3 font-medium text-slate-800">{{ b.nama_bahan }}</td>
+                    <td class="px-4 py-3 text-xs text-slate-600">{{ b.satuan }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-slate-700">{{ b.stok_kabin }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-slate-500">{{ b.stok_gudang_utama }}</td>
+                    <td class="px-4 py-3 text-center text-xs text-slate-600">{{ b.satuan_pembelian }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-xs text-slate-500">×{{ b.rasio_konversi }}</td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <a href="/web/master/bahan/{{ b.id_bahan }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+                            ✏️ Edit
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-400">
+            <p class="text-sm">Belum ada bahan. <a href="/web/master/bahan/tambah" class="text-blue-600 hover:underline">Tambah sekarang</a>.</p>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

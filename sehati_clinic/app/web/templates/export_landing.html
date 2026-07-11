@@ -1,0 +1,263 @@
+{% extends "_app.html" %}
+{% block title %}Owner Raw Data Export{% endblock %}
+{% block page_title %}📥 Owner Raw Data Export{% endblock %}
+
+{% block page_content %}
+<div class="max-w-4xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        Generate paket data raw untuk modul Data Analyst / Council AI.
+        Klik salah satu tombol untuk download ZIP.
+    </div>
+
+    {# Global options card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">⚙ Opsi Global</h3>
+        <div class="flex flex-wrap items-center gap-5">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Format ZIP</label>
+                <div class="flex items-center gap-3 text-sm">
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="format" value="csv" checked
+                               class="form-radio text-blue-600" id="opt-format-csv">
+                        <span class="ml-1.5">CSV</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="format" value="json"
+                               class="form-radio text-blue-600" id="opt-format-json">
+                        <span class="ml-1.5">JSON</span>
+                    </label>
+                </div>
+            </div>
+            <div>
+                <label class="inline-flex items-center text-sm">
+                    <input type="checkbox" id="opt-mask-pii" class="form-checkbox text-blue-600">
+                    <span class="ml-2">Mask PII</span>
+                </label>
+                <div class="text-xs text-slate-500 mt-0.5">
+                    Centang kalau ZIP dikirim ke AI / 3rd party
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 3 pack cards #}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+        {# WEEKLY CARD #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-xl">📊</div>
+                <div>
+                    <div class="font-semibold text-slate-800">Weekly Pack</div>
+                    <div class="text-xs text-slate-500">7 hari</div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Akhir periode</label>
+                <input type="date" id="weekly-ending" value="{{ today }}"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="text-xs text-slate-600 mb-3">
+                Range: <span id="weekly-preview" class="font-mono">{{ weekly_dari }} → {{ weekly_sampai }}</span>
+            </div>
+            <button type="button" onclick="downloadPack('weekly')"
+                    class="w-full px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">
+                ↓ Download .zip
+            </button>
+        </div>
+
+        {# MONTHLY CARD #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-xl">📅</div>
+                <div>
+                    <div class="font-semibold text-slate-800">Monthly Pack</div>
+                    <div class="text-xs text-slate-500">30 hari</div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Akhir periode</label>
+                <input type="date" id="monthly-ending" value="{{ today }}"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="text-xs text-slate-600 mb-3">
+                Range: <span id="monthly-preview" class="font-mono">{{ monthly_dari }} → {{ monthly_sampai }}</span>
+            </div>
+            <button type="button" onclick="downloadPack('monthly')"
+                    class="w-full px-3 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 font-medium">
+                ↓ Download .zip
+            </button>
+        </div>
+
+        {# CUSTOM CARD #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-xl">🛠</div>
+                <div>
+                    <div class="font-semibold text-slate-800">Custom Range</div>
+                    <div class="text-xs text-slate-500">Bebas pilih</div>
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Dari</label>
+                <input type="date" id="custom-dari" value="{{ weekly_dari }}"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Sampai</label>
+                <input type="date" id="custom-sampai" value="{{ weekly_sampai }}"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div id="custom-warning" class="text-xs text-amber-700 mb-2 hidden">
+                ⚠ Range > {{ warning_threshold_days }} hari. Generate akan lambat & ZIP besar.
+            </div>
+            <button type="button" onclick="downloadPack('custom')"
+                    class="w-full px-3 py-2 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 font-medium">
+                ↓ Download .zip
+            </button>
+        </div>
+    </div>
+
+    {# Stub status banner #}
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+        🚧 <strong>Phase C2.1 — Foundation Stub.</strong> Klik Download akan
+        return ZIP dengan README + DATA_DICTIONARY placeholder saja.
+        Dataset content akan diisi di Phase C2.2 (sesi berikutnya).
+    </div>
+
+    {# Advanced — Per-Dataset export (C2.2 — internal flow) #}
+    <details class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4" open>
+        <summary class="cursor-pointer font-medium text-slate-700 text-sm">
+            🔧 Advanced — Per-Dataset Export ({{ datasets|length }} dataset tersedia)
+        </summary>
+        <div class="mt-3 text-xs text-slate-500 mb-3">
+            Download 1 dataset spesifik dalam rentang tanggal pilihan.
+            Untuk full pack berisi semua dataset, gunakan Weekly/Monthly/Custom di atas.
+        </div>
+
+        <div class="space-y-3">
+            {% for ds in datasets %}
+            <div class="bg-white border border-slate-200 rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <div class="font-medium text-slate-800 text-sm">
+                            {{ ds.label }}
+                        </div>
+                        <div class="text-xs text-slate-500 mt-0.5">{{ ds.description }}</div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-end gap-2 text-xs">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Dari</label>
+                        <input type="date" id="ds-{{ ds.name }}-dari" value="{{ weekly_dari }}"
+                               class="px-2 py-1 border border-slate-300 rounded">
+                    </div>
+                    <div>
+                        <label class="block text-slate-600 mb-1">Sampai</label>
+                        <input type="date" id="ds-{{ ds.name }}-sampai" value="{{ today }}"
+                               class="px-2 py-1 border border-slate-300 rounded">
+                    </div>
+                    <button type="button" onclick="downloadDataset('{{ ds.name }}', 'csv')"
+                            class="px-3 py-1.5 bg-slate-700 text-white rounded hover:bg-slate-800">
+                        ↓ CSV
+                    </button>
+                    <button type="button" onclick="downloadDataset('{{ ds.name }}', 'json')"
+                            class="px-3 py-1.5 bg-slate-600 text-white rounded hover:bg-slate-700">
+                        ↓ JSON
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="text-xs text-slate-500 mt-3">
+            💡 Sisanya 9 dataset akan ditambahkan di batch berikutnya (C2.2 batch 2 + Tier 3 di C2.3).
+        </div>
+    </details>
+
+    {# Helper links #}
+    <div class="text-xs text-slate-500 flex items-center gap-4">
+        <a href="/web/export/dictionary.md" class="hover:text-blue-600">📖 Data Dictionary</a>
+        <a href="/web/export/dictionary.json" class="hover:text-blue-600">{ } Dictionary JSON</a>
+    </div>
+
+</div>
+
+<script>
+(function() {
+    const today = "{{ today }}";
+
+    function addDays(dateStr, n) {
+        const d = new Date(dateStr + "T00:00:00");
+        d.setDate(d.getDate() + n);
+        return d.toISOString().slice(0, 10);
+    }
+
+    function daysBetween(d1, d2) {
+        const t1 = new Date(d1 + "T00:00:00").getTime();
+        const t2 = new Date(d2 + "T00:00:00").getTime();
+        return Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
+    }
+
+    // Weekly preview update
+    const weeklyInput = document.getElementById('weekly-ending');
+    const weeklyPreview = document.getElementById('weekly-preview');
+    weeklyInput.addEventListener('change', function() {
+        const end = this.value || today;
+        const start = addDays(end, -7);
+        weeklyPreview.textContent = start + " → " + end;
+    });
+
+    // Monthly preview update
+    const monthlyInput = document.getElementById('monthly-ending');
+    const monthlyPreview = document.getElementById('monthly-preview');
+    monthlyInput.addEventListener('change', function() {
+        const end = this.value || today;
+        const start = addDays(end, -30);
+        monthlyPreview.textContent = start + " → " + end;
+    });
+
+    // Custom warning (range > threshold)
+    const threshold = {{ warning_threshold_days }};
+    const customDari = document.getElementById('custom-dari');
+    const customSampai = document.getElementById('custom-sampai');
+    const customWarning = document.getElementById('custom-warning');
+    function updateCustomWarning() {
+        const days = daysBetween(customDari.value, customSampai.value);
+        customWarning.classList.toggle('hidden', days <= threshold);
+    }
+    customDari.addEventListener('change', updateCustomWarning);
+    customSampai.addEventListener('change', updateCustomWarning);
+    updateCustomWarning();
+
+    // Download trigger
+    // Per-dataset download
+    window.downloadDataset = function(name, format) {
+        const maskPii = document.getElementById('opt-mask-pii').checked;
+        const dari = document.getElementById('ds-' + name + '-dari').value;
+        const sampai = document.getElementById('ds-' + name + '-sampai').value;
+        const url = '/web/export/dataset/' + name + '/download.' + format
+                  + '?tgl_dari=' + dari + '&tgl_sampai=' + sampai
+                  + '&mask_pii=' + maskPii;
+        window.location.href = url;
+    };
+
+    window.downloadPack = function(period) {
+        const format = document.querySelector('input[name=format]:checked').value;
+        const maskPii = document.getElementById('opt-mask-pii').checked;
+        let url = '/web/export/pack/' + period + '.zip?format=' + format + '&mask_pii=' + maskPii;
+
+        if (period === 'weekly') {
+            url += '&ending_date=' + weeklyInput.value;
+        } else if (period === 'monthly') {
+            url += '&ending_date=' + monthlyInput.value;
+        } else if (period === 'custom') {
+            url += '&tgl_dari=' + customDari.value + '&tgl_sampai=' + customSampai.value;
+        }
+        // Trigger download via navigation
+        window.location.href = url;
+    };
+})();
+</script>
+{% endblock %}

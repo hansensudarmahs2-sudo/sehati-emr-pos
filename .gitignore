@@ -1,0 +1,44 @@
+# ==== Python / venv ====
+.venv/
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==== SECRETS — JANGAN pernah commit ====
+# Hanya file .env asli; file *.example (template) SENGAJA dibiarkan ikut.
+**/.env
+**/.env.local
+**/.env.dev
+**/.env.prod
+**/.env.production
+**/.env.staging
+
+# ==== DUMP DB / BACKUP — berisi PHI pasien, JANGAN commit ====
+**/backups/
+backup*.sql
+backup*.zip
+**/backup*.sql
+**/backup*.zip
+db_pre_*.sql
+**/db_pre_*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# ==== Log / output runtime ====
+**/logs/
+*.log
+
+# ==== Artefak / zip nyasar ====
+*.zip
+
+# ==== Salinan template lama (stale duplicate) ====
+sehati_clinic_template/
+
+# ==== OS ====
+.DS_Store
+Thumbs.db

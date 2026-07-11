@@ -1,0 +1,351 @@
+{% extends "_app.html" %}
+{% block title %}Daftar Pasien Baru — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Daftar Pasien Baru{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {# Flash message setelah sukses #}
+    {% if success %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-6">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl">✓</span>
+            <div>
+                <div class="font-semibold">{{ success.message }}</div>
+                <div class="text-sm mt-1">
+                    No. RM: <strong class="font-mono">{{ success.no_rm }}</strong> •
+                    Nomor Antrean: <strong>#{{ success.nomor_antrean }}</strong> •
+                    <a href="/web/pasien/{{ success.id_pasien }}" class="underline">Lihat Detail</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
+        ⚠ {{ error }}
+    </div>
+    {% endif %}
+
+    {# Tab nav #}
+    <div class="bg-white rounded-t-xl shadow-sm border border-slate-200 border-b-0 px-4 py-3">
+        <nav class="flex items-center gap-1 overflow-x-auto" id="wizard-tabs">
+            <button type="button" data-tab="1"
+                    class="tab-btn active px-4 py-2 text-sm rounded-lg font-medium transition whitespace-nowrap">
+                <span class="tab-num">1</span> Identitas
+            </button>
+            <span class="text-slate-300">›</span>
+            <button type="button" data-tab="2"
+                    class="tab-btn px-4 py-2 text-sm rounded-lg font-medium transition whitespace-nowrap">
+                <span class="tab-num">2</span> Sumber & Promosi
+            </button>
+            <span class="text-slate-300">›</span>
+            <button type="button" data-tab="3"
+                    class="tab-btn px-4 py-2 text-sm rounded-lg font-medium transition whitespace-nowrap">
+                <span class="tab-num">3</span> Alergi & Penyakit
+            </button>
+        </nav>
+    </div>
+
+    {# Form — single form, semua tab di dalamnya #}
+    <form method="POST" action="/web/pendaftaran-pasien" id="wizard-form"
+          class="bg-white rounded-b-xl shadow-sm border border-slate-200 border-t-0">
+                    {{ csrf_input(request) }}
+
+        {# ===== STEP 1: Identitas ===== #}
+        <div class="wizard-step p-6" data-step="1">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">
+                Step 1 — Data Identitas Pasien
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Nama Lengkap <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" name="nama" required maxlength="100"
+                           value="{{ form.nama or '' }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Jenis Kelamin <span class="text-red-500">*</span>
+                    </label>
+                    <select name="jenis_kelamin" required
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Pilih —</option>
+                        <option value="L" {% if form.jenis_kelamin == 'L' %}selected{% endif %}>Laki-laki</option>
+                        <option value="P" {% if form.jenis_kelamin == 'P' %}selected{% endif %}>Perempuan</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">No. KTP</label>
+                    <input type="text" name="nomor_ktp" maxlength="50" inputmode="numeric"
+                           value="{{ form.nomor_ktp or '' }}"
+                           placeholder="16 digit NIK"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Tanggal Lahir</label>
+                    <input type="date" name="tgl_lahir"
+                           value="{{ form.tgl_lahir or '' }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Alamat</label>
+                    <textarea name="alamat" rows="2" maxlength="500"
+                              placeholder="Jl. ..."
+                              class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                     focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.alamat or '' }}</textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">No. Telepon / HP</label>
+                    <input type="tel" name="nomor_telepon" maxlength="20"
+                           inputmode="tel"
+                           value="{{ form.nomor_telepon or '' }}"
+                           placeholder="0812..."
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email <span class="text-xs text-slate-400">(opsional)</span></label>
+                    <input type="email" name="email_address" maxlength="100"
+                           value="{{ form.email_address or '' }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+        </div>
+
+        {# ===== STEP 2: Sumber & Promosi ===== #}
+        <div class="wizard-step p-6 hidden" data-step="2">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">
+                Step 2 — Sumber Referensi & Membership
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Tahu Klinik dari Mana?
+                    </label>
+                    <input type="text" name="sumber_referensi" maxlength="200"
+                           value="{{ form.sumber_referensi or '' }}"
+                           placeholder="mis. Instagram, teman bernama X, Google Maps, lewat klinik"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-slate-500 mt-1">
+                        Untuk analisa channel marketing yang paling efektif.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Tipe Membership
+                    </label>
+                    {# #362E - Tier dipilih via section Membership setelah pasien terdaftar #}
+                    <input type="hidden" name="tipe_membership" value="REGULAR">
+                    <div class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
+                        🎖️ Default REGULAR. Untuk aktivasi VIP/VVIP, gunakan tombol
+                        <strong>"Kelola Membership"</strong> di Detail Pasien setelah daftar.
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">
+                        Aktivasi VIP/VVIP via section Membership setelah daftar (link di Detail Pasien).
+                    </p>
+                </div>
+
+                {# FO-ASSIGN-DOKTER (Task #329) — Dokter dituju #}
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Dokter Dituju <span class="text-slate-400 text-xs">(opsional)</span>
+                    </label>
+                    <select name="id_staf_dokter_assigned"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Bebas (semua dokter bisa lihat) —</option>
+                        {% for d in dokter_list %}
+                        <option value="{{ d.id_staf }}"
+                                {% if form.id_staf_dokter_assigned == d.id_staf|string %}selected{% endif %}>
+                            {{ d.nama_staf }} ({{ d.role.value if d.role.value is defined else d.role }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-500 mt-1">
+                        Pasien hanya muncul di antrian dokter yang dipilih.
+                        Kosong = bebas claim oleh dokter manapun.
+                    </p>
+                </div>
+            </div>
+
+            {# Future placeholder — sosial media #}
+            <div class="mt-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+                <div class="flex items-start gap-3">
+                    <span class="text-xl">📝</span>
+                    <div class="text-sm">
+                        <div class="font-medium text-amber-800">Sosial Media Pasien (segera hadir)</div>
+                        <p class="text-amber-700 text-xs mt-1">
+                            Field untuk catat sosial media yang dipakai pasien (Instagram, TikTok, dll)
+                            akan ditambah di iterasi berikutnya. Saat ini, info ini bisa ditulis manual
+                            di kolom "Tahu Klinik dari Mana" di atas.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ===== STEP 3: Alergi & Penyakit ===== #}
+        <div class="wizard-step p-6 hidden" data-step="3">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">
+                Step 3 — Alergi & Penyakit Kronis
+            </h3>
+
+            {# Alergi #}
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        ⚠️ Alergi
+                    </h4>
+                    <button type="button"
+                            hx-get="/web/pendaftaran-pasien/_alergi-row"
+                            hx-target="#alergi-rows"
+                            hx-swap="beforeend"
+                            class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">
+                        + Tambah Alergi
+                    </button>
+                </div>
+                <div id="alergi-rows" class="space-y-2">
+                    {# Empty start — user clicks add to start filling. Cleaner default. #}
+                </div>
+                <p class="text-xs text-slate-500 mt-2">
+                    Klik "+ Tambah Alergi" kalau pasien punya. Kosongkan kalau tidak ada.
+                </p>
+            </div>
+
+            {# Penyakit Kronis #}
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        🩺 Penyakit Kronis
+                    </h4>
+                    <button type="button"
+                            hx-get="/web/pendaftaran-pasien/_penyakit-row"
+                            hx-target="#penyakit-rows"
+                            hx-swap="beforeend"
+                            class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">
+                        + Tambah Penyakit
+                    </button>
+                </div>
+                <div id="penyakit-rows" class="space-y-2"></div>
+                <p class="text-xs text-slate-500 mt-2">
+                    Mis. Diabetes, Hipertensi, Asma. Kosongkan kalau tidak ada.
+                </p>
+            </div>
+        </div>
+
+        {# ===== Footer navigasi ===== #}
+        <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between rounded-b-xl">
+            <button type="button" id="btn-prev"
+                    class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-white transition"
+                    style="display:none">
+                ← Sebelumnya
+            </button>
+            <div class="text-xs text-slate-500" id="step-indicator">Step 1 dari 3</div>
+            <div class="flex gap-2 flex-wrap btn-submit-group" style="display:none">
+                <button type="submit" name="action" value="simpan"
+                        title="Simpan data pasien saja, tanpa membuat antrian hari ini."
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                    💾 Simpan Saja (tanpa antrian)
+                </button>
+                <button type="submit" name="action" value="daftar-sekarang"
+                        title="Simpan data pasien DAN langsung masukkan ke antrian hari ini."
+                        class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">
+                    ✓ Simpan &amp; Masuk Antrian
+                </button>
+            </div>
+            <div class="flex gap-2 btn-next-group">
+                <button type="button" id="btn-next"
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                    Selanjutnya →
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{# Wizard JS + tab styling #}
+<style>
+    .tab-btn { color: #64748b; }
+    .tab-btn.active { background: #dbeafe; color: #1d4ed8; }
+    .tab-btn.done { color: #16a34a; }
+    .tab-num {
+        display: inline-flex; width: 1.5rem; height: 1.5rem;
+        align-items: center; justify-content: center;
+        background: #e2e8f0; color: inherit;
+        border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
+        margin-right: 0.375rem;
+    }
+    .tab-btn.active .tab-num { background: #2563eb; color: white; }
+    .tab-btn.done .tab-num { background: #16a34a; color: white; }
+</style>
+
+<script>
+(function() {
+    const TOTAL_STEPS = 3;
+    let current = 1;
+
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const steps = document.querySelectorAll('.wizard-step');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const btnNextGroup = document.querySelector('.btn-next-group');
+    const btnSubmitGroup = document.querySelector('.btn-submit-group');
+    const indicator = document.getElementById('step-indicator');
+
+    function showStep(n) {
+        steps.forEach(s => {
+            s.classList.toggle('hidden', parseInt(s.dataset.step) !== n);
+        });
+        tabBtns.forEach(b => {
+            const step = parseInt(b.dataset.tab);
+            b.classList.toggle('active', step === n);
+            b.classList.toggle('done', step < n);
+        });
+        btnPrev.style.display = n === 1 ? 'none' : '';
+        btnNextGroup.style.display = n === TOTAL_STEPS ? 'none' : '';
+        btnSubmitGroup.style.display = n === TOTAL_STEPS ? 'flex' : 'none';
+        indicator.textContent = 'Step ' + n + ' dari ' + TOTAL_STEPS;
+        current = n;
+        window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+
+    function validateStep(n) {
+        // HTML5 validity for visible step only
+        const step = document.querySelector('.wizard-step[data-step="' + n + '"]');
+        if (!step) return true;
+        const inputs = step.querySelectorAll('input, select, textarea');
+        for (const inp of inputs) {
+            if (!inp.checkValidity()) {
+                inp.reportValidity();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    btnPrev.addEventListener('click', () => showStep(current - 1));
+    btnNext.addEventListener('click', () => {
+        if (validateStep(current)) showStep(current + 1);
+    });
+    tabBtns.forEach(b => {
+        b.addEventListener('click', () => {
+            const target = parseInt(b.dataset.tab);
+            if (target > current && !validateStep(current)) return;
+            showStep(target);
+        });
+    });
+
+    showStep(1);
+})();
+</script>
+{% endblock %}

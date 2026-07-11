@@ -1,0 +1,229 @@
+{% extends "_app.html" %}
+{% block title %}Tutup Kasir — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Tutup Kasir / Rekonsiliasi{% endblock %}
+
+{% block page_content %}
+<div class="max-w-4xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    {% if sesi is none %}
+    {# ============ STATE A: BELUM BUKA KASIR ============ #}
+    <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 class="text-lg font-semibold text-slate-800 mb-1">🔓 Buka Kasir</h2>
+        <p class="text-sm text-slate-500 mb-5">
+            Belum ada sesi kasir aktif. Mulai shift dengan mencatat <b>modal awal</b>
+            (uang kas di laci sebelum transaksi). Ini jadi acuan rekonsiliasi saat tutup kasir nanti.
+        </p>
+        <form method="post" action="/web/kasir/buka" class="space-y-4">
+            {{ csrf_input(request) }}
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Modal Awal (Rp)</label>
+                <input type="text" inputmode="numeric" name="modal_awal" value="0" data-rupiah
+                    class="w-56 px-3 py-2 border border-slate-300 rounded-lg text-right font-mono focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
+                    autocomplete="off">
+                <p class="text-xs text-slate-400 mt-1">Kosongkan / 0 kalau tidak pakai kas float.</p>
+            </div>
+            <button type="submit"
+                class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition">
+                Buka Kasir
+            </button>
+        </form>
+    </div>
+
+    <script>
+    (function () {
+        function onlyDigits(v){return String(v).replace(/[^0-9]/g,"");}
+        function group(d){d=onlyDigits(d).replace(/^0+(?=\d)/,"");return d===""?"0":d.replace(/\B(?=(\d{3})+(?!\d))/g,".");}
+        document.querySelectorAll("input[data-rupiah]").forEach(function(inp){
+            inp.addEventListener("input", function(){ this.value = group(this.value); });
+            inp.addEventListener("focus", function(){ if(this.value==="0") this.value=""; });
+            inp.addEventListener("blur", function(){ if(onlyDigits(this.value)==="") this.value="0"; });
+        });
+    })();
+    </script>
+
+    {% else %}
+    {# ============ STATE B: TUTUP KASIR (sesi OPEN) ============ #}
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-sm grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div><span class="text-slate-400 block text-xs">Sesi #</span><span class="font-mono">{{ sesi.id_closing }}</span></div>
+        <div><span class="text-slate-400 block text-xs">Shift mulai</span>{{ sesi.shift_mulai.strftime('%d/%m/%Y %H:%M') }}</div>
+        <div><span class="text-slate-400 block text-xs">Modal awal</span>Rp {{ "{:,.0f}".format(preview.modal_awal|float).replace(",", ".") }}</div>
+    </div>
+
+    {# Peringatan proaktif: masih ada pasien antri → tutup kasir akan ditolak #}
+    {% if pending_antrian %}
+    {% set _lbl = {
+        "ANTRI_KONSULTASI": "Antri konsultasi", "KONSULTASI": "Sedang konsultasi",
+        "ANTRI_TREATMENT": "Antri tindakan", "ON_TREATMENT": "Sedang tindakan",
+        "ANTRI_BAYAR": "Antri bayar (kasir)", "ANTRI_OBAT": "Antri obat (apotek)"
+    } %}
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4">
+        <div class="flex items-start gap-2">
+            <div class="text-xl leading-none">&#9888;</div>
+            <div class="text-sm text-amber-800">
+                <div class="font-semibold mb-1">Masih ada pasien belum selesai hari ini</div>
+                <ul class="list-disc list-inside space-y-0.5">
+                    {% for status, n in pending_antrian.items() %}
+                    <li>{{ _lbl.get(status, status) }}: <b>{{ n }}</b> pasien</li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-2 text-xs text-amber-700">
+                    Tutup kasir akan <b>ditolak</b> sampai semua diselesaikan (bayar / serah obat),
+                    atau minta FO mengubah status pasien yang tersangkut.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/web/kasir/tutup" id="form-tutup">
+        {{ csrf_input(request) }}
+        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
+                    <tr>
+                        <th class="text-left px-4 py-3">Metode</th>
+                        <th class="text-right px-4 py-3">Expected (sistem)</th>
+                        <th class="text-right px-4 py-3">Counted (fisik)</th>
+                        <th class="text-right px-4 py-3">Selisih</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for row in preview.metode %}
+                    <tr data-metode="{{ row.metode_bayar }}">
+                        <td class="px-4 py-3 font-medium text-slate-700">
+                            {{ row.metode_bayar }}
+                            {% if row.metode_bayar == 'TUNAI' %}
+                            <span class="block text-xs text-slate-400 font-normal">
+                                modal {{ "{:,.0f}".format(row.modal_awal|float).replace(",", ".") }}
+                                + jual {{ "{:,.0f}".format(row.penjualan_sistem|float).replace(",", ".") }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-600 exp-cell"
+                            data-expected="{{ row.expected|int }}">
+                            {{ "{:,.0f}".format(row.expected|float).replace(",", ".") }}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <input type="text" inputmode="numeric" name="counted_{{ row.metode_bayar }}"
+                                value="0" autocomplete="off" data-rupiah
+                                class="counted-input w-36 px-2 py-1.5 border border-slate-300 rounded-lg text-right font-mono focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400">
+                        </td>
+                        <td class="px-4 py-3 text-right font-mono selisih-cell text-slate-400">0</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="bg-slate-50 font-semibold text-slate-800">
+                    <tr>
+                        <td class="px-4 py-3 text-right">TOTAL</td>
+                        <td class="px-4 py-3 text-right font-mono" id="total-expected"
+                            data-total="{{ preview.total_expected|int }}">
+                            {{ "{:,.0f}".format(preview.total_expected|float).replace(",", ".") }}
+                        </td>
+                        <td class="px-4 py-3 text-right font-mono" id="total-counted">0</td>
+                        <td class="px-4 py-3 text-right font-mono" id="total-selisih">0</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="mt-4">
+            <label class="block text-sm font-medium text-slate-700 mb-1">
+                Catatan <span id="catatan-req" class="text-red-500 hidden">(wajib — ada selisih)</span>
+            </label>
+            <textarea name="catatan" id="catatan" rows="2"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
+                placeholder="Penjelasan selisih (kalau ada), serah terima, dll."></textarea>
+        </div>
+
+        <div id="selisih-banner" class="hidden mt-3 px-4 py-3 rounded-lg text-sm"></div>
+
+        <div class="flex items-center gap-3 mt-5">
+            <button type="submit"
+                {% if pending_antrian %}disabled title="Selesaikan antrian pasien dulu"{% endif %}
+                class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition{% if pending_antrian %} opacity-50 cursor-not-allowed hover:bg-emerald-600{% endif %}">
+                Tutup Kasir &amp; Cetak Slip
+            </button>
+            <a href="/web/kasir/antrian" class="text-sm text-slate-500 hover:text-slate-700">← Kembali ke Antrian</a>
+        </div>
+    </form>
+
+    <script>
+    (function () {
+        function onlyDigits(v) { return String(v).replace(/[^0-9]/g, ""); }
+        function group(digits) {
+            digits = onlyDigits(digits).replace(/^0+(?=\d)/, "");
+            if (digits === "") return "0";
+            return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        }
+        function parseNum(v) { var n = parseInt(onlyDigits(v) || "0", 10); return isNaN(n) ? 0 : n; }
+        function fmt(n) { return (n < 0 ? "-" : "") + group(String(Math.abs(n))); }
+
+        var rows = document.querySelectorAll("tr[data-metode]");
+        var totalExpected = parseNum(document.getElementById("total-expected").dataset.total);
+        var elTotalCounted = document.getElementById("total-counted");
+        var elTotalSelisih = document.getElementById("total-selisih");
+        var elBanner = document.getElementById("selisih-banner");
+        var elCatatanReq = document.getElementById("catatan-req");
+        var elCatatan = document.getElementById("catatan");
+
+        function recalc() {
+            var totalCounted = 0;
+            rows.forEach(function (tr) {
+                var expected = parseNum(tr.querySelector(".exp-cell").dataset.expected);
+                var counted = parseNum(tr.querySelector(".counted-input").value);
+                var selisih = counted - expected;
+                totalCounted += counted;
+                var cell = tr.querySelector(".selisih-cell");
+                cell.textContent = fmt(selisih);
+                cell.className = "px-4 py-3 text-right font-mono selisih-cell " +
+                    (selisih === 0 ? "text-slate-400" : (selisih > 0 ? "text-blue-600" : "text-red-600"));
+            });
+            var totalSelisih = totalCounted - totalExpected;
+            elTotalCounted.textContent = fmt(totalCounted);
+            elTotalSelisih.textContent = fmt(totalSelisih);
+            elTotalSelisih.className = "px-4 py-3 text-right font-mono " +
+                (totalSelisih === 0 ? "text-slate-800" : (totalSelisih > 0 ? "text-blue-600" : "text-red-600"));
+
+            if (totalSelisih === 0) {
+                elBanner.className = "hidden mt-3 px-4 py-3 rounded-lg text-sm";
+                elCatatanReq.classList.add("hidden");
+                elCatatan.required = false;
+            } else {
+                var over = totalSelisih > 0;
+                elBanner.className = "mt-3 px-4 py-3 rounded-lg text-sm " +
+                    (over ? "bg-blue-50 border border-blue-200 text-blue-800"
+                          : "bg-red-50 border border-red-200 text-red-700");
+                elBanner.textContent = (over ? "Uang LEBIH " : "Uang KURANG ") +
+                    fmt(Math.abs(totalSelisih)) + " dari sistem. Catatan wajib diisi.";
+                elCatatanReq.classList.remove("hidden");
+                elCatatan.required = true;
+            }
+        }
+
+        // Live thousand-separator pada semua input rupiah + recalc
+        document.querySelectorAll("input[data-rupiah]").forEach(function (inp) {
+            inp.addEventListener("input", function () {
+                this.value = group(this.value);
+                if (this.classList.contains("counted-input")) recalc();
+            });
+            inp.addEventListener("focus", function () {
+                if (this.value === "0") this.value = "";
+            });
+            inp.addEventListener("blur", function () {
+                if (onlyDigits(this.value) === "") { this.value = "0"; recalc(); }
+            });
+        });
+        recalc();
+    })();
+    </script>
+    {% endif %}
+
+</div>
+{% endblock %}

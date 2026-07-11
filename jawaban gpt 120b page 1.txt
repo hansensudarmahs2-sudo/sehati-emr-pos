@@ -1,0 +1,623 @@
+## Usulan Struktur Program Python untuk **Sehati‑Clinic**
+
+Berikut saya susun rancangan *back‑end* (API) yang dapat melayani semua alur yang Anda jelaskan –  
+registrasi FO, booking, kunjungan, treatment series, inventory, transaksi kasir, integrasi AI (Gemini), dsb.  
+
+> **Catatan:**  Saya mengasumsikan Anda ingin aplikasi **monolitik** yang mudah di‑deploy (Docker) dan **RESTful**.  
+> Jika ingin UI‑web + mobile terpisah, cukup expose API‑nya ke front‑end apapun (React, Flutter, dll).  
+
+---
+
+## 1. Pilihan Teknologi Utama  
+
+| Kebutuhan | Library / Framework | Kenapa? |
+|-----------|---------------------|----------|
+| **Web API** | **FastAPI** (async) | Cepat, built‑in OpenAPI/Swagger, tipe‑safety dengan Pydantic, cocok untuk integrasi AI. |
+| **ORM** | **SQLAlchemy 2.x** (async) + **Alembic** | Mapping tabel yang sudah ada, migrasi schema, support transaksi. |
+| **Autentikasi & RBAC** | **FastAPI‑Users** / custom JWT + decorator `role_required` | Manajemen login, refresh token, dan kontrol akses per `role`. |
+| **Background Tasks / Queue** | **Celery** + **Redis** (atau **FastAPI‑BackgroundTasks** untuk yang sederhana) | Proses AI, pengiriman notifikasi, perhitungan laporan tidak menghalangi request. |
+| **Caching (opsional)** | **Redis** | Cache harga produk, diskon membership, dll. |
+| **Testing** | **pytest**, **httpx**, **factory‑boy** | Unit & integration test. |
+| **Dependency Management** | **Poetry** (atau pip‑env) | Lock dependency, virtualenv otomatis. |
+| **Containerization** | **Docker** + **docker‑compose** | Satu file `docker-compose.yml` untuk API, DB, Redis, Celery worker. |
+| **Logging** | **structlog** atau standar `logging` (JSON output) | Traceability, audit log untuk semua aksi. |
+| **AI Integration** | **Google Gemini API** (HTTP‑client) | Panggil AI di service terpisah, hasil disimpan di DB. |
+
+---
+
+## 2. Arsitektur (Clean / Hexagonal)
+
+```
++---------------------------------------------------+
+|                FastAPI (Framework)               |
+|   +-------------------------------------------+   |
+|   |   Interface Adapters (Routers / Controllers) |
+|   +-------------------------------------------+   |
+|   |   Use‑Cases / Services (Business Logic)   |   |
+|   +-------------------------------------------+   |
+|   |   Repositories (Data Access)              |   |
+|   +-------------------------------------------+   |
+|   |   Domain Entities (SQLAlchemy models)     |   |
+|   +-------------------------------------------+   |
+|   |   External Services (AI, Email, SMS…)     |   |
+|   +-------------------------------------------+   |
++---------------------------------------------------+
+```
+
+### Penjelasan singkat
+
+| Layer | Tanggung Jawab |
+|-------|-----------------|
+| **Domain / Entities** | 1) Definisi tabel (SQLAlchemy). 2) Enums, mixin `TimestampMixin`, `IsActiveMixin`. |
+| **Repositories** | CRUD yang **tidak** mengandung logika bisnis, hanya query (filter, join, pagination). |
+| **Use‑Cases / Services** | Logika alur (FO → registrasi → booking → kunjungan → treatment → inventory → transaksi). |
+| **Interface Adapters** | FastAPI routers, request/response validation (Pydantic schemas), dependency injection. |
+| **External Services** | Wrapper untuk Google Gemini, email, notifikasi push, dll. |
+| **Framework** | FastAPI, middleware, exception handling, CORS, static files (opsional). |
+
+---
+
+## 3. Struktur Direktori (contoh)
+
+```text
+sehati_clinic/
+│
+├─ app/
+│   ├─ __init__.py
+│   ├─ main.py                     # entry‑point FastAPI
+│   ├─ config.py                   # pydantic Settings (env, db url, jwt secret)
+│   ├─ core/
+│   │   ├─ __init__.py
+│   │   ├─ security.py              # hashing, JWT utils
+│   │   ├─ exceptions.py            # custom exception hierarchy
+│   │   ├─ logging.py               # structlog config
+│   │   └─ utils.py                # helper functions
+│   │
+│   ├─ db/
+│   │   ├─ __init__.py
+│   │   ├─ base.py                  # Base = declarative_base()
+│   │   ├─ session.py               # async SessionLocal
+│   │   ├─ models/                  # semua tabel sebagai SQLAlchemy models
+│   │   │   ├─ __init__.py
+│   │   │   ├─ patient.py
+│   │   │   ├─ staff.py
+│   │   │   ├─ booking.py
+│   │   │   ├─ visit.py
+│   │   │   ├─ treatment.py
+│   │   │   ├─ inventory.py
+│   │   │   └─ transaction.py
+│   │   └─ migrations/              # alembic folder
+│   │
+│   ├─ schemas/                     # Pydantic request/response models
+│   │   ├─ __init__.py
+│   │   ├─ patient.py
+│   │   ├─ booking.py
+│   │   ├─ visit.py
+│   │   ├─ treatment.py
+│   │   └─ transaction.py
+│   │
+│   ├─ repositories/                # Implementasi CRUD berbasis Session
+│   │   ├─ __init__.py
+│   │   ├─ patient_repo.py
+│   │   ├─ booking_repo.py
+│   │   ├─ visit_repo.py
+│   │   ├─ treatment_repo.py
+│   │   └─ inventory_repo.py
+│   │
+│   ├─ services/                    # Use‑cases / business logic
+│   │   ├─ __init__.py
+│   │   ├─ patient_service.py
+│   │   ├─ booking_service.py
+│   │   ├─ visit_service.py
+│   │   ├─ treatment_service.py
+│   │   ├─ inventory_service.py
+│   │   ├─ billing_service.py
+│   │   └─ ai_service.py
+│   │
+│   ├─ api/                         # FastAPI routers (Controllers)
+│   │   ├─ __init__.py
+│   │   ├─ dependencies.py          # get_db, get_current_user, role_required
+│   │   ├─ routers/
+│   │   │   ├─ __init__.py
+│   │   │   ├─ auth.py
+│   │   │   ├─ patient.py
+│   │   │   ├─ booking.py
+│   │   │   ├─ visit.py
+│   │   │   ├─ treatment.py
+│   │   │   ├─ inventory.py
+│   │   │   └─ billing.py
+│   │   └─ versioned/              # optional: v1/, v2/
+│   │
+│   ├─ tasks/                       # Celery tasks
+│   │   ├─ __init__.py
+│   │   ├─ celery_app.py
+│   │   └─ workers.py               # contoh: analyze_skin(), send_reminder()
+│   │
+│   └─ tests/
+│       ├─ unit/
+│       └─ integration/
+│
+├─ Dockerfile
+├─ docker-compose.yml
+├─ pyproject.toml   (Poetry)
+└─ README.md
+```
+
+---
+
+## 4. Contoh Potongan Kode
+
+### 4.1. Model (SQLAlchemy)
+
+```python
+# app/db/models/patient.py
+from sqlalchemy import Column, Integer, String, Enum, Date, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
+from app.db.base import Base
+import enum
+
+class GenderEnum(str, enum.Enum):
+    L = "L"
+    P = "P"
+
+class MembershipEnum(str, enum.Enum):
+    REGULAR = "REGULAR"
+    VIP = "VIP"
+    VVIP = "VVIP"
+
+class VerificationEnum(str, enum.Enum):
+    UNVERIFIED = "UNVERIFIED"
+    VERIFIED = "VERIFIED"
+
+class Patient(Base):
+    __tablename__ = "pasien"
+
+    id_pasien = Column(Integer, primary_key=True, index=True)
+    no_rm = Column(String(20), unique=True, nullable=False)
+    nama = Column(String(100), nullable=False)
+    jenis_kelamin = Column(Enum(GenderEnum), nullable=True)
+    alamat = Column(Text)
+    tgl_lahir = Column(Date)
+    nomor_telepon = Column(String(20))
+    nomor_ktp = Column(String(30))
+    sumber_referensi = Column(String(100))
+    created_at = Column(DateTime, server_default="CURRENT_TIMESTAMP")
+    id_staf = Column(Integer, ForeignKey("master_staf.id_staf"))
+    tipe_membership = Column(Enum(MembershipEnum), default=MembershipEnum.REGULAR)
+    status_verifikasi = Column(Enum(VerificationEnum), default=VerificationEnum.VERIFIED)
+    tgl_verifikasi = Column(DateTime)
+
+    # relasi
+    alergi = relationship("PasienAlergi", back_populates="pasien")
+    penyakit_kronis = relationship("PasienPenyakitKronis", back_populates="pasien")
+    booking = relationship("JadwalBooking", back_populates="pasien")
+    visits = relationship("Kunjungan", back_populates="pasien")
+```
+
+### 4.2. Pydantic Schema
+
+```python
+# app/schemas/patient.py
+from pydantic import BaseModel, Field, EmailStr
+from datetime import date, datetime
+from typing import Optional
+from app.db.models.patient import GenderEnum, MembershipEnum, VerificationEnum
+
+class PatientBase(BaseModel):
+    no_rm: str = Field(..., max_length=20)
+    nama: str
+    jenis_kelamin: Optional[GenderEnum] = None
+    alamat: Optional[str] = None
+    tgl_lahir: Optional[date] = None
+    nomor_telepon: Optional[str] = None
+    nomor_ktp: Optional[str] = None
+    tipe_membership: Optional[MembershipEnum] = MembershipEnum.REGULAR
+
+class PatientCreate(PatientBase):
+    pass   # semua field sama, tapi bisa tambahkan validasi khusus
+
+class PatientRead(PatientBase):
+    id_pasien: int
+    created_at: datetime
+    status_verifikasi: VerificationEnum
+
+    class Config:
+        orm_mode = True
+```
+
+### 4.3. Repository (CRUD)
+
+```python
+# app/repositories/patient_repo.py
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.db.models.patient import Patient
+
+class PatientRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_by_id(self, id_pasien: int) -> Patient | None:
+        result = await self.db.execute(select(Patient).where(Patient.id_pasien == id_pasien))
+        return result.scalars().first()
+
+    async def get_by_rm(self, no_rm: str) -> Patient | None:
+        result = await self.db.execute(select(Patient).where(Patient.no_rm == no_rm))
+        return result.scalars().first()
+
+    async def search(self, query: str, limit: int = 10):
+        stmt = select(Patient).where(
+            (Patient.nama.ilike(f"%{query}%")) |
+            (Patient.no_rm.ilike(f"%{query}%")) |
+            (Patient.nomor_telepon.ilike(f"%{query}%"))
+        ).limit(limit)
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def create(self, patient: Patient) -> Patient:
+        self.db.add(patient)
+        await self.db.flush()   # assign PK
+        return patient
+
+    async def update(self, patient: Patient, data: dict):
+        for key, value in data.items():
+            setattr(patient, key, value)
+        await self.db.flush()
+        return patient
+```
+
+### 4.4. Service (Use‑Case)
+
+```python
+# app/services/patient_service.py
+from app.repositories.patient_repo import PatientRepository
+from app.db.models.patient import Patient
+from app.schemas.patient import PatientCreate, PatientRead
+from app.core.exceptions import NotFoundException, ConflictException
+
+class PatientService:
+    def __init__(self, repo: PatientRepository):
+        self.repo = repo
+
+    async def get_or_raise(self, id_pasien: int) -> Patient:
+        patient = await self.repo.get_by_id(id_pasien)
+        if not patient:
+            raise NotFoundException(f"Pasien {id_pasien} tidak ditemukan")
+        return patient
+
+    async def find_by_rm_or_none(self, no_rm: str) -> Patient | None:
+        return await self.repo.get_by_rm(no_rm)
+
+    async def register_new_patient(self, payload: PatientCreate) -> PatientRead:
+        # cek duplikat RM (atau KTP) dulu
+        exist = await self.repo.get_by_rm(payload.no_rm)
+        if exist:
+            raise ConflictException("No RM sudah terdaftar")
+        new_patient = Patient(**payload.dict())
+        patient = await self.repo.create(new_patient)
+        # commit di layer router / unit‑of‑work
+        return PatientRead.from_orm(patient)
+
+    async def search_patients(self, q: str, limit: int = 10):
+        patients = await self.repo.search(q, limit)
+        return [PatientRead.from_orm(p) for p in patients]
+```
+
+### 4.5. Router (FastAPI Controller)
+
+```python
+# app/api/routers/patient.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List
+from app.api.dependencies import get_db, get_current_user, role_required
+from app.db.session import AsyncSession
+from app.repositories.patient_repo import PatientRepository
+from app.services.patient_service import PatientService
+from app.schemas.patient import PatientCreate, PatientRead
+
+router = APIRRouter(prefix="/patients", tags=["Patients"])
+
+def get_patient_service(db: AsyncSession = Depends(get_db)):
+    repo = PatientRepository(db)
+    return PatientService(repo)
+
+@router.get("/", response_model=List[PatientRead])
+async def search_patients(q: str, limit: int = 10,
+                         svc: PatientService = Depends(get_patient_service),
+                         user = Depends(get_current_user)):
+    return await svc.search_patients(q, limit)
+
+@router.post("/", response_model=PatientRead,
+             status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(role_required("FO"))])   # hanya FO yang boleh mendaftar
+async def create_patient(payload: PatientCreate,
+                        svc: PatientService = Depends(get_patient_service),
+                        db: AsyncSession = Depends(get_db)):
+    patient = await svc.register_new_patient(payload)
+    await db.commit()            # satu transaksi per request
+    return patient
+
+@router.get("/{id_pasien}", response_model=PatientRead)
+async def get_patient(id_pasien: int,
+                     svc: PatientService = Depends(get_patient_service)):
+    patient = await svc.get_or_raise(id_pasien)
+    return PatientRead.from_orm(patient)
+```
+
+### 4.6. Role‑Based Access Control
+
+```python
+# app/api/dependencies.py
+from fastapi import Depends, HTTPException, status
+from typing import Callable
+from app.services.auth import get_current_user, User
+
+def role_required(*allowed_roles: str) -> Callable:
+    async def dependency(user: User = Depends(get_current_user)):
+        if user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses ditolak, role tidak cukup",
+            )
+        return user
+    return dependency
+```
+
+---
+
+## 5. Alur‑Alur Utama yang Di‑Map ke Service / Router
+
+Berikut **pseudocode** alur yang Anda sebut (FO → booking → kunjungan → treatment → transaksi) dan contoh fungsi di service.
+
+### 5.1. **Registrasi / Pencarian Pasien (FO)**  
+
+| Langkah | Service / Repo |
+|---------|----------------|
+| 1. Input *no RM* / *nama + telepon* → **search** | `PatientService.search_patients(q)` |
+| 2. Jika *tidak ditemukan* → buat **pasien baru** | `PatientService.register_new_patient` |
+| 3. Jika *ditemukan* → tampilkan data + konfirmasi | UI‑frontend (tidak di‑backend) |
+| 4. Pilih tujuan: **KONSULTASI**, **SERIES‑TREATMENT**, **BELI‑PRODUK** | UI men‑set `tipe_kunjungan` atau langsung buat booking |
+
+### 5.2. **Booking (JadwalBooking)**  
+
+```python
+# app/services/booking_service.py
+class BookingService:
+    async def create_booking(self, pasien_id: int, tanggal: date,
+                             jam: time, sumber: str, tujuan: str) -> BookingRead:
+        # 1. cek bentrok slot (optional)
+        # 2. buat record di `jadwal_booking`
+        # 3. status = "BOOKED"
+        # 4. jika tujuan = "SERIES_TREATMENT" -> buat rencana treatment otomatis
+        #    (lihat bagian 5)
+        ...
+```
+
+### 5.3. **Kunjungan (Visit) – Mulai Konsultasi / Treatment**
+
+- **FO** men‑scan QR booking → `GET /bookings/{id}` → baca `status_booking`.
+- **FO** klik **Check‑in** → `PATCH /bookings/{id}` dengan `status = "CHECKED_IN"` dan buat **Kunjungan**:
+
+```python
+# app/services/visit_service.py
+class VisitService:
+    async def start_visit(self, booking_id: int, staf_id: int) -> KunjunganRead:
+        # ambil booking, pastikan status = BOOKED / CONFIRMED
+        # create row di `kunjungan` dengan status_antrian = "ANTRI_KONSULTASI"
+        # isi id_booking, id_pasien, id_staf_fo, sumber_pendaftaran (dari booking)
+        ...
+```
+
+- **Doctor** mengisi **SOAP** (anamnesa, diagnosis, rencana) → `PUT /visits/{id}/pemeriksaan`.  
+  Service menyimpan ke `pemeriksaan_klinis` + `kunjungan` (update `status_antrian` menjadi **SELESAI** atau **ANTRI_TREATMENT**).
+
+### 5.4. **Series of Treatment (Rencana Treatment)**  
+
+1. **Doctor** menentukan paket treatment (table `master_treatment` + `treatment_komponen`).  
+2. Pada `kunjungan_tindakan` atau `pasien_rencana_treatment` buat barisan rencana:
+
+```python
+# app/services/treatment_service.py
+class TreatmentService:
+    async def create_series(self, patient_id: int, treatment_plan: List[dict]):
+        # treatment_plan = [{ "nama_tindakan": "Laser", "rentang_minggu": (2,4) }, ...]
+        # 1. buat entry di pasien_rencana_treatment (urutan_sesi)
+        # 2. hitung perkiraan tanggal dengan rentang (randint) + simpan di next_visit_estimation
+        # 3. kirim notifikasi ke FO (celery task)
+        ...
+```
+
+3. **FO** kemudian dapat **menjadwalkan** kunjungan berikutnya otomatis (atau manual).
+
+### 5.5. **Start / End Treatment (Perawat / Dokter)**  
+
+- **Start** → POST `/treatments/{id}/start` → service:
+  - Update `kunjungan_tindakan` (`status_tindakan = PROSES`, `waktu_mulai`).
+  - **Kurangi stok bahan** (`treatment_komponen` → `inventory_history` dengan `jenis_mutasi='TINDAKAN'`).
+- **End** → POST `/treatments/{id}/end` → service:
+  - Update `status_tindakan = SELESAI`, `waktu_selesai`.
+  - Jika ada *alat* yang dipakai, catat di `inventory_history` dengan `jenis_mutasi='EXPIRED'` atau `RUSAK` bila perlu.
+
+### 5.6. **Transaksi Penjualan & Pembayaran**  
+
+1. **FO** atau **Kasir** men‑scan produk → `POST /transactions` dengan detail produk.  
+2. Service menghitung `subtotal`, `diskon` (berdasarkan `tipe_membership`).  
+3. Simpan ke `transaksi_kasir` + `transaksi_detail_produk`.  
+4. Pada `POST /payments`:
+   - Simpan ke `transaksi_pembayaran`.  
+   - Update `status_item` pada `kunjungan_resep` menjadi **DIBAYAR** bila resep dijual.  
+   - Jika metode pembayaran `KREDIT` atau `VOUCHER`, buat entry di `inventoy_history` tipe `PENJUALAN`.
+
+### 5.7. **AI (Gemini) – Analisa Foto / Skin**  
+
+```python
+# app/services/ai_service.py
+class GeminiAIService:
+    async def analyze_skin(self, foto_path: str) -> dict:
+        # kirim gambar ke Google Gemini (REST) → dapatkan analisa
+        # Simpan hasil ke tabel baru: skin_analysis(id, id_foto, hasil_json, created_at)
+        # Return dict untuk UI
+        ...
+
+# Celery worker
+@celery.task
+def async_analyze_photo(foto_id: int):
+    foto = db.get(KunjunganFoto, foto_id)
+    result = GeminiAIService().analyze_skin(foto.url_path)
+    # update db
+```
+
+> **Catatan:** Semua request AI dijalankan secara **asinkron** (Celery) sehingga front‑end dapat menunggu (polling atau websocket).
+
+### 5.8. **Reporting – Progress Report**  
+
+- Endpoint `/reports/patient/{id}` yang meng‑aggregate:
+  - Antropometri (pollock‑calc) → `kunjungan_antropometri`.
+  - Foto before/after → collage (bisa dibuat di front‑end menggunakan URL).
+  - Treatment history → `kunjungan_tindakan`.
+  - Inventori & biaya → `transaksi_kasir`.
+  - AI hasil skin → `skin_analysis`.
+- Service menggunakan **SQLAlchemy** query dengan **CTE** atau **sub‑queries**; hasil dibentuk menjadi Pydantic model `Report`.
+
+---
+
+## 6. Penanganan Transaksi & Konsistensi Data
+
+1. **Per Request Unit‑of‑Work**  
+   ```python
+   async with async_session() as session:
+       async with session.begin():    # begin transaction
+           # service calls mutating data
+           await patient_svc.register_new_patient(...)
+           await booking_svc.create_booking(...)
+           # commit otomatis di exit block
+   ```
+
+2. **Rollback pada Exception** – FastAPI men‑propagate exception, `session.rollback()` otomatis terjadi karena `session.begin()`.
+
+3. **Audit Trail** – Semua tabel sudah memiliki kolom `created_at`, `updated_at`.  
+   Tambahkan `trigger` MySQL atau **SQLAlchemy event listener** untuk mengisi `updated_at` otomatis.
+
+4. **Optimistic Locking (optional)** – Tambahkan kolom `version` (int) untuk menghindari lost‑update pada inventory.
+
+---
+
+## 7. Testing Strategy
+
+| Tingkat | Fokus | Tools |
+|---------|-------|-------|
+| Unit | Repository (SQLAlchemy) + Service (business logic) | `pytest`, `pytest-asyncio`, `factory-boy` |
+| Integration | End‑to‑End API (FastAPI TestClient) | `httpx.AsyncClient`, `pytest` |
+| Load / Performance | Simulasi transaksi simultan (kasir) | `locust` |
+| Security | Penetration test, JWT leak, role bypass | `bandit`, manual test |
+
+Contoh **unit test** service:
+
+```python
+import pytest
+from app.services.patient_service import PatientService
+from app.repositories.patient_repo import PatientRepository
+from app.db.models.patient import Patient
+
+@pytest.mark.asyncio
+async def test_register_new_patient_success(db_async_session):
+    repo = PatientRepository(db_async_session)
+    svc = PatientService(repo)
+
+    payload = PatientCreate(no_rm="RM001", nama="Budi")
+    result = await svc.register_new_patient(payload)
+
+    assert result.no_rm == "RM001"
+    assert result.nama == "Budi"
+    # assert commit di luar (test harness) atau gunakan transaction rollback fixture
+```
+
+---
+
+## 8. Deployment Checklist (Docker)
+
+### `Dockerfile`
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# dependencies
+COPY pyproject.toml poetry.lock /app/
+RUN pip install poetry && poetry config virtualenvs.create false \
+    && poetry install --no-dev --no-interaction --no-ansi
+
+# copy source
+COPY . /app
+
+# environment variables (replace with secret manager in prod)
+ENV PYTHONUNBUFFERED=1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### `docker‑compose.yml`
+
+```yaml
+version: "3.9"
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: sehati
+    ports: ["3306:3306"]
+    volumes:
+      - db_data:/var/lib/mysql
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  api:
+    build: .
+    depends_on: [db, redis]
+    env_file: .env
+    ports: ["8000:8000"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  worker:
+    build: .
+    depends_on: [api, redis]
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "-l", "info"]
+
+volumes:
+  db_data:
+```
+
+> **Production tip:** gunakan `gunicorn` + `uvicorn.workers.UvicornWorker` di front‑end, secret manager untuk DB password, dan **HTTPS** (nginx reverse‑proxy).
+
+---
+
+## 9. Roadmap / Fase Pengembangan
+
+| Fase | Fokus | Deliverable |
+|------|-------|-------------|
+| **1️⃣** | Core CRUD + Auth | API: pasien, staf, booking, kunjungan, treatment, inventory, transaksi. |
+| **2️⃣** | Business Rules | Service layer: series‑treatment scheduling, inventory‑mutasi, membership‑diskon, role‑based checks. |
+| **3️⃣** | Asynchronous & AI | Celery workers, GeminiAIService, foto upload (S3/MinIO). |
+| **4️⃣** | Reporting & Export | Endpoint progress‑report (PDF/Excel) + charts. |
+| **5️⃣** | Front‑end minimal (optional) | Simple UI (React/Next) atau Streamlit untuk admin. |
+| **6️⃣** | Scaling & Monitoring | Prometheus + Grafana, logging to ELK, health‑check endpoints. |
+
+---
+
+## 10. Ringkasan Kunci
+
+1. **Gunakan FastAPI + async SQLAlchemy** → kode bersih, tipe‑aman, dokumentasi otomatis.  
+2. **Pisahkan Concern:** *models ↔ schemas ↔ repos ↔ services ↔ routers* → mudah diuji dan dipelihara.  
+3. **RBAC** melalui decorator `role_required`; hanya FO yang dapat *cancel*, dokter yang dapat *create treatment plan*, dll.  
+4. **Transaksi** dikelola per‑request (`session.begin()`) untuk menjamin konsistensi inventory & billing.  
+5. **Background task** (Celery) untuk AI‑analysis, notifikasi, dan pengiriman email/WhatsApp.  
+6. **Testing & CI** (pytest + GitHub Actions) wajib sebelum merge ke `main`.  
+7. **Docker‑compose** memudahkan setup lokal (DB, Redis, API, worker).  
+
+Dengan struktur di atas Anda dapat meng‑implementasikan semua alur yang tercantum di *flow* (registrasi konvensional, non‑konvensional, antropometri, alergi, series‑treatment, iterasi produk, membership, start/end treatment, up‑selling, AI‑assist, laporan progres, dsb.) secara **modular**, **teruji**, dan **mudah di‑scale**.  
+
+Semoga membantu! Jika ada bagian yang ingin diperdalam (misalnya contoh query untuk perhitungan skin‑fold, atau integrasi Gemini), beri tahu saja. 🚀

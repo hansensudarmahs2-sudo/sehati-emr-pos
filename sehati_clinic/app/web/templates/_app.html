@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+{# Shell layout untuk halaman setelah login — sidebar kiri + topbar + content area. #}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}{{ klinik_nama }}{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/app.css">
+    <link rel="icon" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#5cbdb4">
+<script src="/static/vendor/htmx.min.js"></script>
+{# Tom Select — searchable dropdown library #}
+<link rel="stylesheet" href="/static/vendor/tom-select.min.css">
+<script src="/static/vendor/tom-select.complete.min.js"></script>
+<style>
+    .ts-wrapper { font-family: inherit; }
+    .ts-control {
+        border-color: rgb(203, 213, 225) !important;
+        border-radius: 0.375rem;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+        min-height: 38px;
+    }
+    .ts-control input { font-size: 0.875rem; }
+    .ts-control:focus-within {
+        border-color: rgb(59, 130, 246) !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        outline: none;
+    }
+    .ts-dropdown {
+        border-color: rgb(203, 213, 225);
+        border-radius: 0.375rem;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    .ts-dropdown .active { background: rgb(219, 234, 254) !important; color: rgb(30, 64, 175) !important; }
+    .ts-dropdown .option { padding: 0.5rem 0.75rem; font-size: 0.875rem; }
+
+    /* ===== Nav drawer untuk HP (< 768px). Tablet/desktop tak berubah. ===== */
+    #app-nav-toggle { display: none; }
+    #app-nav-backdrop { display: none; }
+    @media (max-width: 767px) {
+        #app-nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
+        #app-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            z-index: 10040;
+            transform: translateX(-100%);
+            transition: transform .25s ease;
+            box-shadow: 0 10px 40px rgba(0,0,0,.28);
+        }
+        body.nav-open #app-sidebar { transform: translateX(0); }
+        body.nav-open #app-nav-backdrop {
+            display: block; position: fixed; inset: 0; z-index: 10030;
+            background: rgba(15,23,42,.45);
+        }
+    }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased">
+<div class="flex h-screen">
+
+    <aside id="app-sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+        <a href="/web/dashboard" class="block px-6 py-5 border-b border-slate-200 hover:bg-slate-50 transition" title="Kembali ke Dashboard">
+            <div class="flex items-center gap-2">
+                {% if klinik_mini_logo_path %}
+                <img src="/static/{{ klinik_mini_logo_path }}" alt="Logo"
+                     class="w-8 h-8 rounded-lg object-cover flex-shrink-0">
+                {% else %}
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
+                    {{ (klinik_nama or "K")[0]|upper }}
+                </div>
+                {% endif %}
+                <div class="min-w-0">
+                    <div class="font-semibold text-slate-800 leading-tight truncate">{{ klinik_nama }}</div>
+                    <div class="text-xs text-slate-500">🏠 Dashboard</div>
+                </div>
+            </div>
+        </a>
+
+        <nav class="flex-1 overflow-y-auto px-3 py-4">
+            {% for group in menu_groups %}
+            <div class="mb-4">
+                <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 px-3 mb-2">
+                    {{ group.group }}
+                </div>
+                <div class="space-y-0.5">
+                    {% for item in group["items"] %}
+                    {% set is_active = current_path and current_path.startswith(item.active_when) %}
+                    <a href="{{ item.url }}"
+                       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+                              {% if is_active %}bg-blue-50 text-blue-700 font-medium{% else %}text-slate-700 hover:bg-slate-50{% endif %}">
+                        <span class="text-lg">{{ item.icon }}</span>
+                        <span>{{ item.label }}</span>
+                        {% if item.badge_status and badge_counts is defined and badge_counts.get(item.badge_status, 0) > 0 %}
+                        <span style="margin-left:auto;background:#ef4444;color:#fff;font-size:11px;font-weight:700;min-width:18px;height:18px;padding:0 5px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;line-height:1;">{{ badge_counts.get(item.badge_status) }}</span>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </nav>
+
+        <div class="border-t border-slate-200 px-3 py-3">
+            <div class="flex items-center gap-3 px-2 py-2">
+                <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-sm">👤</div>
+                <div class="flex-1 min-w-0">
+                    <div class="font-medium text-slate-800 text-sm truncate">{{ user.nama_staf }}</div>
+                    <div class="text-xs text-slate-500 truncate">{{ user.role.value if user.role.value is defined else user.role }}</div>
+                </div>
+                <form method="POST" action="/web/logout" class="inline-flex">
+                    {{ csrf_input(request) }}
+                    <button type="submit" class="text-xs text-slate-500 hover:text-red-600 transition bg-transparent border-0 cursor-pointer p-0" title="Logout">
+                        🚪
+                    </button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+        <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+                <button type="button" id="app-nav-toggle"
+                        onclick="document.body.classList.toggle('nav-open')"
+                        aria-label="Menu" title="Menu"
+                        style="width:38px; height:38px; flex-shrink:0; border:1px solid #e2e8f0; border-radius:.5rem; background:#fff; cursor:pointer; font-size:1.25rem; line-height:1;">☰</button>
+                <div class="min-w-0">
+                    <h1 class="text-lg font-semibold text-slate-800 truncate">{% block page_title %}{% endblock %}</h1>
+                    {% if page_subtitle %}
+                    <p class="text-xs text-slate-500 truncate">{{ page_subtitle }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex items-center gap-3 text-xs text-slate-500">
+                {% set _role = user.role.value if user.role.value is defined else user.role %}
+                {% if _role == "Owner" %}
+                <a href="/docs" target="_blank" class="hover:text-blue-600">Swagger UI</a>
+                <span>·</span>
+                {% endif %}
+                <div class="text-right">
+                    <div class="font-medium text-slate-700">{{ user.nama_staf }}</div>
+                    <div class="text-xs text-blue-600">{{ user.role.value if user.role.value is defined else user.role }}</div>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto bg-slate-50">
+            <div class="p-6">
+                {% block page_content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+</div>
+
+<div id="app-nav-backdrop" onclick="document.body.classList.remove('nav-open')"></div>
+<script>
+(function(){
+    // Tutup drawer nav dgn Escape (HP)
+    document.addEventListener("keydown", function(e){
+        if (e.key === "Escape") document.body.classList.remove("nav-open");
+    });
+})();
+</script>
+
+{# ====== Tom Select Auto-Init ====== #}
+<script>
+(function() {
+    "use strict";
+
+    function initTomSelect(scope) {
+        scope = scope || document;
+        var nodes = scope.querySelectorAll("select.searchable-dropdown");
+        nodes.forEach(function(el) {
+            if (el.tomselect) return;
+            try {
+                new TomSelect(el, {
+                    create: false,
+                    placeholder: el.getAttribute("data-placeholder") || "Cari atau pilih...",
+                    searchField: ["text"],
+                    sortField: { field: "text", direction: "asc" },
+                    maxOptions: 500,
+                    // Filter out placeholder option (value="") dari hasil search/list
+                    score: function(search) {
+                        var fn = this.getScoreFunction(search);
+                        return function(item) {
+                            if (!item.value) return 0;
+                            return fn(item);
+                        };
+                    },
+                });
+            } catch (e) {
+                console.warn("Tom Select init failed for:", el, e);
+            }
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() { initTomSelect(document); });
+    document.body.addEventListener("htmx:afterSwap", function(evt) {
+        initTomSelect(evt.detail.target || document);
+    });
+    document.body.addEventListener("init-tomselect", function(evt) {
+        initTomSelect(evt.target || document);
+    });
+
+    window.initTomSelect = initTomSelect;
+})();
+</script>
+
+<!-- Custom confirm modal (ganti dialog native "localhost:8000 says") -->
+<div id="app-confirm-overlay" style="display:none; position:fixed; inset:0; z-index:10050; background:rgba(15,23,42,.45); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:.75rem; max-width:26rem; width:calc(100% - 2rem); box-shadow:0 20px 50px rgba(0,0,0,.25); overflow:hidden; font-family:system-ui,-apple-system,sans-serif;">
+    <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; font-weight:600; color:#0f172a; font-size:.95rem;">
+      {{ klinik_nama or "Konfirmasi" }}
+    </div>
+    <div id="app-confirm-msg" style="padding:1.1rem 1.25rem; color:#334155; font-size:.9rem; white-space:pre-line; line-height:1.5;"></div>
+    <div style="padding:.85rem 1.25rem; background:#f8fafc; display:flex; justify-content:flex-end; gap:.5rem;">
+      <button type="button" id="app-confirm-cancel" style="padding:.5rem 1rem; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:.5rem; font-size:.85rem; cursor:pointer;">Batal</button>
+      <button type="button" id="app-confirm-ok" style="padding:.5rem 1rem; border:0; background:#059669; color:#fff; border-radius:.5rem; font-size:.85rem; font-weight:600; cursor:pointer;">OK</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+    var overlay = document.getElementById("app-confirm-overlay");
+    var msgEl   = document.getElementById("app-confirm-msg");
+    var okBtn   = document.getElementById("app-confirm-ok");
+    var cancelBtn = document.getElementById("app-confirm-cancel");
+    var onResult = null;  // callback(true/false) untuk konfirmasi yang sedang tampil
+    function normalize(m){ return (m||"").replace(/\+n/g, "\n"); }
+    function show(msg, cb){
+        onResult = cb;
+        msgEl.textContent = normalize(msg);
+        overlay.style.display = "flex";
+        okBtn.focus();
+    }
+    function finish(result){
+        var cb = onResult;
+        onResult = null;
+        overlay.style.display = "none";
+        if (cb) cb(result);
+    }
+    // API programatik (Promise) untuk kasus JS-driven / pesan dinamis
+    window.appConfirm = function(message){
+        return new Promise(function(resolve){ show(message, resolve); });
+    };
+    // Intercept form submit yang punya data-confirm (kasus statis)
+    document.addEventListener("submit", function(e){
+        var form = e.target;
+        if (form && form.dataset && form.dataset.confirm && form.dataset.appConfirmed !== "1"){
+            e.preventDefault();
+            show(form.dataset.confirm, function(ok){
+                if (ok){ form.dataset.appConfirmed = "1"; form.submit(); }  // submit() tak memicu event submit -> no loop
+            });
+        }
+    }, true);
+    okBtn.addEventListener("click", function(){ finish(true); });
+    cancelBtn.addEventListener("click", function(){ finish(false); });
+    overlay.addEventListener("click", function(e){ if (e.target === overlay) finish(false); });
+    document.addEventListener("keydown", function(e){ if (e.key === "Escape" && overlay.style.display === "flex") finish(false); });
+})();
+</script>
+<script>
+// NA-PRINT: auto-buka cetak nomor antrian bila ada ?print_antrian=<id_kunjungan>
+(function(){
+  try{
+    var q=new URLSearchParams(location.search), id=q.get('print_antrian');
+    if(id){
+      window.open('/web/kunjungan/'+encodeURIComponent(id)+'/cetak-nomor','_blank');
+      q.delete('print_antrian');
+      var qs=q.toString();
+      history.replaceState(null,'',location.pathname+(qs?('?'+qs):'')+location.hash);
+    }
+  }catch(e){}
+})();
+</script>
+<script>
+/* Idle-timeout sesi (keamanan V3.3.2) — auto-logout saat TAK ada interaksi nyata.
+   Basis: interaksi user (mouse/ketik/klik/scroll/sentuh) + localStorage (tahan auto-refresh HTMX).
+   Konfigurasi via .env: SESSION_IDLE_MINUTES / SESSION_IDLE_WARN_MINUTES. */
+(function(){
+  var IDLE_MIN = parseInt("{{ idle_minutes | default(60) }}", 10);
+  var WARN_MIN = parseInt("{{ idle_warn_minutes | default(2) }}", 10);
+  if (!IDLE_MIN || IDLE_MIN <= 0) return;                 // 0/negatif = nonaktif
+  var logoutForm = document.querySelector('form[action="/web/logout"]');
+  if (!logoutForm) return;                                // hanya di shell terautentikasi
+  var IDLE_MS = IDLE_MIN*60000, WARN_MS = Math.max(1, WARN_MIN)*60000, KEY = "sehati_last_activity";
+  function now(){ return Date.now(); }
+  function last(){ var v = parseInt(localStorage.getItem(KEY)||"0",10); return v || now(); }
+  var lastTouch = 0;
+  function touch(){ var t=now(); if (t-lastTouch>3000){ lastTouch=t; try{ localStorage.setItem(KEY,String(t)); }catch(e){} } hideWarn(); }
+  try{ if(!localStorage.getItem(KEY)) localStorage.setItem(KEY,String(now())); }catch(e){}
+  ["mousemove","mousedown","keydown","scroll","touchstart","click","wheel"].forEach(function(ev){
+    window.addEventListener(ev, touch, {passive:true});
+  });
+  var modal=null, secTimer=null;
+  function hideWarn(){ if(modal){ modal.remove(); modal=null; } if(secTimer){ clearInterval(secTimer); secTimer=null; } }
+  function showWarn(){
+    if(modal) return;
+    modal=document.createElement("div");
+    modal.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center";
+    modal.innerHTML='<div style="background:#fff;border-radius:12px;padding:24px 28px;max-width:380px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:inherit">'
+      +'<div style="font-size:34px">\u23F3</div>'
+      +'<div style="font-weight:700;color:#0f172a;margin:6px 0;font-size:16px">Sesi akan berakhir</div>'
+      +'<div style="color:#475569;font-size:14px;line-height:1.5">Tidak ada aktivitas terdeteksi. Anda akan otomatis keluar dalam <b id="idleSec"></b> detik.<br><span style="font-size:12px;color:#94a3b8">Simpan pekerjaan Anda bila perlu.</span></div>'
+      +'<button id="idleStay" style="margin-top:16px;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer">Lanjutkan sesi</button></div>';
+    document.body.appendChild(modal);
+    document.getElementById("idleStay").addEventListener("click", function(e){ e.stopPropagation(); touch(); });
+    function tick(){ var el=document.getElementById("idleSec"); if(el){ el.textContent=Math.max(0,Math.ceil((IDLE_MS-(now()-last()))/1000)); } }
+    tick(); secTimer=setInterval(tick,1000);
+  }
+  function doLogout(){ hideWarn(); try{ logoutForm.submit(); }catch(e){ location.href="/web/login"; } }
+  setInterval(function(){
+    var idle = now()-last();
+    if (idle >= IDLE_MS) doLogout();
+    else if (idle >= IDLE_MS-WARN_MS) showWarn();
+    else hideWarn();
+  }, 5000);
+})();
+</script>
+</body>
+</html>

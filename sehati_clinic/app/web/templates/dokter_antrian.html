@@ -1,0 +1,53 @@
+{% extends "_app.html" %}
+{% block title %}Antrian Saya — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Antrian Saya (Dokter){% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Info bar — penjelasan filter #}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-800">
+        <strong>Filter aktif:</strong>
+        ANTRI/SEDANG KONSULTASI → semua pasien tampil.
+        ANTRI TREATMENT / BAYAR / OBAT → hanya pasien yang <strong>sudah lewat dokter</strong> (ada SOAP) yang tampil.
+        Pasien yang skip dokter (mis. langsung beli obat) tidak muncul di sini.
+    </div>
+
+    {# Toolbar #}
+    <div class="flex items-center justify-between mb-4">
+        <div class="text-sm text-slate-500">
+            Auto-refresh setiap 10 detik.
+            <span id="last-updated" class="font-mono text-xs ml-2"></span>
+        </div>
+        <button
+            hx-get="/web/dokter/antrian/list"
+            hx-target="#antrian-content"
+            hx-swap="innerHTML"
+            class="text-sm px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition flex items-center gap-2"
+        >
+            🔄 Refresh Sekarang
+        </button>
+    </div>
+
+    {# Auto-refresh container — HTMX poll 10s #}
+    <div id="antrian-content"
+         hx-get="/web/dokter/antrian/list"
+         hx-trigger="load, every 10s"
+         hx-swap="innerHTML">
+        <div class="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+            <div class="text-3xl mb-2">⏳</div>
+            Memuat antrian dokter…
+        </div>
+    </div>
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'antrian-content') {
+            const now = new Date();
+            document.getElementById('last-updated').textContent =
+                '· Update: ' + now.toLocaleTimeString('id-ID');
+        }
+    });
+</script>
+{% endblock %}

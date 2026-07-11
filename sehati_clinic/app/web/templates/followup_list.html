@@ -1,0 +1,144 @@
+{% extends "_app.html" %}
+{% block title %}Follow-up{% endblock %}
+{% block page_title %}🔔 Follow-up Reminder{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+  {% if ok %}
+  <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>
+  {% endif %}
+  {% if err %}
+  <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>
+  {% endif %}
+
+  {# ---- Ringkasan + navigasi ---- #}
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <div class="bg-white border border-slate-200 rounded-lg px-3 py-2 text-center">
+        <div class="text-xs text-slate-500 uppercase">Perlu ditindak</div>
+        <div class="text-xl font-bold text-slate-800">{{ counts.total }}</div>
+      </div>
+      <div class="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">
+        <div class="text-xs text-red-600 uppercase">Telat</div>
+        <div class="text-xl font-bold text-red-700">{{ counts.overdue }}</div>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
+        <div class="text-xs text-amber-600 uppercase">Hari ini</div>
+        <div class="text-xl font-bold text-amber-700">{{ counts.hari_ini }}</div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      {# toggle minggu/hari #}
+      <div class="inline-flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+        <a href="/web/followup?mode=minggu&tgl={{ anchor.isoformat() }}"
+           class="px-3 py-1.5 {% if mode == 'minggu' %}bg-blue-600 text-white{% else %}bg-white text-slate-600 hover:bg-slate-50{% endif %}">Mingguan</a>
+        <a href="/web/followup?mode=hari&tgl={{ anchor.isoformat() }}"
+           class="px-3 py-1.5 {% if mode == 'hari' %}bg-blue-600 text-white{% else %}bg-white text-slate-600 hover:bg-slate-50{% endif %}">Harian</a>
+      </div>
+      {# prev / label / next #}
+      <a href="/web/followup?mode={{ mode }}&tgl={{ prev_anchor.isoformat() }}"
+         class="px-2 py-1.5 bg-white border border-slate-200 rounded hover:bg-slate-50 text-slate-600">◀</a>
+      <span class="text-sm font-medium text-slate-700 text-center" style="min-width:150px">
+        {% if mode == 'minggu' %}{{ start.strftime('%d %b') }} – {{ end.strftime('%d %b %Y') }}{% else %}{{ anchor.strftime('%d %b %Y') }}{% endif %}
+      </span>
+      <a href="/web/followup?mode={{ mode }}&tgl={{ next_anchor.isoformat() }}"
+         class="px-2 py-1.5 bg-white border border-slate-200 rounded hover:bg-slate-50 text-slate-600">▶</a>
+    </div>
+  </div>
+
+  <p class="text-xs text-slate-500 mb-3">
+    Menampilkan semua follow-up yang masih perlu ditindak s/d akhir periode terpilih (termasuk yang sudah telat). Baris merah = lewat tanggal.
+  </p>
+
+  {# ---- Tabel worklist ---- #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    {% if items %}
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+        <tr>
+          <th class="text-left px-4 py-2 font-medium">Jatuh Tempo</th>
+          <th class="text-left px-4 py-2 font-medium">Pasien</th>
+          <th class="text-left px-4 py-2 font-medium">Untuk</th>
+          <th class="text-left px-4 py-2 font-medium">Telepon</th>
+          <th class="text-left px-4 py-2 font-medium">Status</th>
+          <th class="text-right px-4 py-2 font-medium">Aksi</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for i in items %}
+        <tr class="{% if i.overdue %}bg-red-50{% else %}hover:bg-blue-50/30{% endif %} align-top">
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="font-medium {% if i.overdue %}text-red-700{% else %}text-slate-700{% endif %}">{{ i.due_date.strftime('%d %b %Y') }}</div>
+            {% if i.overdue %}<span class="text-xs text-red-600">telat</span>
+            {% elif i.due_date == today %}<span class="text-xs text-amber-600">hari ini</span>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <div class="font-medium text-slate-800">{{ i.nama_pasien }}</div>
+            <div class="font-mono text-xs text-slate-500">{{ i.no_rm }}</div>
+          </td>
+          <td class="px-4 py-3">
+            {% if i.jenis == 'KONSULTASI' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-medium">Konsultasi</span>
+            {% else %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700 font-medium">{{ i.nama_layanan }}</span>
+            {% endif %}
+            {% if i.catatan %}<div class="text-xs text-slate-500 mt-1 italic max-w-xs">{{ i.catatan }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if i.nomor_telepon %}
+            <a href="tel:{{ i.nomor_telepon }}" class="text-blue-600 hover:underline">{{ i.nomor_telepon }}</a>
+            {% else %}<span class="text-slate-400 text-xs italic">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if i.status == 'PENDING' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">Menunggu</span>
+            {% elif i.status == 'NO_ANSWER' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700">Tak terjawab</span>
+            {% elif i.status == 'RESCHEDULED' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">Dijadwal ulang</span>
+            {% else %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{{ i.status }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-1">
+              <form method="POST" action="/web/followup/{{ i.id_followup }}/confirm" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="tgl" value="{{ anchor.isoformat() }}">
+                <button type="submit" class="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">✓ Konfirmasi</button>
+              </form>
+              <form method="POST" action="/web/followup/{{ i.id_followup }}/no-answer" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="tgl" value="{{ anchor.isoformat() }}">
+                <button type="submit" class="px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded hover:bg-amber-200">✆ Tak jawab</button>
+              </form>
+              <form method="POST" action="/web/followup/{{ i.id_followup }}/reschedule" class="inline-flex items-center gap-1">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="tgl" value="{{ anchor.isoformat() }}">
+                <input type="date" name="due_baru" class="border border-slate-300 rounded px-1 py-0.5 text-xs" style="width:130px">
+                <button type="submit" class="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">⟳ Ulang</button>
+              </form>
+              <form method="POST" action="/web/followup/{{ i.id_followup }}/cancel" class="inline"
+                    onsubmit="return confirm('Batalkan follow-up untuk {{ i.nama_pasien }}?')">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="tgl" value="{{ anchor.isoformat() }}">
+                <button type="submit" class="px-2 py-1 text-xs bg-red-50 text-red-600 rounded hover:bg-red-100">✕ Batal</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-12 text-center text-slate-400">
+      <div class="text-4xl mb-2">🎉</div>
+      <p class="text-sm">Tidak ada follow-up yang perlu ditindak untuk periode ini.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

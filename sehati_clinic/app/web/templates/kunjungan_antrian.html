@@ -1,0 +1,148 @@
+{% extends "_app.html" %}
+{% block title %}Antrian Hari Ini — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Antrian Hari Ini{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <div class="text-sm text-slate-500">
+            Auto-refresh setiap 10 detik.
+            <span id="last-updated" class="font-mono text-xs ml-2"></span>
+        </div>
+        <button hx-get="/web/kunjungan/list" hx-target="#antrian-content" hx-swap="innerHTML"
+            class="text-sm px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition flex items-center gap-2">
+            🔄 Refresh Sekarang
+        </button>
+    </div>
+
+    <div id="antrian-content"
+         hx-get="/web/kunjungan/list"
+         hx-trigger="load, every 10s"
+         hx-swap="innerHTML">
+        <div class="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+            <div class="text-3xl mb-2">⏳</div>
+            Memuat antrian…
+        </div>
+    </div>
+
+    {# Modal Batal Antrian — persistent di parent template biar tidak hilang saat HTMX swap #}
+    <div id="batal-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 class="text-base font-semibold text-red-700 mb-3 flex items-center gap-2">
+                <span>⚠</span> Batalkan Antrian
+            </h3>
+            <p class="text-sm text-slate-600 mb-3">
+                Anda akan membatalkan antrian <strong id="batal-nama-pasien"></strong>.
+                Status jadi <span class="font-mono">BATAL</span> dan tidak bisa dikembalikan.
+            </p>
+            <form method="POST" id="batal-form" onsubmit="return validateBatalForm(this);">
+                {{ csrf_input(request) }}
+                <div class="mb-3">
+                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                        Catatan FO <span class="text-red-500">*</span>
+                        <span class="text-xs text-slate-500 font-normal">(min 5 karakter, untuk audit trail)</span>
+                    </label>
+                    <textarea name="catatan_batal" required rows="2" minlength="5" maxlength="200"
+                              placeholder="mis. pasien telepon batal sakit, tidak hadir 2 jam, salah jadwal..."
+                              class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button type="button" onclick="document.getElementById('batal-modal').classList.add('hidden')"
+                            class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                        Batal
+                    </button>
+                    <button type="submit"
+                            class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                        Konfirmasi Batal Antrian
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openBatalModal(idKunjungan, namaPasien) {
+            document.getElementById('batal-nama-pasien').textContent = namaPasien;
+            document.getElementById('batal-form').action = '/web/kunjungan/' + idKunjungan + '/batal';
+            document.querySelector('#batal-form textarea[name="catatan_batal"]').value = '';
+            document.getElementById('batal-modal').classList.remove('hidden');
+        }
+        function validateBatalForm(form) {
+            var note = (form.querySelector('textarea[name="catatan_batal"]').value || '').trim();
+            if (note.length < 5) {
+                alert('Catatan minimal 5 karakter untuk audit trail.\nSaat ini: ' + note.length + ' karakter.');
+                return false;
+            }
+            window.appConfirm('Konfirmasi: batalkan antrian dengan catatan "' + note + '"?').then(function(ok){
+                if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
+            });
+            return false;
+        }
+        // ESC untuk close batal modal
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                var m = document.getElementById('batal-modal');
+                if (m && !m.classList.contains('hidden')) m.classList.add('hidden');
+            }
+        });
+    </script>
+</div>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'antrian-content') {
+            var now = new Date();
+            document.getElementById('last-updated').textContent =
+                '· Update: ' + now.toLocaleTimeString('id-ID');
+        }
+    });
+
+    (function() {
+        function closeAll() {
+            document.querySelectorAll('.ubah-menu').forEach(function(m) {
+                m.style.display = 'none';
+                m.style.top = ''; m.style.bottom = '';
+                m.style.marginTop = ''; m.style.marginBottom = '';
+            });
+        }
+        function position(menu, trigger) {
+            var rect = trigger.getBoundingClientRect();
+            var h = 140;
+            var below = window.innerHeight - rect.bottom;
+            if (below < h + 16 && rect.top > below) {
+                menu.style.top = 'auto'; menu.style.bottom = '100%';
+                menu.style.marginBottom = '4px'; menu.style.marginTop = '0';
+            } else {
+                menu.style.top = '100%'; menu.style.bottom = 'auto';
+                menu.style.marginTop = '4px'; menu.style.marginBottom = '0';
+            }
+        }
+        document.addEventListener('click', function(e) {
+            var t = e.target.closest('.ubah-trigger');
+            if (t) {
+                e.preventDefault();
+                var dd = t.closest('.ubah-dropdown');
+                var m = dd.querySelector('.ubah-menu');
+                var wasOpen = m.style.display === 'block';
+                closeAll();
+                if (!wasOpen) { m.style.display = 'block'; position(m, t); }
+                return;
+            }
+            if (!e.target.closest('.ubah-dropdown')) closeAll();
+        });
+        window.addEventListener('scroll', closeAll, true);
+        window.addEventListener('resize', closeAll);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeAll();
+        });
+    })();
+</script>
+{% endblock %}

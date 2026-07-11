@@ -1,0 +1,93 @@
+{% extends "_app.html" %}
+{% block title %}Cari Pasien — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Cari Pasien{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+        <label for="keyword" class="block text-sm font-medium text-slate-700 mb-2">Kata kunci (nama, no_rm, telepon, atau alamat)</label>
+        <div class="flex gap-2">
+            <input type="text" id="keyword" name="keyword" autocomplete="off" autofocus
+                placeholder="mis. Andi, SEED-001, 0812..., Jl. Test"
+                hx-get="/web/pasien/cari" hx-trigger="keyup changed delay:300ms, search"
+                hx-target="#result-area" hx-indicator="#search-spinner"
+                class="flex-1 px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div id="search-spinner" class="htmx-indicator flex items-center px-3 text-slate-400 text-sm">Mencari...</div>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Ketik minimal 1 karakter — hasil muncul otomatis.</p>
+    </div>
+
+    <div id="result-area">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+            <p class="text-slate-500">Ketik di kotak pencarian untuk mulai cari pasien.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: flex; }
+    .htmx-request.htmx-indicator { display: flex; }
+</style>
+
+<script>
+(function() {
+    function closeAll() {
+        document.querySelectorAll('.antrian-menu').forEach(function(m) {
+            m.style.display = 'none';
+            m.style.top = ''; m.style.bottom = '';
+            m.style.marginTop = ''; m.style.marginBottom = '';
+            m.style.maxHeight = ''; m.style.overflowY = '';
+        });
+    }
+    function position(menu, trigger) {
+        // reset dulu supaya offsetHeight = tinggi natural penuh
+        menu.style.maxHeight = ''; menu.style.overflowY = '';
+        var margin = 8;
+        var rect = trigger.getBoundingClientRect();
+        var spaceBelow = window.innerHeight - rect.bottom - margin;
+        var spaceAbove = rect.top - margin;
+        var needed = menu.offsetHeight;  // tinggi AKTUAL (sudah display:block)
+        var openUp;
+        if (needed <= spaceBelow) { openUp = false; }
+        else if (needed <= spaceAbove) { openUp = true; }
+        else { openUp = spaceAbove > spaceBelow; }  // tak muat dua-duanya -> sisi terluas
+        if (openUp) {
+            menu.style.top = 'auto'; menu.style.bottom = '100%';
+            menu.style.marginBottom = '4px'; menu.style.marginTop = '0';
+            if (needed > spaceAbove) { menu.style.maxHeight = spaceAbove + 'px'; menu.style.overflowY = 'auto'; }
+        } else {
+            menu.style.top = '100%'; menu.style.bottom = 'auto';
+            menu.style.marginTop = '4px'; menu.style.marginBottom = '0';
+            if (needed > spaceBelow) { menu.style.maxHeight = spaceBelow + 'px'; menu.style.overflowY = 'auto'; }
+        }
+    }
+    document.addEventListener('click', function(e) {
+        var t = e.target.closest('.antrian-trigger');
+        if (t) {
+            e.preventDefault();
+            var dd = t.closest('.antrian-dropdown');
+            var m = dd.querySelector('.antrian-menu');
+            var wasOpen = m.style.display === 'block';
+            closeAll();
+            if (!wasOpen) { m.style.display = 'block'; position(m, t); }
+            return;
+        }
+        if (!e.target.closest('.antrian-dropdown')) closeAll();
+    });
+    window.addEventListener('scroll', closeAll, true);
+    window.addEventListener('resize', closeAll);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeAll();
+    });
+})();
+</script>
+{% endblock %}

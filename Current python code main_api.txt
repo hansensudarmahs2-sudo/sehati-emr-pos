@@ -1,0 +1,1893 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import pymysql
+from datetime import datetime
+from typing import List, Optional
+from datetime import date
+import math
+
+# 1. Inisiasi Aplikasi Web
+app = FastAPI(title="Klinik API Server", description="Backend Server untuk Klinik Sehati")
+
+# 2. Fungsi Koneksi Database (Sama persis dengan yang lama!)
+def koneksi_db():
+    return pymysql.connect(
+        host='localhost',
+        user='klinik_dev',
+        password='Klinik123!',
+        database='db_sehati',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+# 3. Pydantic Model (Format "Formulir" yang harus diisi Frontend)
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+# ==========================================
+# ENDPOINT: JALUR LOGIN
+# ==========================================
+@app.post("/login")
+def proses_login(request: LoginRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek User & Password di MySQL
+            sql = "SELECT * FROM master_staf WHERE username = %s AND password_hash = %s AND is_active = 1"
+            cursor.execute(sql, (request.username, request.password))
+            user_valid = cursor.fetchone()
+            
+            if user_valid:
+                # 2. Suntikan Token & Jangkar Shift (Logika kita yang brilian!)
+                sql_token = """
+                    UPDATE master_staf 
+                    SET is_logged_in = 1, 
+                        token_expired_at = DATE_ADD(NOW(), INTERVAL 6 HOUR),
+                        waktu_mulai_shift = IF(DATE(waktu_mulai_shift) = CURDATE(), waktu_mulai_shift, NOW())
+                    WHERE id_staf = %s
+                """
+                cursor.execute(sql_token, (user_valid['id_staf'],))
+                conn.commit()
+                
+                # 3. Berikan Response (Makanan matang) ke Frontend
+                return {
+                    "status": "success",
+                    "message": "Login Berhasil",
+                    "data": {
+                        "id_staf": user_valid['id_staf'],
+                        "nama_staf": user_valid['nama_staf'],
+                        "role": user_valid['role']
+                    }
+                }
+            else:
+                # Jika gagal, kembalikan Error 401 (Unauthorized)
+                raise HTTPException(status_code=401, detail="Username atau Password salah!")
+    finally:
+        conn.close()
+# ==========================================
+# MODEL FORMULIR LOGOUT
+# ==========================================
+class LogoutRequest(BaseModel):
+    id_staf: int
+
+# ==========================================
+# ENDPOINT: JALUR LOGOUT
+# ==========================================
+@app.post("/logout")
+def proses_logout(request: LogoutRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Cabut token dan status login, TAPI biarkan waktu_mulai_shift tetap utuh!
+            sql_logout = """
+                UPDATE master_staf 
+                SET is_logged_in = 0, 
+                    token_expired_at = NULL 
+                WHERE id_staf = %s
+            """
+            cursor.execute(sql_logout, (request.id_staf,))
+            conn.commit()
+            
+            # Cek apakah ID Staf memang ada dan ter-update
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Staf tidak ditemukan.")
+
+            return {
+                "status": "success",
+                "message": "Logout Berhasil. Token keamanan telah dicabut."
+            }
+    finally:
+        conn.close()
+
+import random
+
+# ==========================================
+# MODEL FORMULIR FO
+# ==========================================
+class AntropometriItem(BaseModel):
+    berat_badan: float = 0.0
+    tinggi_badan: float = 0.0
+    tekanan_darah: str = ""
+    suhu_tubuh: float = 0.0
+    skinfold_titik_1: float = 0.0
+    skinfold_titik_2: float = 0.0
+    skinfold_titik_3: float = 0.0
+    lingkar_perut: float = 0.0
+
+class AlergiItem(BaseModel):
+    alergen: str
+    gejala: str = ""
+    tingkat_keparahan: str # 'Ringan', 'Sedang', 'Berat'
+
+class PenyakitKronisItem(BaseModel):
+    nama_penyakit: str
+    catatan: str = ""
+
+class PasienBaruRequest(BaseModel):
+    id_staf: int
+
+    # --- 1. Data Demografi ---
+    nama: str
+    jenis_kelamin: str # 'L' atau 'P'
+    alamat: str = ""
+    tgl_lahir: date = None
+    nomor_telepon: str = ""
+    nomor_ktp: str = ""
+    sumber_referensi: str = ""
+    email_address: str = ""
+    tipe_membership: str = "REGULAR" # Default
+    # status_verifikasi & tgl_verifikasi kita skip dulu (default MySQL)
+    
+    # --- 2. Data Kunjungan ---
+    status_antrian: str 
+    keluhan_utama: str = ""
+
+    # --- 3. Data Medis Tambahan (List / Array) ---
+    alergi: List[AlergiItem] = [] 
+    penyakit_kronis: List[PenyakitKronisItem] = []
+    
+    # --- 4. Data Opsional ---
+    antropometri: Optional[AntropometriItem] = None
+class KunjunganLamaRequest(BaseModel):
+    id_staf: int
+    id_pasien: int
+    status_antrian: str 
+    keluhan_utama: str = ""
+
+# ==========================================
+# HELPER FUNCTION: Cek Otorisasi FO
+# ==========================================
+def verifikasi_fo(cursor, id_staf):
+    cursor.execute("""
+        SELECT role FROM master_staf 
+        WHERE id_staf = %s AND is_logged_in = 1 AND token_expired_at > NOW()
+    """, (id_staf,))
+    staf = cursor.fetchone()
+    
+    if not staf:
+        raise HTTPException(status_code=401, detail="Sesi habis. Silakan Login kembali.")
+    # Kita buat .upper() agar aman dari Mismatch Character (Owner vs OWNER)
+    if staf['role'].upper() not in ['FO', 'ADMIN', 'SUPERADMIN', 'OWNER']:
+        raise HTTPException(status_code=403, detail="Akses Ditolak. Anda bukan Front Office.")
+
+# ==========================================
+# HELPER FUNCTION: The Occam's Razor (Reset Antrian)
+# ==========================================
+def dapatkan_antrian_hari_ini(cursor):
+    cursor.execute("""
+        SELECT MAX(nomor_antrean) as antrian_terakhir 
+        FROM kunjungan 
+        WHERE DATE(tgl_kunjungan) = CURDATE()
+    """)
+    hasil = cursor.fetchone()
+    if hasil and hasil['antrian_terakhir'] is not None:
+        return hasil['antrian_terakhir'] + 1
+    return 1
+
+# ==========================================
+# ENDPOINT 1: PASIEN BARU (Daftar Pasien + Bikin Kunjungan)
+# ==========================================
+@app.post("/fo/pasien_baru")
+def pendaftaran_pasien_baru(request: PasienBaruRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek keamanan
+            verifikasi_fo(cursor, request.id_staf)
+
+            # 2. Generate Nomor RM Otomatis
+            no_rm_baru = datetime.now().strftime("RM-%y%m%d-%H%M%S")
+
+            # 3. MASUKKAN DATA KE TABEL `pasien`
+            sql_pasien = """
+                INSERT INTO pasien (
+                    no_rm, nama, jenis_kelamin, alamat, tgl_lahir, nomor_telepon, 
+                    nomor_ktp, sumber_referensi, email_address, tipe_membership, id_staf
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(sql_pasien, (
+                no_rm_baru, request.nama, request.jenis_kelamin, request.alamat, request.tgl_lahir, 
+                request.nomor_telepon, request.nomor_ktp, request.sumber_referensi, request.email_address, 
+                request.tipe_membership, request.id_staf
+            ))
+            id_pasien_baru = cursor.lastrowid 
+
+            # 4. MASUKKAN RIWAYAT ALERGI (Jika ada)
+            if request.alergi:
+                sql_alergi = """
+                    INSERT INTO pasien_alergi (id_pasien, alergen, gejala, tingkat_keparahan, id_staf) 
+                    VALUES (%s, %s, %s, %s, %s)
+                """
+                for item in request.alergi:
+                    cursor.execute(sql_alergi, (id_pasien_baru, item.alergen, item.gejala, item.tingkat_keparahan, request.id_staf))
+
+            # 5. MASUKKAN RIWAYAT PENYAKIT KRONIS (Jika ada)
+            if request.penyakit_kronis:
+                sql_kronis = "INSERT INTO pasien_penyakit_kronis (id_pasien, nama_penyakit, catatan) VALUES (%s, %s, %s)"
+                for item in request.penyakit_kronis:
+                    cursor.execute(sql_kronis, (id_pasien_baru, item.nama_penyakit, item.catatan))
+
+            # 6. MASUKKAN KE TABEL `kunjungan` (TIKET ANTRIAN)
+            nomor_antrean = dapatkan_antrian_hari_ini(cursor)
+            sql_kunjungan = """
+                INSERT INTO kunjungan (id_pasien, status_antrian, keluhan_utama, id_staf_fo, nomor_antrean, sumber_pendaftaran)
+                VALUES (%s, %s, %s, %s, %s, 'WALK_IN')
+            """
+            cursor.execute(sql_kunjungan, (id_pasien_baru, request.status_antrian, request.keluhan_utama, request.id_staf, nomor_antrean))
+            id_kunjungan_baru = cursor.lastrowid
+
+            # 7. MASUKKAN DATA ANTROPOMETRI (Opsional)
+            if request.antropometri:
+                antro = request.antropometri
+                sql_antro = """
+                    INSERT INTO kunjungan_antropometri (
+                        id_kunjungan, berat_badan, tinggi_badan, tekanan_darah, 
+                        suhu_tubuh, skinfold_titik_1, skinfold_titik_2, skinfold_titik_3, 
+                        lingkar_perut, id_staf
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(sql_antro, (
+                    id_kunjungan_baru, antro.berat_badan, antro.tinggi_badan, antro.tekanan_darah,
+                    antro.suhu_tubuh, antro.skinfold_titik_1, antro.skinfold_titik_2, antro.skinfold_titik_3,
+                    antro.lingkar_perut, request.id_staf
+                ))
+
+            # KOMIT SEMUA PERUBAHAN SEKALIGUS
+            conn.commit()
+
+            return {
+                "status": "success",
+                "message": f"Data lengkap Pasien Baru {request.nama} berhasil disimpan.",
+                "data": {
+                    "no_rm": no_rm_baru,
+                    "id_pasien": id_pasien_baru,
+                    "id_kunjungan": id_kunjungan_baru,
+                    "nomor_antrean": nomor_antrean
+                }
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 2: KUNJUNGAN LAMA (Hanya Bikin Kunjungan)
+# ==========================================
+@app.post("/fo/kunjungan_lama")
+def pendaftaran_kunjungan_lama(request: KunjunganLamaRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek keamanan
+            verifikasi_fo(cursor, request.id_staf)
+
+            # 2. Pastikan id_pasien memang ada di database
+            cursor.execute("SELECT nama FROM pasien WHERE id_pasien = %s", (request.id_pasien,))
+            pasien = cursor.fetchone()
+            if not pasien:
+                raise HTTPException(status_code=404, detail="Data Pasien tidak ditemukan.")
+
+            # 3. Ambil nomor antrian hari ini
+            nomor_antrean = dapatkan_antrian_hari_ini(cursor)
+
+            # 4. Masukkan ke tabel `kunjungan`
+            sql_kunjungan = """
+                INSERT INTO kunjungan (id_pasien, status_antrian, keluhan_utama, id_staf_fo, nomor_antrean, sumber_pendaftaran)
+                VALUES (%s, %s, %s, %s, %s, 'WALK_IN')
+            """
+            cursor.execute(sql_kunjungan, (request.id_pasien, request.status_antrian, request.keluhan_utama, request.id_staf, nomor_antrean))
+            
+            conn.commit()
+
+            return {
+                "status": "success",
+                "message": f"Kunjungan untuk pasien {pasien['nama']} berhasil dicatat.",
+                "data": {
+                    "nomor_antrean": nomor_antrean,
+                    "status_antrian": request.status_antrian
+                }
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL FORMULIR UPDATE STATUS
+# ==========================================
+class UbahStatusRequest(BaseModel):
+    id_staf: int
+    id_kunjungan: int
+    status_baru: str # Contoh: 'BATAL'
+
+# ==========================================
+# ENDPOINT 3: LIHAT ANTRIAN HARI INI (RADAR FO)
+# ==========================================
+# Perhatikan kita pakai @app.get karena ini hanya meminta data, tidak mengubah database
+@app.get("/fo/antrian_hari_ini")
+def lihat_antrian_hari_ini(id_staf: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek Keamanan
+            verifikasi_fo(cursor, id_staf)
+
+            # 2. Ambil data gabungan dari tabel Kunjungan dan Pasien khusus hari ini
+            sql_lihat = """
+                SELECT 
+                    k.id_kunjungan, 
+                    k.nomor_antrean, 
+                    p.no_rm, 
+                    p.nama, 
+                    k.status_antrian, 
+                    k.sumber_pendaftaran
+                FROM kunjungan k
+                JOIN pasien p ON k.id_pasien = p.id_pasien
+                WHERE DATE(k.tgl_kunjungan) = CURDATE()
+                ORDER BY k.nomor_antrean ASC
+            """
+            cursor.execute(sql_lihat)
+            daftar_antrian = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "total_antrian": len(daftar_antrian),
+                "data": daftar_antrian
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 4: BATALKAN / UBAH STATUS ANTRIAN
+# ==========================================
+@app.put("/fo/ubah_status_antrian")
+def ubah_status_antrian(request: UbahStatusRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek Keamanan
+            verifikasi_fo(cursor, request.id_staf)
+
+            # 2. Update status kunjungan menjadi 'BATAL' (atau status lainnya)
+            sql_update = """
+                UPDATE kunjungan 
+                SET status_antrian = %s 
+                WHERE id_kunjungan = %s AND DATE(tgl_kunjungan) = CURDATE()
+            """
+            cursor.execute(sql_update, (request.status_baru, request.id_kunjungan))
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Kunjungan tidak ditemukan atau bukan antrian hari ini.")
+
+            return {
+                "status": "success",
+                "message": f"Status antrian berhasil diubah menjadi {request.status_baru}."
+            }
+    finally:
+        conn.close()
+# ==========================================
+# ENDPOINT 5: CARI PASIEN LAMA
+# ==========================================
+# Frontend akan memanggil URL: /fo/cari_pasien?id_staf=1&keyword=Budi
+@app.get("/fo/cari_pasien")
+def cari_pasien(id_staf: int, keyword: str = ""):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek Keamanan
+            verifikasi_fo(cursor, id_staf)
+
+            # 2. Cari berdasarkan Nama, No RM, atau No HP
+            # Tambahkan % di depan dan belakang keyword untuk pencarian LIKE
+            search_term = f"%{keyword}%"
+            sql_cari = """
+                SELECT id_pasien, no_rm, nama, nomor_telepon, jenis_kelamin, tipe_membership 
+                FROM pasien 
+                WHERE nama LIKE %s OR no_rm LIKE %s OR nomor_telepon LIKE %s
+                ORDER BY nama ASC
+                LIMIT 50
+            """
+            cursor.execute(sql_cari, (search_term, search_term, search_term))
+            hasil_pencarian = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "total_ditemukan": len(hasil_pencarian),
+                "data": hasil_pencarian
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 6: RIWAYAT PASIEN (Treatment & Produk)
+# ==========================================
+@app.get("/fo/riwayat_pasien/{id_pasien}")
+def riwayat_pasien(id_staf: int, id_pasien: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek Keamanan
+            verifikasi_fo(cursor, id_staf)
+
+            # 2. Pastikan pasien ada
+            cursor.execute("SELECT no_rm, nama, tipe_membership FROM pasien WHERE id_pasien = %s", (id_pasien,))
+            info_pasien = cursor.fetchone()
+            if not info_pasien:
+                raise HTTPException(status_code=404, detail="Pasien tidak ditemukan.")
+
+            # 3. Ambil Riwayat Series Treatment (Dari tabel pasien_rencana_treatment)
+            sql_treatment = """
+                SELECT urutan_sesi, nama_tindakan, status, created_at
+                FROM pasien_rencana_treatment
+                WHERE id_pasien = %s
+                ORDER BY urutan_sesi ASC
+            """
+            cursor.execute(sql_treatment, (id_pasien,))
+            riwayat_treatment = cursor.fetchall()
+
+            # 4. Ambil Riwayat Pembelian Produk (Dari tabel transaksi + detail + master produk)
+            sql_produk = """
+                SELECT DATE(k.tgl_kunjungan) as tanggal_beli, mp.nama_produk, tdp.qty
+                FROM kunjungan k
+                JOIN transaksi_kasir tk ON k.id_kunjungan = tk.id_kunjungan
+                JOIN transaksi_detail_produk tdp ON tk.id_transaksi = tdp.id_transaksi
+                JOIN master_produk mp ON tdp.id_produk = mp.id_produk
+                WHERE k.id_pasien = %s
+                ORDER BY k.tgl_kunjungan DESC
+            """
+            cursor.execute(sql_produk, (id_pasien,))
+            riwayat_produk = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "data_pasien": info_pasien,
+                "riwayat_treatment": riwayat_treatment,
+                "riwayat_produk": riwayat_produk
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# HELPER FUNCTION: Cek Otorisasi KASIR
+# ==========================================
+def verifikasi_kasir(cursor, id_staf):
+    cursor.execute("""
+        SELECT role FROM master_staf 
+        WHERE id_staf = %s AND is_logged_in = 1 AND token_expired_at > NOW()
+    """, (id_staf,))
+    staf = cursor.fetchone()
+    
+    if not staf:
+        raise HTTPException(status_code=401, detail="Sesi habis. Silakan Login kembali.")
+    if staf['role'].upper() not in ['KASIR', 'ADMIN', 'SUPERADMIN', 'OWNER']:
+        raise HTTPException(status_code=403, detail="Akses Ditolak. Anda bukan Kasir.")
+
+# ==========================================
+# ENDPOINT 7: RADAR KASIR (Melihat Pasien ANTRI_BAYAR)
+# ==========================================
+@app.get("/kasir/antrian_bayar")
+def antrian_kasir_hari_ini(id_staf: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Cek Keamanan
+            verifikasi_kasir(cursor, id_staf)
+
+            # 2. Cari semua pasien HARI INI yang statusnya ANTRI_BAYAR
+            sql_kasir = """
+                SELECT 
+                    k.id_kunjungan, 
+                    k.nomor_antrean, 
+                    p.no_rm, 
+                    p.nama, 
+                    p.tipe_membership,
+                    k.status_antrian
+                FROM kunjungan k
+                JOIN pasien p ON k.id_pasien = p.id_pasien
+                WHERE DATE(k.tgl_kunjungan) = CURDATE() 
+                  AND k.status_antrian = 'ANTRI_BAYAR'
+                ORDER BY k.nomor_antrean ASC
+            """
+            cursor.execute(sql_kasir)
+            antrian_bayar = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "total_antrian": len(antrian_bayar),
+                "data": antrian_bayar
+            }
+    finally:
+        conn.close()
+# ==========================================
+# MODEL FORMULIR KASIR
+# ==========================================
+class VoidRequest(BaseModel):
+    id_staf_kasir: int
+    id_resep: int
+    username_manager: str
+    password_manager: str
+
+class PembayaranItem(BaseModel):
+    metode_bayar: str # 'TUNAI', 'DEBIT', 'QRIS', 'TRANSFER'
+    nominal: int
+
+class BayarRequest(BaseModel):
+    id_staf_kasir: int
+    nomor_antrean: int
+    subtotal: int
+    nominal_diskon: int
+    total_tagihan: int
+    pembayaran: List[PembayaranItem]
+
+# ==========================================
+# ENDPOINT 8 (VERSI FINAL): KALKULATOR TAGIHAN OTOMATIS
+# ==========================================
+@app.get("/kasir/tagihan/{nomor_antrean}")
+def get_tagihan_pasien(nomor_antrean: int, id_staf: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Verifikasi Kasir
+            verifikasi_kasir(cursor, id_staf)
+
+            # 2. Cari id_kunjungan dan info pasien
+            sql_kunjungan = """
+                SELECT k.id_kunjungan, p.id_pasien, p.nama, p.tipe_membership, k.status_antrian
+                FROM kunjungan k
+                JOIN pasien p ON k.id_pasien = p.id_pasien
+                WHERE k.nomor_antrean = %s AND DATE(k.tgl_kunjungan) = CURDATE()
+            """
+            cursor.execute(sql_kunjungan, (nomor_antrean,))
+            kunjungan = cursor.fetchone()
+            
+            if not kunjungan:
+                raise HTTPException(status_code=404, detail="Antrian tidak ditemukan hari ini.")
+            
+            id_kunjungan = kunjungan['id_kunjungan']
+
+            # --- 3. THE BULLETPROOF CHECK (Ide Dokter Hansen!) ---
+            # Cek apakah pasien ini SUDAH ADA di tabel transaksi_kasir?
+            cursor.execute("SELECT id_transaksi, total_tagihan, waktu_bayar FROM transaksi_kasir WHERE id_kunjungan = %s", (id_kunjungan,))
+            cek_lunas = cursor.fetchone()
+            
+            if cek_lunas:
+                # Jika sudah lunas, kembalikan tagihan 0 agar tidak ditagih ulang
+                return {
+                    "status": "success",
+                    "message": "TAGIHAN SUDAH LUNAS",
+                    "pasien": kunjungan['nama'],
+                    "waktu_bayar": cek_lunas['waktu_bayar'].strftime('%Y-%m-%d %H:%M:%S'),
+                    "rincian_tindakan": [],
+                    "rincian_produk": [],
+                    "ringkasan_biaya": {
+                        "subtotal": 0,
+                        "diskon_membership": 0,
+                        "total_tagihan": 0
+                    }
+                }
+            # ---------------------------------------------------
+
+            # 4. Jika BELUM LUNAS, Hitung Tagihan Tindakan/Treatment 
+            sql_tindakan = """
+                SELECT mt.nama_treatment, mt.harga 
+                FROM kunjungan_tindakan kt
+                JOIN master_treatment mt ON kt.id_treatment = mt.id_treatment
+                WHERE kt.id_kunjungan = %s
+            """
+            cursor.execute(sql_tindakan, (id_kunjungan,))
+            list_tindakan = cursor.fetchall()
+            total_tindakan = sum(int(t['harga']) for t in list_tindakan)
+
+            # 5. Hitung Tagihan Produk 
+            sql_produk = """
+                SELECT kr.id_resep, mp.nama_produk, kr.qty, mp.harga_jual, (kr.qty * mp.harga_jual) as subtotal_produk
+                FROM kunjungan_resep kr
+                JOIN master_produk mp ON kr.id_produk = mp.id_produk
+                WHERE kr.id_kunjungan = %s AND kr.status_item = 'PENDING'
+            """
+            cursor.execute(sql_produk, (id_kunjungan,))
+            list_produk = cursor.fetchall()
+            total_produk = sum(int(p['subtotal_produk']) for p in list_produk)
+
+            # 6. Logika Diskon Membership
+            persen_diskon = 0
+            if kunjungan['tipe_membership'] == 'VIP':
+                persen_diskon = 10 
+            elif kunjungan['tipe_membership'] == 'VVIP':
+                persen_diskon = 20 
+                
+            nominal_diskon = int(total_tindakan * (persen_diskon / 100))
+            subtotal_all = total_tindakan + total_produk
+            grand_total = subtotal_all - nominal_diskon
+
+            return {
+                "status": "success",
+                "pasien": kunjungan['nama'],
+                "membership": kunjungan['tipe_membership'],
+                "rincian_tindakan": list_tindakan,
+                "rincian_produk": list_produk,
+                "ringkasan_biaya": {
+                    "subtotal": subtotal_all,
+                    "diskon_membership": nominal_diskon,
+                    "keterangan_promo": f"Diskon Member {kunjungan['tipe_membership']} {persen_diskon}% untuk Tindakan",
+                    "total_tagihan": grand_total
+                }
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 9: VOID ITEM DENGAN OTORISASI MANAGER
+# ==========================================
+@app.post("/kasir/void_item")
+def void_item_keranjang(request: VoidRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            verifikasi_kasir(cursor, request.id_staf_kasir)
+
+            # 1. Cek Username & Password Manager di master_staf
+            sql_cek_manager = "SELECT id_staf, role FROM master_staf WHERE username = %s AND password_hash = %s"
+            cursor.execute(sql_cek_manager, (request.username_manager, request.password_manager))
+            manager = cursor.fetchone()
+
+            if not manager or manager['role'].upper() not in ['ADMIN', 'SUPERADMIN', 'OWNER']:
+                raise HTTPException(status_code=401, detail="Otorisasi Gagal. Username/Password Manager salah atau tidak memiliki akses.")
+
+            # 2. Eksekusi Void (Soft Delete)
+            sql_void = """
+                UPDATE kunjungan_resep 
+                SET status_item = 'BATAL', id_staf_void = %s, waktu_void = NOW() 
+                WHERE id_resep = %s AND status_item = 'PENDING'
+            """
+            cursor.execute(sql_void, (manager['id_staf'], request.id_resep))
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Item tidak ditemukan atau sudah dibatalkan.")
+
+            return {"status": "success", "message": "Item berhasil dibatalkan oleh Manager."}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 10: PROSES PEMBAYARAN (SPLIT BILL READY)
+# ==========================================
+@app.post("/kasir/bayar")
+def eksekusi_pembayaran(request: BayarRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            verifikasi_kasir(cursor, request.id_staf_kasir)
+
+            # 1. Cari id_kunjungan dari antrean
+            cursor.execute("SELECT id_kunjungan FROM kunjungan WHERE nomor_antrean = %s AND DATE(tgl_kunjungan) = CURDATE()", (request.nomor_antrean,))
+            hasil = cursor.fetchone()
+            if not hasil:
+                raise HTTPException(status_code=404, detail="Antrian tidak valid.")
+            id_kunj = hasil['id_kunjungan']
+
+            # 2. Validasi jumlah uang (Total bayar harus >= Total tagihan)
+            total_bayar_pasien = sum(item.nominal for item in request.pembayaran)
+            if total_bayar_pasien < request.total_tagihan:
+                raise HTTPException(status_code=400, detail="Nominal pembayaran kurang dari total tagihan!")
+
+            # 3. Insert ke transaksi_kasir (Mesin Induk Uang)
+            sql_kasir = """
+                INSERT INTO transaksi_kasir (id_kunjungan, id_staf_kasir, rincian_tagihan, subtotal, nominal_diskon, total_tagihan)
+                VALUES (%s, %s, 'Rincian tersimpan di sistem', %s, %s, %s)
+            """
+            cursor.execute(sql_kasir, (id_kunj, request.id_staf_kasir, request.subtotal, request.nominal_diskon, request.total_tagihan))
+            id_transaksi_baru = cursor.lastrowid
+
+            # 4. Insert ke transaksi_pembayaran (Split Payment)
+            sql_split = "INSERT INTO transaksi_pembayaran (id_transaksi, metode_bayar, nominal) VALUES (%s, %s, %s)"
+            for bayar in request.pembayaran:
+                cursor.execute(sql_split, (id_transaksi_baru, bayar.metode_bayar, bayar.nominal))
+
+            # 5. Kunci Produk yang dibeli menjadi status 'DIBAYAR' & Pindahkan ke transaksi_detail_produk
+            # (Agar ter-link dengan invoice ini)
+            cursor.execute("SELECT id_produk, qty FROM kunjungan_resep WHERE id_kunjungan = %s AND status_item = 'PENDING'", (id_kunj,))
+            keranjang = cursor.fetchall()
+            
+            sql_detail = "INSERT INTO transaksi_detail_produk (id_transaksi, id_produk, qty, harga_satuan, subtotal) VALUES (%s, %s, %s, 0, 0)" # Harga bisa disempurnakan lagi join dengan master
+            for item in keranjang:
+                cursor.execute(sql_detail, (id_transaksi_baru, item['id_produk'], item['qty']))
+
+            cursor.execute("UPDATE kunjungan_resep SET status_item = 'DIBAYAR' WHERE id_kunjungan = %s AND status_item = 'PENDING'", (id_kunj,))
+
+            # 6. Update status pasien menjadi AMBIL_PRODUK
+            cursor.execute("UPDATE kunjungan SET status_antrian = 'AMBIL_PRODUK' WHERE id_kunjungan = %s", (id_kunj,))
+
+            conn.commit()
+            
+            kembalian = total_bayar_pasien - request.total_tagihan
+
+            return {
+                "status": "success",
+                "message": "Pembayaran Berhasil! Silakan cetak struk.",
+                "data": {
+                    "id_transaksi": id_transaksi_baru,
+                    "uang_diterima": total_bayar_pasien,
+                    "kembalian": kembalian
+                }
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 11: LAPORAN PENUTUPAN SHIFT (EOS/EOD)
+# ==========================================
+@app.get("/kasir/rekap_shift")
+def get_rekap_shift(id_staf: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Verifikasi Kasir & Ambil Jangkar Waktu Shift
+            cursor.execute("SELECT nama_staf, waktu_mulai_shift FROM master_staf WHERE id_staf = %s", (id_staf,))
+            staf = cursor.fetchone()
+            
+            if not staf or not staf['waktu_mulai_shift']:
+                raise HTTPException(status_code=400, detail="Data shift tidak ditemukan. Pastikan Anda sudah login.")
+
+            start_shift = staf['waktu_mulai_shift']
+
+            # 2. Hitung Total Omzet & Total Pasien sejak awal shift
+            sql_omzet = """
+                SELECT 
+                    COUNT(id_transaksi) as total_pasien,
+                    SUM(subtotal) as total_gross,
+                    SUM(nominal_diskon) as total_diskon,
+                    SUM(total_tagihan) as total_netto
+                FROM transaksi_kasir
+                WHERE id_staf_kasir = %s AND waktu_bayar >= %s
+            """
+            cursor.execute(sql_omzet, (id_staf, start_shift))
+            ringkasan = cursor.fetchone()
+
+            # 3. Rincian per Metode Pembayaran (Untuk Hitung Laci)
+            sql_metode = """
+                SELECT tp.metode_bayar, SUM(tp.nominal) as total_per_metode
+                FROM transaksi_pembayaran tp
+                JOIN transaksi_kasir tk ON tp.id_transaksi = tk.id_transaksi
+                WHERE tk.id_staf_kasir = %s AND tk.waktu_bayar >= %s
+                GROUP BY tp.metode_bayar
+            """
+            cursor.execute(sql_metode, (id_staf, start_shift))
+            rincian_pembayaran = cursor.fetchall()
+
+            # 4. Rincian Penjualan Produk (Untuk Cek Stok)
+            sql_produk_terjual = """
+                SELECT mp.nama_produk, SUM(tdp.qty) as total_qty
+                FROM transaksi_detail_produk tdp
+                JOIN transaksi_kasir tk ON tdp.id_transaksi = tk.id_transaksi
+                JOIN master_produk mp ON tdp.id_produk = mp.id_produk
+                WHERE tk.id_staf_kasir = %s AND tk.waktu_bayar >= %s
+                GROUP BY mp.nama_produk
+            """
+            cursor.execute(sql_produk_terjual, (id_staf, start_shift))
+            produk_terjual = cursor.fetchall()
+
+            # 3.5 Rincian Penjualan Tindakan (Untuk Statistik Layanan)
+            sql_tindakan_terjual = """
+                SELECT mt.nama_treatment, COUNT(kt.id_treatment) as total_tindakan
+                FROM kunjungan_tindakan kt
+                JOIN transaksi_kasir tk ON kt.id_kunjungan = tk.id_kunjungan
+                JOIN master_treatment mt ON kt.id_treatment = mt.id_treatment
+                WHERE tk.id_staf_kasir = %s AND tk.waktu_bayar >= %s
+                GROUP BY mt.nama_treatment
+            """
+            cursor.execute(sql_tindakan_terjual, (id_staf, start_shift))
+            tindakan_terjual = cursor.fetchall()
+
+            # --- Lalu tambahkan 'tindakan_terjual' ke dalam Return JSON di bawahnya ---
+            return {
+                "status": "success",
+                "info_shift": {
+                    "kasir": staf['nama_staf'],
+                    "mulai_shift": start_shift.strftime('%Y-%m-%d %H:%M:%S'),
+                    "waktu_rekap": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                },
+                "performa_penjualan": {
+                    "jumlah_pasien": ringkasan['total_pasien'] or 0,
+                    "total_gross": int(ringkasan['total_gross'] or 0),
+                    "total_diskon": int(ringkasan['total_diskon'] or 0),
+                    "total_netto": int(ringkasan['total_netto'] or 0)
+                },
+                "rincian_pembayaran_laci": rincian_pembayaran,
+                "rincian_produk_terjual": produk_terjual,
+                "rincian_tindakan_terjual": tindakan_terjual # <-- Tambahkan baris ini
+            } 
+
+            return {
+                "status": "success",
+                "info_shift": {
+                    "kasir": staf['nama_staf'],
+                    "mulai_shift": start_shift.strftime('%Y-%m-%d %H:%M:%S'),
+                    "waktu_rekap": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                },
+                "performa_penjualan": {
+                    "jumlah_pasien": ringkasan['total_pasien'] or 0,
+                    "total_gross": int(ringkasan['total_gross'] or 0),
+                    "total_diskon": int(ringkasan['total_diskon'] or 0),
+                    "total_netto": int(ringkasan['total_netto'] or 0)
+                },
+                "rincian_pembayaran_laci": rincian_pembayaran,
+                "rincian_produk_terjual": produk_terjual
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# HELPER FUNCTIONS: KOMPUTASI KLINIS
+# ==========================================
+def hitung_usia(tgl_lahir):
+    if not tgl_lahir:
+        return 0
+    today = date.today()
+    return today.year - tgl_lahir.year - ((today.month, today.day) < (tgl_lahir.month, tgl_lahir.day))
+
+def hitung_bmi(berat_kg, tinggi_cm):
+    if not berat_kg or not tinggi_cm or tinggi_cm == 0:
+        return 0.0
+    tinggi_m = tinggi_cm / 100
+    return round(berat_kg / (tinggi_m ** 2), 1)
+
+def hitung_body_fat_pollock(jk, usia, sum_skinfold):
+    # Menggunakan Formula Jackson-Pollock 3-Site & Persamaan Siri
+    if sum_skinfold <= 0 or usia <= 0:
+        return 0.0
+    
+    body_density = 0.0
+    if jk.upper() == 'L':
+        body_density = 1.10938 - (0.0008267 * sum_skinfold) + (0.0000016 * (sum_skinfold ** 2)) - (0.0002574 * usia)
+    else: # Perempuan
+        body_density = 1.0994921 - (0.0009929 * sum_skinfold) + (0.0000023 * (sum_skinfold ** 2)) - (0.0001392 * usia)
+    
+    if body_density <= 0: return 0.0
+    body_fat_pct = (495 / body_density) - 450
+    return round(max(0, body_fat_pct), 1)
+
+# ==========================================
+# ENDPOINT 12: HEADER PASIEN (THE GOLDEN INFO)
+# ==========================================
+@app.get("/dokter/header_pasien/{id_pasien}")
+def get_header_pasien(id_staf: int, id_pasien: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Opsional: Bisa tambahkan verifikasi_dokter(cursor, id_staf) jika perlu
+            
+            # --- 1. AMBIL IDENTITAS PASIEN ---
+            cursor.execute("""
+                SELECT no_rm, nama, jenis_kelamin, tgl_lahir, nomor_telepon, alamat, tipe_membership 
+                FROM pasien WHERE id_pasien = %s
+            """, (id_pasien,))
+            pasien = cursor.fetchone()
+            
+            if not pasien:
+                raise HTTPException(status_code=404, detail="Pasien tidak ditemukan.")
+                
+            usia_pasien = hitung_usia(pasien['tgl_lahir'])
+
+            # --- 2. AMBIL DATA ALERGI ---
+            cursor.execute("""
+                SELECT id_alergi, alergen, gejala, tingkat_keparahan 
+                FROM pasien_alergi 
+                WHERE id_pasien = %s AND is_active = 1
+                ORDER BY id_alergi DESC
+            """, (id_pasien,))
+            alergi_list = cursor.fetchall()
+            
+            total_alergi = len(alergi_list)
+            alergi_terbaru = alergi_list[0] if total_alergi > 0 else None
+
+            # --- 3. AMBIL DATA ANTROPOMETRI TERAKHIR ---
+            # Kita cari kunjungan_antropometri terbaru milik pasien ini (JOIN dengan kunjungan)
+            cursor.execute("""
+                SELECT ka.* FROM kunjungan_antropometri ka
+                JOIN kunjungan k ON ka.id_kunjungan = k.id_kunjungan
+                WHERE k.id_pasien = %s
+                ORDER BY ka.created_at DESC LIMIT 1
+            """, (id_pasien,))
+            antro = cursor.fetchone()
+
+            # Hitung Nilai Klinis jika ada data antropometri
+            hasil_antro = None
+            if antro:
+                bmi = hitung_bmi(antro['berat_badan'], antro['tinggi_badan'])
+                
+                # Hitung Total 3-Site Skinfold
+                sum_sf = (antro['skinfold_titik_1'] or 0) + (antro['skinfold_titik_2'] or 0) + (antro['skinfold_titik_3'] or 0)
+                fat_pct = hitung_body_fat_pollock(pasien['jenis_kelamin'], usia_pasien, sum_sf)
+                lean_pct = round(100.0 - fat_pct, 1) if fat_pct > 0 else 0.0
+
+                hasil_antro = {
+                    "berat_badan": antro['berat_badan'],
+                    "tinggi_badan": antro['tinggi_badan'],
+                    "bmi": bmi,
+                    "fat_percentage": fat_pct,
+                    "lean_percentage": lean_pct,
+                    "tekanan_darah": antro['tekanan_darah'],
+                    "tgl_ukur": antro['created_at'].strftime('%Y-%m-%d')
+                }
+
+            # --- 4. FORMAT OUTPUT UNTUK FRONTEND MOCKUP ---
+            return {
+                "status": "success",
+                "grid_kiri_identitas": {
+                    "nama": pasien['nama'],
+                    "usia": usia_pasien,
+                    "jenis_kelamin": pasien['jenis_kelamin'],
+                    "detail_hover": {
+                        "no_rm": pasien['no_rm'],
+                        "membership": pasien['tipe_membership'],
+                        "telepon": pasien['nomor_telepon'],
+                        "alamat": pasien['alamat']
+                    }
+                },
+                "grid_tengah_alergi": {
+                    "total_alergi": total_alergi,
+                    "alergi_display": alergi_terbaru, # Tampilkan ini di sunken textbox
+                    "daftar_lengkap": alergi_list # Munculkan ini saat di-hover/klik
+                },
+                "grid_kanan_antropometri": {
+                    "has_data": antro is not None,
+                    "data": hasil_antro # Jika has_data false, Frontend akan tampilkan tulisan "Tambah Data Antropometri"
+                }
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# HELPER FUNCTION: PEMOTONG TEKS (TRUNCATE)
+# ==========================================
+def ringkas_teks(teks, batas_karakter=50):
+    if not teks:
+        return "-"
+    if len(teks) > batas_karakter:
+        return teks[:batas_karakter] + "..."
+    return teks
+
+# ==========================================
+# ENDPOINT 13: DATA TAB SUMMARY (4 CARDBOX)
+# ==========================================
+@app.get("/dokter/summary_pasien/{id_pasien}")
+def get_summary_pasien(id_pasien: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. CARDBOX KIRI ATAS: Riwayat SOAP / Pemeriksaan Klinis (Limit 10)
+            cursor.execute("""
+                SELECT pk.created_at, ms.nama_staf AS dokter, pk.anamnesa, pk.diagnosa
+                FROM pemeriksaan_klinis pk
+                LEFT JOIN master_staf ms ON pk.id_staf_dokter = ms.id_staf
+                WHERE pk.id_pasien = %s
+                ORDER BY pk.created_at DESC LIMIT 10
+            """, (id_pasien,))
+            soap_raw = cursor.fetchall()
+            
+            # Format SOAP agar ringkas
+            riwayat_soap = []
+            for s in soap_raw:
+                riwayat_soap.append({
+                    "tanggal": s['created_at'].strftime('%d/%m/%Y'),
+                    "dokter": s['dokter'] or "Tidak diketahui",
+                    "ringkasan_anamnesa": ringkas_teks(s['anamnesa']),
+                    "ringkasan_diagnosa": ringkas_teks(s['diagnosa']),
+                    "full_anamnesa": s['anamnesa'], # Disimpan untuk pop-up/click di frontend
+                    "full_diagnosa": s['diagnosa']
+                })
+
+            # 2. CARDBOX KIRI BAWAH: Riwayat Pembelian Produk (Limit 10)
+            cursor.execute("""
+                SELECT DATE(k.tgl_kunjungan) as tanggal, mp.nama_produk, kr.qty
+                FROM kunjungan_resep kr
+                JOIN master_produk mp ON kr.id_produk = mp.id_produk
+                JOIN kunjungan k ON kr.id_kunjungan = k.id_kunjungan
+                WHERE k.id_pasien = %s AND kr.status_item = 'DIBAYAR'
+                ORDER BY k.tgl_kunjungan DESC LIMIT 10
+            """, (id_pasien,))
+            riwayat_produk = cursor.fetchall()
+
+            # 3. CARDBOX KANAN BAWAH: Riwayat Treatment (Limit 10)
+            cursor.execute("""
+                SELECT DATE(k.tgl_kunjungan) as tanggal, mt.nama_treatment
+                FROM kunjungan_tindakan kt
+                JOIN master_treatment mt ON kt.id_treatment = mt.id_treatment
+                JOIN kunjungan k ON kt.id_kunjungan = k.id_kunjungan
+                WHERE k.id_pasien = %s AND kt.status_tindakan = 'SELESAI'
+                ORDER BY k.tgl_kunjungan DESC LIMIT 10
+            """, (id_pasien,))
+            riwayat_treatment = cursor.fetchall()
+
+            # 4. CARDBOX KANAN ATAS: Foto Before/After
+            # Jika tabel kunjungan_foto belum ada, kita return list kosong sementara agar tidak error
+            try:
+                cursor.execute("""
+                    SELECT kategori, url_path, created_at
+                    FROM kunjungan_foto
+                    WHERE id_pasien = %s
+                    ORDER BY created_at DESC LIMIT 6
+                """, (id_pasien,))
+                riwayat_foto = cursor.fetchall()
+            except Exception:
+                riwayat_foto = [] # Tabel mungkin belum dibuat, abaikan errornya
+
+            return {
+                "status": "success",
+                "cardbox_kiri_atas_soap": riwayat_soap,
+                "cardbox_kiri_bawah_produk": riwayat_produk,
+                "cardbox_kanan_bawah_treatment": riwayat_treatment,
+                "cardbox_kanan_atas_foto": riwayat_foto
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# SUB-MODEL FORMULIR TAMBAH MEDIS (ARRAY)
+# ==========================================
+class InputTindakanItem(BaseModel):
+    id_treatment: int
+    is_series: bool # True jika ini rencana paket, False jika dikerjakan hari ini
+    jumlah_sesi: int = 1 # Hanya dipakai jika is_series = True
+
+class InputResepItem(BaseModel):
+    id_produk: int
+    qty: float
+    aturan_pakai: str = ""
+    # Catatan: Iterasi (resep yang bisa diulang tanpa konsul) kita skip dulu 
+    # di prototipe ini agar tidak terlalu rumit, kita fokus ke keranjang dasar.
+
+# ==========================================
+# SUPER MODEL: FORMULIR INPUT DOKTER (SOAP+)
+# ==========================================
+class InputMedisRequest(BaseModel):
+    id_staf_dokter: int
+    id_kunjungan: int
+    id_pasien: int
+    
+    # --- Kolom Kanan: SOAP ---
+    anamnesa: str = ""
+    pemeriksaan_fisik: str = ""
+    diagnosa: str = ""
+    
+    # --- Kolom Kiri: Tindakan & Resep ---
+    tindakan_baru: List[InputTindakanItem] = []
+    resep_produk: List[InputResepItem] = []
+
+# ==========================================
+# ENDPOINT 14: SUBMIT DATA MEDIS DOKTER
+# ==========================================
+@app.post("/dokter/input_medis")
+def submit_input_medis(request: InputMedisRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Opsional: Cek Otorisasi (verifikasi_dokter)
+            
+            # --- 1. SIMPAN SOAP (Pemeriksaan Klinis) ---
+            # Kita simpan Anamnesa, PF, dan Diagnosa (Saran kita satukan di bawah nanti)
+            sql_soap = """
+                INSERT INTO pemeriksaan_klinis (id_kunjungan, id_pasien, anamnesa, pemeriksaan_fisik, diagnosa, id_staf_dokter)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(sql_soap, (request.id_kunjungan, request.id_pasien, request.anamnesa, request.pemeriksaan_fisik, request.diagnosa, request.id_staf_dokter))
+
+            # --- 2. PECAH LOGIKA TINDAKAN (SINGLE vs SERIES) ---
+            if request.tindakan_baru:
+                sql_tindakan_hari_ini = "INSERT INTO kunjungan_tindakan (id_kunjungan, id_treatment, status_tindakan) VALUES (%s, %s, 'PENDING')"
+                sql_rencana_series = "INSERT INTO pasien_rencana_treatment (id_pasien, urutan_sesi, nama_tindakan) VALUES (%s, %s, %s)"
+                
+                for t in request.tindakan_baru:
+                    # Cari nama treatment dari master (Untuk dimasukkan ke rencana)
+                    cursor.execute("SELECT nama_treatment FROM master_treatment WHERE id_treatment = %s", (t.id_treatment,))
+                    nama_t = cursor.fetchone()
+                    nama_treatment_db = nama_t['nama_treatment'] if nama_t else "Treatment Unknown"
+
+                    if t.is_series:
+                        # Logika Series: Kita generate baris sebanyak 'jumlah_sesi' di tabel rencana
+                        for sesi in range(1, t.jumlah_sesi + 1):
+                            cursor.execute(sql_rencana_series, (request.id_pasien, sesi, nama_treatment_db))
+                    else:
+                        # Logika Single: Langsung masuk ke tagihan/tugas hari ini
+                        cursor.execute(sql_tindakan_hari_ini, (request.id_kunjungan, t.id_treatment))
+
+            # --- 3. MASUKKAN RESEP PRODUK ---
+            if request.resep_produk:
+                sql_resep = """
+                    INSERT INTO kunjungan_resep (id_kunjungan, id_produk, qty, aturan_pakai, id_staf_input)
+                    VALUES (%s, %s, %s, %s, %s)
+                """
+                for p in request.resep_produk:
+                    cursor.execute(sql_resep, (request.id_kunjungan, p.id_produk, p.qty, p.aturan_pakai, request.id_staf_dokter))
+
+            # --- 4. UPDATE STATUS KUNJUNGAN ---
+            # Jika semua sukses, ubah status antrian agar FO/Kasir tahu dokter sudah selesai
+            # Jika ada tindakan Single, lempar ke ANTRI_TREATMENT. Jika tidak ada, lempar ke ANTRI_BAYAR.
+            
+            status_selanjutnya = 'ANTRI_BAYAR' # Default langsung pulang/bayar
+            if any(not t.is_series for t in request.tindakan_baru):
+                status_selanjutnya = 'ANTRI_TREATMENT' # Ada tindakan hari ini, lempar ke Perawat
+                
+            cursor.execute("UPDATE kunjungan SET status_antrian = %s WHERE id_kunjungan = %s", (status_selanjutnya, request.id_kunjungan))
+
+            conn.commit()
+
+            return {
+                "status": "success",
+                "message": f"Data SOAP dan instruksi medis berhasil disimpan. Pasien diarahkan ke: {status_selanjutnya}"
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL FORMULIR ALERGI & ANTROPOMETRI
+# ==========================================
+class TambahAlergiRequest(BaseModel):
+    id_pasien: int
+    alergen: str
+    gejala: str = ""
+    tingkat_keparahan: str = "Ringan" # Ringan, Sedang, Berat
+
+class InputAntropometriRequest(BaseModel):
+    id_kunjungan: int
+    berat_badan: float
+    tinggi_badan: float
+    tekanan_darah: str = ""
+    skinfold_titik_1: float = 0.0 # mm (Trisep / Dada)
+    skinfold_titik_2: float = 0.0 # mm (Suprailiaka / Perut)
+    skinfold_titik_3: float = 0.0 # mm (Paha)
+
+# ==========================================
+# ENDPOINT 15: TAMBAH ALERGI BARU
+# ==========================================
+@app.post("/dokter/alergi")
+def tambah_alergi(request: TambahAlergiRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Karena alergi sifatnya permanen, kita kaitkan langsung ke id_pasien
+            sql = """
+                INSERT INTO pasien_alergi (id_pasien, alergen, gejala, tingkat_keparahan, is_active) 
+                VALUES (%s, %s, %s, %s, 1)
+            """
+            cursor.execute(sql, (request.id_pasien, request.alergen, request.gejala, request.tingkat_keparahan))
+            conn.commit()
+            return {"status": "success", "message": f"Alergi '{request.alergen}' berhasil ditambahkan."}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 16: HAPUS ALERGI (SOFT DELETE)
+# ==========================================
+@app.delete("/dokter/alergi/{id_alergi}")
+def hapus_alergi(id_alergi: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Di dunia medis (EMR), kita haram menghapus data fisik (DELETE FROM).
+            # Kita gunakan "Soft Delete" dengan mengubah status is_active menjadi 0
+            sql = "UPDATE pasien_alergi SET is_active = 0 WHERE id_alergi = %s"
+            cursor.execute(sql, (id_alergi,))
+            conn.commit()
+            
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Data alergi tidak ditemukan.")
+                
+            return {"status": "success", "message": "Alergi berhasil dihapus dari catatan aktif."}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 17: UPDATE/TAMBAH ANTROPOMETRI
+# ==========================================
+@app.post("/dokter/antropometri")
+def input_antropometri(request: InputAntropometriRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Antropometri dikaitkan ke id_kunjungan (tiket hari ini)
+            # Karena bisa jadi perawat salah input dan dokter ingin membetulkan di ruangan,
+            # kita cek dulu apakah kunjungan ini sudah punya data antropometri?
+            
+            cursor.execute("SELECT id_antropometri FROM kunjungan_antropometri WHERE id_kunjungan = %s", (request.id_kunjungan,))
+            cek_data = cursor.fetchone()
+
+            if cek_data:
+                # Jika sudah ada, kita UPDATE data yang ada (agar tidak dobel di hari yang sama)
+                sql_update = """
+                    UPDATE kunjungan_antropometri 
+                    SET berat_badan=%s, tinggi_badan=%s, tekanan_darah=%s, 
+                        skinfold_titik_1=%s, skinfold_titik_2=%s, skinfold_titik_3=%s
+                    WHERE id_kunjungan = %s
+                """
+                cursor.execute(sql_update, (
+                    request.berat_badan, request.tinggi_badan, request.tekanan_darah, 
+                    request.skinfold_titik_1, request.skinfold_titik_2, request.skinfold_titik_3, 
+                    request.id_kunjungan
+                ))
+                pesan = "Data antropometri kunjungan ini berhasil diperbarui."
+            else:
+                # Jika belum ada (misal perawat lupa, dokter yang menimbang), kita INSERT baru
+                sql_insert = """
+                    INSERT INTO kunjungan_antropometri 
+                    (id_kunjungan, berat_badan, tinggi_badan, tekanan_darah, skinfold_titik_1, skinfold_titik_2, skinfold_titik_3) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(sql_insert, (
+                    request.id_kunjungan, request.berat_badan, request.tinggi_badan, request.tekanan_darah, 
+                    request.skinfold_titik_1, request.skinfold_titik_2, request.skinfold_titik_3
+                ))
+                pesan = "Data antropometri baru berhasil ditambahkan."
+
+            conn.commit()
+            return {"status": "success", "message": pesan}
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL RUANG TINDAKAN (START & END)
+# ==========================================
+class StartTreatmentRequest(BaseModel):
+    id_kunjungan_tindakan: int
+    id_staf_pelaksana: int # Diisi otomatis oleh Frontend (ID Perawat) atau dari Pop-up PIN (ID Dokter)
+    pin_otorisasi: str = "" # Disiapkan untuk validasi PIN Dokter nanti
+
+class EndTreatmentRequest(BaseModel):
+    id_kunjungan_tindakan: int
+
+# ==========================================
+# ENDPOINT 20: DAFTAR ANTREAN RUANG TINDAKAN
+# ==========================================
+@app.get("/ruang_tindakan/antrian")
+def get_antrian_tindakan():
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Ambil pasien yang berstatus ANTRI_TREATMENT atau ON_TREATMENT
+            # Asumsi: tabel kunjungan memiliki kolom waktu_kedatangan atau created_at
+            sql = """
+                SELECT k.id_kunjungan, p.nama, p.no_rm, p.jenis_kelamin, k.status_antrian
+                FROM kunjungan k
+                JOIN pasien p ON k.id_pasien = p.id_pasien
+                WHERE k.status_antrian IN ('ANTRI_TREATMENT', 'ON_TREATMENT')
+                ORDER BY k.id_kunjungan ASC
+            """
+            cursor.execute(sql)
+            antrian = cursor.fetchall()
+            return {"status": "success", "total_antrian": len(antrian), "data": antrian}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 21: DETAIL TINDAKAN (KOLOM KIRI IPAD)
+# ==========================================
+@app.get("/ruang_tindakan/detail/{id_kunjungan}")
+def get_detail_tindakan(id_kunjungan: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Ambil catatan dokter (Instruksi medis dari SOAP)
+            cursor.execute("""
+                SELECT anamnesa, pemeriksaan_fisik, diagnosa 
+                FROM pemeriksaan_klinis 
+                WHERE id_kunjungan = %s LIMIT 1
+            """, (id_kunjungan,))
+            catatan_dokter = cursor.fetchone()
+
+            # 2. Ambil daftar tindakannya
+            sql_tindakan = """
+                SELECT kt.id_kunjungan_tindakan, mt.nama_treatment, kt.status_tindakan, 
+                       kt.waktu_mulai, kt.waktu_selesai
+                FROM kunjungan_tindakan kt
+                JOIN master_treatment mt ON kt.id_treatment = mt.id_treatment
+                WHERE kt.id_kunjungan = %s
+                ORDER BY kt.id_kunjungan_tindakan ASC
+            """
+            cursor.execute(sql_tindakan, (id_kunjungan,))
+            daftar_tindakan = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "instruksi_dokter": catatan_dokter,
+                "daftar_tindakan": daftar_tindakan
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 18: START TINDAKAN (STOPWATCH ON)
+# ==========================================
+@app.post("/ruang_tindakan/start")
+def start_treatment(request: StartTreatmentRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Opsional masa depan: Tambahkan logika cek PIN di sini jika yang mengeksekusi adalah Dokter
+            
+            # Update status, catat staf pelaksana, dan mulai waktu (menggunakan CURRENT_TIMESTAMP MySQL)
+            sql = """
+                UPDATE kunjungan_tindakan 
+                SET status_tindakan = 'PROSES', 
+                    waktu_mulai = CURRENT_TIMESTAMP,
+                    id_staf_pelaksana = %s
+                WHERE id_kunjungan_tindakan = %s AND status_tindakan = 'PENDING'
+            """
+            cursor.execute(sql, (request.id_staf_pelaksana, request.id_kunjungan_tindakan))
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=400, detail="Tindakan tidak ditemukan atau sudah dimulai/selesai.")
+
+            return {"status": "success", "message": "Tindakan dimulai, waktu sedang berjalan."}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 19: END TINDAKAN & THE SMART TRIGGER
+# ==========================================
+@app.post("/ruang_tindakan/end")
+def end_treatment(request: EndTreatmentRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. HENTIKAN STOPWATCH & UBAH STATUS TINDAKAN
+            sql_end = """
+                UPDATE kunjungan_tindakan 
+                SET status_tindakan = 'SELESAI', 
+                    waktu_selesai = CURRENT_TIMESTAMP
+                WHERE id_kunjungan_tindakan = %s AND status_tindakan = 'PROSES'
+            """
+            cursor.execute(sql_end, (request.id_kunjungan_tindakan,))
+            
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=400, detail="Gagal mengakhiri tindakan. Pastikan tindakan sedang dalam 'PROSES'.")
+
+            # 2. AMBIL ID KUNJUNGAN DARI TINDAKAN INI (Untuk keperluan Smart Check)
+            cursor.execute("SELECT id_kunjungan FROM kunjungan_tindakan WHERE id_kunjungan_tindakan = %s", (request.id_kunjungan_tindakan,))
+            hasil = cursor.fetchone()
+            id_kunj_terkait = hasil['id_kunjungan']
+
+            # 3. THE SMART CHECK: Apakah masih ada tindakan lain yang tertunda?
+            cursor.execute("""
+                SELECT COUNT(*) as sisa_tindakan 
+                FROM kunjungan_tindakan 
+                WHERE id_kunjungan = %s AND status_tindakan IN ('PENDING', 'PROSES')
+            """, (id_kunj_terkait,))
+            sisa = cursor.fetchone()['sisa_tindakan']
+
+            status_pasien = "ON_TREATMENT (Masih ada tindakan lain)"
+            
+            # 4. UNIVERSAL TRIGGER: Jika semua beres, lempar ke Kasir!
+            if sisa == 0:
+                cursor.execute("UPDATE kunjungan SET status_antrian = 'ANTRI_BAYAR' WHERE id_kunjungan = %s", (id_kunj_terkait,))
+                status_pasien = "ANTRI_BAYAR (Seluruh rangkaian tindakan selesai)"
+
+            conn.commit()
+            return {
+                "status": "success", 
+                "message": f"Tindakan selesai dicatat. Status pasien saat ini: {status_pasien}"
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL UPSELLING DARI RUANG TINDAKAN
+# ==========================================
+class UpsellRequest(BaseModel):
+    id_kunjungan: int
+    tipe_item: str # 'TREATMENT' atau 'PRODUK'
+    id_item: int   # id_treatment atau id_produk
+    qty: float = 1.0 # Default 1, berguna jika upsell produk (misal: 2 pot krim)
+    id_staf_pengusul: int # ID Perawat yang login di iPad
+    
+    # Kolom ini hanya diisi jika item butuh otorisasi (Skenario B)
+    id_staf_otorisasi: int = None 
+    pin_otorisasi: str = None
+
+# ==========================================
+# ENDPOINT 22: SUBMIT UPSELL & OTORISASI (VERSI AMAN)
+# ==========================================
+@app.post("/ruang_tindakan/upsell")
+def submit_upsell(request: UpsellRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            
+            # 1. CEK DULU KE DATABASE, APAKAH BARANG INI BUTUH OTORISASI?
+            is_restricted = 0
+            if request.tipe_item.upper() == 'TREATMENT':
+                cursor.execute("SELECT butuh_otorisasi FROM master_treatment WHERE id_treatment = %s", (request.id_item,))
+                cek_tindakan = cursor.fetchone()
+                if not cek_tindakan:
+                    raise HTTPException(status_code=404, detail="Treatment tidak ditemukan.")
+                is_restricted = cek_tindakan['butuh_otorisasi']
+
+            # (Jika ke depannya produk/krim juga punya kolom butuh_otorisasi, bisa ditambahkan logikanya di sini)
+
+            # 2. LOGIKA KEAMANAN: JIKA BUTUH OTORISASI, CEK PIN DENGAN TEGAS!
+            if is_restricted == 1:
+                # Tolak mentah-mentah jika frontend tidak mengirimkan ID Dokter atau PIN
+                if not request.id_staf_otorisasi or not request.pin_otorisasi:
+                    raise HTTPException(status_code=401, detail="Tindakan ini butuh Otorisasi Dokter! Harap masukkan PIN.")
+                
+                # Cek kebenaran PIN di tabel staf
+                cursor.execute("SELECT id_staf FROM master_staf WHERE id_staf = %s AND pin = %s", 
+                               (request.id_staf_otorisasi, request.pin_otorisasi))
+                if not cursor.fetchone():
+                    raise HTTPException(status_code=401, detail="PIN Otorisasi Dokter Salah!")
+
+            # 3. JIKA LOLOS VALIDASI DI ATAS, BARU MASUKKAN KE KERANJANG
+            if request.tipe_item.upper() == 'TREATMENT':
+                sql = """
+                    INSERT INTO kunjungan_tindakan 
+                    (id_kunjungan, id_treatment, status_tindakan, id_staf_pelaksana) 
+                    VALUES (%s, %s, 'PENDING', %s)
+                """
+                cursor.execute(sql, (request.id_kunjungan, request.id_item, request.id_staf_pengusul))
+                pesan = "Upsell Tindakan berhasil ditambahkan ke antrean."
+                
+            elif request.tipe_item.upper() == 'PRODUK':
+                sql = """
+                    INSERT INTO kunjungan_resep 
+                    (id_kunjungan, id_produk, qty, id_staf_input) 
+                    VALUES (%s, %s, %s, %s)
+                """
+                cursor.execute(sql, (request.id_kunjungan, request.id_item, request.qty, request.id_staf_pengusul))
+                pesan = "Upsell Produk berhasil dimasukkan ke keranjang Kasir."
+                
+            else:
+                raise HTTPException(status_code=400, detail="Tipe item tidak dikenali (Pilih TREATMENT / PRODUK)")
+
+            # 4. KEMBALIKAN STATUS KE ON_TREATMENT
+            cursor.execute("UPDATE kunjungan SET status_antrian = 'ON_TREATMENT' WHERE id_kunjungan = %s", (request.id_kunjungan,))
+
+            conn.commit()
+            return {"status": "success", "message": pesan}
+    finally:
+        conn.close()
+# ==========================================
+# ENDPOINT 19: END TINDAKAN & AUTO POTONG BHP + HISTORY LOG
+# ==========================================
+@app.post("/ruang_tindakan/end")
+def end_treatment(request: EndTreatmentRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. HENTIKAN STOPWATCH & UBAH STATUS TINDAKAN
+            sql_end = """
+                UPDATE kunjungan_tindakan 
+                SET status_tindakan = 'SELESAI', 
+                    waktu_selesai = CURRENT_TIMESTAMP
+                WHERE id_kunjungan_tindakan = %s AND status_tindakan = 'PROSES'
+            """
+            cursor.execute(sql_end, (request.id_kunjungan_tindakan,))
+            
+            if cursor.rowcount == 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Gagal mengakhiri tindakan. Pastikan tindakan sedang dalam 'PROSES'."
+                )
+
+            # 2. AMBIL ID TREATMENT, KUNJUNGAN, DAN STAF PELAKSANA
+            # Kita butuh id_staf_pelaksana untuk dicatat di buku riwayat (Siapa yang pakai barangnya?)
+            cursor.execute("""
+                SELECT id_treatment, id_kunjungan, id_staf_pelaksana
+                FROM kunjungan_tindakan 
+                WHERE id_kunjungan_tindakan = %s
+            """, (request.id_kunjungan_tindakan,))
+            data_tindakan = cursor.fetchone()
+            
+            id_treatment = data_tindakan['id_treatment']
+            id_kunj_terkait = data_tindakan['id_kunjungan']
+            # Fallback jika tidak ada pelaksana (mencegah error DB), misal set ke ID 1 (Admin)
+            id_staf = data_tindakan['id_staf_pelaksana'] if data_tindakan['id_staf_pelaksana'] else 1 
+
+            # =========================================================
+            # 3. LOGIKA ENTERPRISE: AUTO POTONG STOK & TULIS BUKU HISTORY
+            # =========================================================
+            sql_komponen = """
+                SELECT id_bahan, qty 
+                FROM treatment_komponen 
+                WHERE id_treatment = %s AND kategori = 'BAHAN' AND id_bahan IS NOT NULL
+            """
+            cursor.execute(sql_komponen, (id_treatment,))
+            komponen_bahan = cursor.fetchall()
+
+            for bahan in komponen_bahan:
+                id_bahan = bahan['id_bahan']
+                qty_dipakai = bahan['qty']
+
+                # A. Cek stok saat ini terlebih dahulu (untuk dicatat sebagai stok_akhir di history)
+                # FOR UPDATE digunakan untuk mengunci baris ini sementara agar tidak bentrok jika ada 2 perawat menekan tombol bersamaan
+                cursor.execute("SELECT stok_kabin FROM inventory_stok WHERE id_bahan = %s FOR UPDATE", (id_bahan,))
+                stok_sekarang = cursor.fetchone()['stok_kabin']
+                
+                stok_baru = stok_sekarang - qty_dipakai
+
+                # B. Update tabel Gudang
+                cursor.execute("""
+                    UPDATE inventory_stok 
+                    SET stok_kabin = %s 
+                    WHERE id_bahan = %s
+                """, (stok_baru, id_bahan))
+
+                # C. Tulis ke Buku Riwayat (Kartu Stok)
+                referensi_teks = f"Tindakan ID-{request.id_kunjungan_tindakan}"
+                keterangan_teks = f"Auto-potong BHP Kunjungan #{id_kunj_terkait}"
+                
+                cursor.execute("""
+                    INSERT INTO inventory_history 
+                    (id_bahan, id_staf, jenis_mutasi, qty_perubahan, stok_akhir, referensi, keterangan) 
+                    VALUES (%s, %s, 'TINDAKAN', %s, %s, %s, %s)
+                """, (id_bahan, id_staf, -qty_dipakai, stok_baru, referensi_teks, keterangan_teks))
+            # =========================================================
+
+            # 4. THE SMART CHECK: Cek sisa tindakan
+            cursor.execute("""
+                SELECT COUNT(*) as sisa_tindakan 
+                FROM kunjungan_tindakan 
+                WHERE id_kunjungan = %s AND status_tindakan IN ('PENDING', 'PROSES')
+            """, (id_kunj_terkait,))
+            sisa = cursor.fetchone()['sisa_tindakan']
+
+            status_pasien = "ON_TREATMENT"
+            pesan_tambahan = "Masih ada tindakan lain yang tertunda."
+            
+            # 5. UNIVERSAL TRIGGER: Lempar ke Kasir jika semua selesai
+            if sisa == 0:
+                cursor.execute("""
+                    UPDATE kunjungan 
+                    SET status_antrian = 'ANTRI_BAYAR' 
+                    WHERE id_kunjungan = %s
+                """, (id_kunj_terkait,))
+                status_pasien = "ANTRI_BAYAR"
+                pesan_tambahan = "Seluruh tindakan selesai. Pasien dipersilakan ke Kasir."
+
+            conn.commit()
+            
+            return {
+                "status": "success", 
+                "message": f"Tindakan diselesaikan. BHP terpotong & tercatat di Kartu Stok. {pesan_tambahan}",
+                "status_pasien": status_pasien
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL MODUL APOTEK
+# ==========================================
+class PenyerahanObatRequest(BaseModel):
+    id_kunjungan: int
+    id_staf_apoteker: int # ID Apoteker yang bertugas menyerahkan obat
+
+# ==========================================
+# ENDPOINT 26: DAFTAR ANTREAN APOTEK
+# ==========================================
+@app.get("/apotek/antrian")
+def get_antrian_apotek():
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Mengambil pasien yang sudah dilempar ke Apotek
+            sql = """
+                SELECT k.id_kunjungan, p.nama, p.no_rm, k.status_antrian
+                FROM kunjungan k
+                JOIN pasien p ON k.id_pasien = p.id_pasien
+                WHERE k.status_antrian = 'ANTRI_OBAT'
+                ORDER BY k.id_kunjungan ASC
+            """
+            cursor.execute(sql)
+            antrian = cursor.fetchall()
+            
+            # Tambahkan informasi jumlah item obat yang harus diracik per pasien
+            for a in antrian:
+                cursor.execute("""
+                    SELECT COUNT(*) as jumlah_item 
+                    FROM kunjungan_resep 
+                    WHERE id_kunjungan = %s
+                """, (a['id_kunjungan'],))
+                a['jumlah_item'] = cursor.fetchone()['jumlah_item']
+
+            return {"status": "success", "total_antrian": len(antrian), "data": antrian}
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 27: DETAIL RESEP PASIEN (FIXED)
+# ==========================================
+@app.get("/apotek/detail/{id_kunjungan}")
+def get_detail_resep_apotek(id_kunjungan: int):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # Logika Redundant: Mencari kecocokan ID di ketiga titik
+            sql_resep = """
+                SELECT 
+                    mp.id_produk,
+                    mp.nama_produk, 
+                    kr.qty, 
+                    mp.satuan,
+                    kr.aturan_pakai,
+                    kr.status_item
+                FROM kunjungan_resep kr
+                JOIN master_produk mp ON kr.id_produk = mp.id_produk
+                LEFT JOIN inventory_stok inv ON mp.id_produk = inv.id_bahan
+                WHERE kr.id_kunjungan = %s 
+                AND kr.status_item != 'BATAL'
+            """
+            cursor.execute(sql_resep, (id_kunjungan,))
+            daftar_obat = cursor.fetchall()
+
+            return {
+                "status": "success",
+                "id_kunjungan": id_kunjungan,
+                "data": daftar_obat
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# ENDPOINT 23: PENYERAHAN OBAT & AUTO POTONG STOK APOTEK
+# ==========================================
+@app.post("/apotek/serahkan_obat")
+def serahkan_obat(request: PenyerahanObatRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. CEK STATUS PASIEN
+            # Pastikan pasien memang sedang mengantre obat (sudah ACC Kasir)
+            cursor.execute("SELECT status_antrian FROM kunjungan WHERE id_kunjungan = %s", (request.id_kunjungan,))
+            pasien = cursor.fetchone()
+            
+            if not pasien:
+                raise HTTPException(status_code=404, detail="Data Kunjungan tidak ditemukan.")
+            # (Opsional: Dokter bisa membuka blokir ini jika status pasien dari kasir belum ANTRI_OBAT)
+            # if pasien['status_antrian'] not in ['ANTRI_OBAT', 'SELESAI_BAYAR']:
+            #     raise HTTPException(status_code=400, detail="Pasien belum menyelesaikan pembayaran di Kasir!")
+
+            # 2. AMBIL DAFTAR RESEP / PRODUK YANG DIBELI
+            # Asumsi: Produk dicatat di kunjungan_resep, dan id_produk selaras dengan id_bahan di inventory_stok
+            cursor.execute("""
+                SELECT id_produk, qty 
+                FROM kunjungan_resep 
+                WHERE id_kunjungan = %s
+            """, (request.id_kunjungan,))
+            daftar_obat = cursor.fetchall()
+
+            # 3. LOGIKA PEMOTONGAN STOK & PENCATATAN KARTU STOK (HISTORY)
+            for obat in daftar_obat:
+                id_produk = obat['id_produk']
+                qty_keluar = obat['qty']
+
+                # A. Ambil stok utama saat ini (Apotek memotong dari stok_gudang_utama)
+                cursor.execute("""
+                    SELECT stok_gudang_utama 
+                    FROM inventory_stok 
+                    WHERE id_bahan = %s FOR UPDATE
+                """, (id_produk,))
+                
+                cek_stok = cursor.fetchone()
+                if not cek_stok:
+                    # Jika data produk tidak ada di inventory, lewati atau catat log error
+                    continue 
+
+                stok_sekarang = cek_stok['stok_gudang_utama']
+                stok_baru = stok_sekarang - qty_keluar
+
+                # B. Potong stok Gudang Utama
+                cursor.execute("""
+                    UPDATE inventory_stok 
+                    SET stok_gudang_utama = %s 
+                    WHERE id_bahan = %s
+                """, (stok_baru, id_produk))
+
+                # C. Tulis ke Kartu Stok (Audit Trail Apotek)
+                referensi_teks = f"Resep Kunjungan #{request.id_kunjungan}"
+                keterangan_teks = "Penyerahan obat/krim ke pasien"
+                
+                cursor.execute("""
+                    INSERT INTO inventory_history 
+                    (id_bahan, id_staf, jenis_mutasi, qty_perubahan, stok_akhir, referensi, keterangan) 
+                    VALUES (%s, %s, 'PENJUALAN', %s, %s, %s, %s)
+                """, (id_produk, request.id_staf_apoteker, -qty_keluar, stok_baru, referensi_teks, keterangan_teks))
+
+            # 4. UBAH STATUS PASIEN JADI COMPLETED (TAMAT)
+            cursor.execute("""
+                UPDATE kunjungan 
+                SET status_antrian = 'COMPLETED' 
+                WHERE id_kunjungan = %s
+            """, (request.id_kunjungan,))
+
+            conn.commit()
+            
+            return {
+                "status": "success", 
+                "message": "Obat berhasil diserahkan. Stok Apotek terpotong dan Kartu Stok ter-update. Perjalanan pasien SELESAI.",
+                "total_item_diserahkan": len(daftar_obat)
+            }
+    finally:
+        conn.close()
+
+# ==========================================
+# MODEL PENYESUAIAN STOK (BUANG RUSAK/EXPIRED)
+# ==========================================
+class PenyesuaianStokRequest(BaseModel):
+    id_bahan: int
+    id_staf_apoteker: int
+    jenis_mutasi: str # Wajib diisi: 'EXPIRED', 'RUSAK', atau 'PENYESUAIAN'
+    qty_dibuang: float # Jumlah yang dibuang (angka positif, misal: 5)
+    keterangan: str # Alasan detail (misal: "Kemasan pecah saat loading barang")
+
+# ==========================================
+# ENDPOINT 24: WRITE-OFF (BUANG STOK RUSAK/EXPIRED)
+# ==========================================
+@app.post("/apotek/write_off")
+def penyesuaian_stok(request: PenyesuaianStokRequest):
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. Validasi Jenis Mutasi agar sesuai dengan struktur tabel History kita
+            if request.jenis_mutasi.upper() not in ['EXPIRED', 'RUSAK', 'PENYESUAIAN']:
+                raise HTTPException(status_code=400, detail="Jenis mutasi harus EXPIRED, RUSAK, atau PENYESUAIAN.")
+
+            # 2. Ambil Stok Gudang Utama Saat Ini (FOR UPDATE untuk keamanan ganda)
+            cursor.execute("""
+                SELECT nama_bahan, stok_gudang_utama 
+                FROM inventory_stok 
+                WHERE id_bahan = %s FOR UPDATE
+            """, (request.id_bahan,))
+            
+            cek_bahan = cursor.fetchone()
+            if not cek_bahan:
+                raise HTTPException(status_code=404, detail="Bahan/Produk tidak ditemukan di Inventori.")
+
+            stok_sekarang = cek_bahan['stok_gudang_utama']
+            nama_bahan = cek_bahan['nama_bahan']
+            
+            # (Opsional) Validasi agar tidak membuang lebih dari stok yang ada
+            # Namun sesuai filosofi klinik sebelumnya, kita biarkan saja jika jadi minus agar tidak memblokir operasional, 
+            # toh ini akan tercatat di log audit.
+            stok_baru = stok_sekarang - request.qty_dibuang
+
+            # 3. Potong Fisik Stok di Tabel Gudang
+            cursor.execute("""
+                UPDATE inventory_stok 
+                SET stok_gudang_utama = %s 
+                WHERE id_bahan = %s
+            """, (stok_baru, request.id_bahan))
+
+            # 4. TULIS KE KARTU STOK (AUDIT TRAIL SAKTI)
+            referensi_teks = f"Write-Off By ID-{request.id_staf_apoteker}"
+            
+            cursor.execute("""
+                INSERT INTO inventory_history 
+                (id_bahan, id_staf, jenis_mutasi, qty_perubahan, stok_akhir, referensi, keterangan) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                request.id_bahan, 
+                request.id_staf_apoteker, 
+                request.jenis_mutasi.upper(), 
+                -request.qty_dibuang, # Nilai minus karena barang keluar
+                stok_baru, 
+                referensi_teks, 
+                request.keterangan
+            ))
+
+            conn.commit()
+            
+            return {
+                "status": "success", 
+                "message": f"Stok {nama_bahan} berhasil dikurangi sebanyak {request.qty_dibuang}. Sisa stok saat ini: {stok_baru}",
+                "audit_trail": f"Tercatat di sistem sebagai {request.jenis_mutasi.upper()} oleh staf ID {request.id_staf_apoteker}."
+            }
+    finally:
+        conn.close()
+
+@app.get("/apotek/suggested_order")
+def kalkulator_order_supplier():
+    conn = koneksi_db()
+    try:
+        with conn.cursor() as cursor:
+            # 1. AMBIL SEMUA BARANG (TERMASUK DATA UoM)
+            sql_analitik = """
+                SELECT 
+                    b.id_bahan, 
+                    b.nama_bahan,
+                    b.satuan as satuan_terkecil,
+                    b.satuan_pembelian,
+                    b.rasio_konversi,
+                    (b.stok_gudang_utama + b.stok_kabin) as stok_saat_ini,
+                    COALESCE(SUM(h.qty_perubahan * -1), 0) as total_pakai_90_hari
+                FROM inventory_stok b
+                LEFT JOIN inventory_history h 
+                    ON b.id_bahan = h.id_bahan 
+                    AND h.jenis_mutasi IN ('TINDAKAN', 'PENJUALAN') 
+                    AND h.waktu_mutasi >= DATE_SUB(CURRENT_DATE, INTERVAL 90 DAY)
+                GROUP BY b.id_bahan
+            """
+            cursor.execute(sql_analitik)
+            data_bahan = cursor.fetchall()
+
+            hasil_analisis = []
+
+            for item in data_bahan:
+                stok_sekarang = item['stok_saat_ini']
+                total_pakai_3_bln = item['total_pakai_90_hari']
+                
+                # Variabel UoM
+                satuan_kecil = item['satuan_terkecil'] or 'pcs'
+                satuan_beli = item['satuan_pembelian'] or satuan_kecil
+                rasio = item['rasio_konversi'] if item['rasio_konversi'] and item['rasio_konversi'] > 0 else 1.0
+                
+                # A. Barang Baru / Tanpa History
+                if total_pakai_3_bln == 0:
+                    hasil_analisis.append({
+                        "id_bahan": item['id_bahan'],
+                        "nama_bahan": item['nama_bahan'],
+                        "kategori": "NEW / NO DATA",
+                        "stok_saat_ini": f"{stok_sekarang} {satuan_kecil}",
+                        "saran_order_supplier": 0,
+                        "satuan_order": satuan_beli,
+                        "catatan": "Barang baru. Tentukan manual."
+                    })
+                    continue
+
+                # B. Kalkulasi AMC & Kategori
+                amc = total_pakai_3_bln / 3.0
+                
+                if amc > 50:
+                    kategori = "FAST MOVING"
+                    target_ideal_terkecil = amc * 2.0  # Buffer 2 bulan
+                else:
+                    kategori = "SLOW MOVING"
+                    target_ideal_terkecil = amc * 1.0  # Buffer 1 bulan
+
+                # C. Kalkulasi Kebutuhan dalam Satuan Terkecil
+                kekurangan_terkecil = target_ideal_terkecil - stok_sekarang
+                if kekurangan_terkecil < 0:
+                    kekurangan_terkecil = 0
+
+                # D. KONVERSI KE SATUAN PEMBELIAN (UoM Logic)
+                # Misal: kurang 315 butir, 1 box isi 100. -> 315 / 100 = 3.15 -> Dibulatkan ke atas (ceil) jadi 4 box.
+                saran_beli_po = math.ceil(kekurangan_terkecil / rasio)
+                
+                # Info tambahan agar Apoteker tahu matematika di baliknya
+                setara_terkecil = saran_beli_po * rasio
+
+                hasil_analisis.append({
+                    "id_bahan": item['id_bahan'],
+                    "nama_bahan": item['nama_bahan'],
+                    "kategori": kategori,
+                    "stok_saat_ini": f"{round(stok_sekarang, 1)} {satuan_kecil}",
+                    "kekurangan_aktual": f"{round(kekurangan_terkecil, 1)} {satuan_kecil}",
+                    "saran_order_supplier": saran_beli_po,
+                    "satuan_order": satuan_beli,
+                    "catatan": f"Pesan {saran_beli_po} {satuan_beli} (Setara dengan {setara_terkecil} {satuan_kecil})."
+                })
+
+            return {
+                "status": "success",
+                "total_item": len(hasil_analisis),
+                "data_suggestion": hasil_analisis
+            }
+    finally:
+        conn.close()

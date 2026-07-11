@@ -1,0 +1,122 @@
+{% extends "_app.html" %}
+{% block title %}Rekap Harian Kasir — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Rekap Harian Kasir{% endblock %}
+
+{% block page_content %}
+<nav class="text-sm text-slate-500 mb-3">
+    <a href="/web/reports" class="text-blue-600 hover:underline">Reports</a>
+    <span class="mx-1 text-slate-400">&rsaquo;</span>
+    <span class="text-slate-700">Rekap Harian Kasir</span>
+</nav>
+<div class="max-w-6xl">
+
+    {# ===== Filter tanggal ===== #}
+    <form method="get" action="/web/reports/rekap-harian" class="flex items-end gap-3 mb-5">
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Tanggal</label>
+            <input type="date" name="tgl" value="{{ tgl_selected }}"
+                class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400">
+        </div>
+        <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition">Tampilkan</button>
+    </form>
+
+    {# ===== Kartu ringkasan ===== #}
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Pasien berkunjung</div>
+            <div class="text-2xl font-semibold text-slate-800">{{ data.pasien_berkunjung }}</div>
+            <div class="text-xs text-slate-400 mt-1">{{ data.total_kunjungan }} kunjungan</div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Transaksi</div>
+            <div class="text-2xl font-semibold text-slate-800">{{ data.total_transaksi }}</div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Total omzet</div>
+            <div class="text-2xl font-semibold text-emerald-600">Rp {{ "{:,.0f}".format(data.total_omzet|float).replace(",", ".") }}</div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Rata-rata / transaksi</div>
+            <div class="text-2xl font-semibold text-slate-800">Rp {{ "{:,.0f}".format(data.rata_per_transaksi|float).replace(",", ".") }}</div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {# ===== Per metode bayar ===== #}
+        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 font-semibold text-slate-700 text-sm">💳 Per Metode Bayar</div>
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                    <tr><th class="text-left px-4 py-2">Metode</th><th class="text-right px-4 py-2">Transaksi</th><th class="text-right px-4 py-2">Rupiah</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for m in data.per_metode %}
+                    <tr>
+                        <td class="px-4 py-2 font-medium text-slate-700">{{ m.metode_bayar }}</td>
+                        <td class="px-4 py-2 text-right font-mono">{{ m.jumlah_transaksi }}</td>
+                        <td class="px-4 py-2 text-right font-mono">{{ "{:,.0f}".format(m.total_nominal|float).replace(",", ".") }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">Belum ada transaksi.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# ===== Single vs Split + Konsultasi vs Retail ===== #}
+        <div class="space-y-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="font-semibold text-slate-700 text-sm mb-3">🔀 Single vs Split Payment</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="text-center bg-slate-50 rounded-lg py-3">
+                        <div class="text-2xl font-semibold text-slate-800">{{ data.single_count }}</div>
+                        <div class="text-xs text-slate-500">Single (1 metode)</div>
+                    </div>
+                    <div class="text-center bg-slate-50 rounded-lg py-3">
+                        <div class="text-2xl font-semibold text-indigo-600">{{ data.split_count }}</div>
+                        <div class="text-xs text-slate-500">Split (&gt;1 metode)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="font-semibold text-slate-700 text-sm mb-3">🩺 Konsultasi vs 🛍️ Beli Produk</div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-600">Konsultasi</span>
+                        <span class="font-mono">{{ data.konsultasi.jumlah }} trx · Rp {{ "{:,.0f}".format(data.konsultasi.total|float).replace(",", ".") }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-600">Beli produk (retail)</span>
+                        <span class="font-mono">{{ data.retail.jumlah }} trx · Rp {{ "{:,.0f}".format(data.retail.total|float).replace(",", ".") }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ===== Per kasir ===== #}
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mt-6">
+        <div class="px-4 py-3 border-b border-slate-100 font-semibold text-slate-700 text-sm">🧑‍💼 Per Kasir</div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr><th class="text-left px-4 py-2">Kasir</th><th class="text-right px-4 py-2">Transaksi</th><th class="text-right px-4 py-2">Omzet</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for k in data.per_kasir %}
+                <tr>
+                    <td class="px-4 py-2 text-slate-700">{{ k.nama_kasir }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ k.jumlah_transaksi }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ "{:,.0f}".format(k.total_omzet|float).replace(",", ".") }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">Belum ada transaksi.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="text-xs text-slate-400 mt-3">Semua angka mengecualikan transaksi VOID. Konsultasi = kunjungan dengan tindakan/pemeriksaan; retail = beli produk tanpa konsultasi.</p>
+</div>
+{% endblock %}

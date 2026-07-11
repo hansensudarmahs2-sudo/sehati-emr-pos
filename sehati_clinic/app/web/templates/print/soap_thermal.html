@@ -1,0 +1,78 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Resume - {{ pasien.nama }}{% endblock %}
+{% block paper_class %}paper-thermal{% endblock %}
+
+{% block doc_content %}
+{# ===== Header klinik (compact) ===== #}
+<div class="text-center">
+    {% if klinik.logo_path %}
+    <img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo" style="max-height: 32px;">
+    {% endif %}
+    <div class="font-bold">{{ klinik.nama_klinik }}</div>
+    {% if klinik.alamat_baris1 %}<div>{{ klinik.alamat_baris1 }}</div>{% endif %}
+    {% if klinik.no_telepon %}<div>Telp: {{ klinik.no_telepon }}</div>{% endif %}
+</div>
+
+<div class="divider"></div>
+<div class="text-center font-bold">RESUME MEDIS</div>
+
+<div style="margin-top: 4px;">
+    <div>RM   : {{ pasien.no_rm }}</div>
+    <div>Nama : {{ pasien.nama }}</div>
+    {% if pasien.umur_tahun is not none %}
+    <div>L/P  : {{ pasien.jenis_kelamin }} · {{ pasien.umur_tahun }}th</div>
+    {% endif %}
+    <div>Dr   : {{ dokter.nama_staf }}</div>
+    <div>Tgl  : {% if kunjungan.tgl_kunjungan %}{{ kunjungan.tgl_kunjungan.strftime("%d-%m-%Y") }}{% else %}—{% endif %}</div>
+    <div>Kunj : #{{ kunjungan.id_kunjungan }}</div>
+</div>
+
+<div class="divider"></div>
+
+<div class="font-bold">S - Anamnesa</div>
+<div style="white-space: pre-wrap;">{{ soap.anamnesa or "—" }}</div>
+
+<div class="divider"></div>
+<div class="font-bold">O - Pem. Fisik</div>
+<div style="white-space: pre-wrap;">{{ soap.pemeriksaan_fisik or "—" }}</div>
+
+<div class="divider"></div>
+<div class="font-bold">A - Diagnosa</div>
+<div style="white-space: pre-wrap;">{{ soap.diagnosa or "—" }}</div>
+
+<div class="divider"></div>
+<div class="font-bold">P - Rencana</div>
+
+{% if tindakan %}
+<div>Tindakan:</div>
+{% for t in tindakan %}
+<div>- {{ t.nama_treatment[:30] }} [{{ t.status[:8] }}]</div>
+{% endfor %}
+{% endif %}
+
+{% if resep %}
+<div style="margin-top: 4px;">Resep:</div>
+{% for r in resep %}
+<div>- {{ r.nama_produk[:30] }}</div>
+<div>  Qty {{ "%g"|format(r.qty) }}{% if r.aturan_pakai %} · {{ r.aturan_pakai[:24] }}{% endif %}</div>
+{% endfor %}
+{% endif %}
+
+{% if soap.saran_produk %}
+<div class="divider"></div>
+<div class="font-bold">Instruksi:</div>
+<div style="white-space: pre-wrap;">{{ soap.saran_produk }}</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# Sign-off (compact thermal) #}
+<div class="text-center" style="margin-top: 8px;">
+    <div>{{ tgl_cetak.split(' ')[0] if tgl_cetak else "" }}</div>
+    <div>{{ ttd_text }}</div>
+    <div style="margin-top: 30px;" class="font-bold">( {{ dokter.nama_staf }} )</div>
+</div>
+
+{# Whitespace tail untuk thermal feed #}
+<div style="height: 18mm;">&nbsp;</div>
+{% endblock %}

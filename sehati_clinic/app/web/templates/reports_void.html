@@ -1,0 +1,175 @@
+{% extends "_app.html" %}
+{% block title %}Reports — Void Pembayaran{% endblock %}
+{% block page_title %}Reports — Void Pembayaran{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/reports" class="hover:text-blue-600">Reports</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Void Pembayaran</span>
+    </div>
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Dari Tanggal</label>
+                <input type="date" name="tgl_dari" value="{{ tgl_dari_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Sampai Tanggal</label>
+                <input type="date" name="tgl_sampai" value="{{ tgl_sampai_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Alasan Void</label>
+                <select name="reason" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    <option value="" {% if not reason_selected %}selected{% endif %}>— Semua —</option>
+                    {% for r in ["SALAH_INPUT","CUSTOMER_CANCEL","REFUND_PASCA_TINDAKAN","ITEM_RUSAK","DUPLICATE_TRANSAKSI","OTHER"] %}
+                    <option value="{{ r }}" {% if reason_selected == r %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Kasir ID</label>
+                <input type="number" name="kasir_id" value="{{ kasir_id_selected or '' }}" min="1"
+                       placeholder="opsional"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Per Halaman</label>
+                <select name="page_size" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    {% for sz in [50, 100, 200, 500] %}
+                    <option value="{{ sz }}" {% if page_size_selected == sz %}selected{% endif %}>{{ sz }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/reports/void"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Summary stats #}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div class="text-xs text-red-600 uppercase font-medium">Jumlah Void</div>
+            <div class="text-2xl font-bold text-red-700 mt-1">{{ data.total_count }}</div>
+            <div class="text-xs text-red-600">transaksi dalam rentang</div>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div class="text-xs text-amber-700 uppercase font-medium">Total Nominal Voided</div>
+            <div class="text-xl font-bold text-amber-800 mt-1">
+                Rp {{ "{:,.0f}".format(data.total_nominal).replace(",", ".") }}
+            </div>
+            <div class="text-xs text-amber-700">referensi loss potential</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <div class="text-xs text-slate-600 uppercase font-medium">Late Void</div>
+            <div class="text-2xl font-bold text-slate-800 mt-1">{{ data.late_void_count }}</div>
+            <div class="text-xs text-slate-600">force past-day (Admin/Owner)</div>
+        </div>
+    </div>
+
+    {# Export + pagination header #}
+    <div class="flex items-center justify-between mb-3">
+        <div class="text-sm text-slate-600">
+            Halaman <strong>{{ data.page }}</strong> dari {{ data.total_pages }} ·
+            menampilkan {{ data["items"]|length }} entries
+        </div>
+        <a href="{{ csv_url }}"
+           class="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+            ⬇ Export CSV
+        </a>
+    </div>
+
+    {# Tabel #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Trx</th>
+                    <th class="text-left py-2 px-3">Void At</th>
+                    <th class="text-left py-2 px-3">Pasien</th>
+                    <th class="text-right py-2 px-3">Total</th>
+                    <th class="text-left py-2 px-3">Reason</th>
+                    <th class="text-left py-2 px-3">Note</th>
+                    <th class="text-left py-2 px-3">Kasir</th>
+                    <th class="text-left py-2 px-3">Voided By</th>
+                    <th class="text-center py-2 px-3">Late</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in data["items"] %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3">
+                        <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}"
+                           class="font-mono text-xs text-blue-600 hover:underline">#{{ it.id_transaksi }}</a>
+                    </td>
+                    <td class="py-2 px-3 text-xs text-slate-700 whitespace-nowrap">{{ it.void_at }}</td>
+                    <td class="py-2 px-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_pasien }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ it.no_rm }}</div>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono">Rp {{ "{:,.0f}".format(it.total_tagihan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">{{ it.void_reason_code or "—" }}</span>
+                    </td>
+                    <td class="py-2 px-3 text-xs text-slate-600 max-w-xs truncate" title="{{ it.void_reason_note }}">
+                        {{ it.void_reason_note or "—" }}
+                    </td>
+                    <td class="py-2 px-3 text-xs text-slate-700">{{ it.kasir_nama or "—" }}</td>
+                    <td class="py-2 px-3 text-xs text-slate-700">{{ it.voider_nama or "—" }}</td>
+                    <td class="py-2 px-3 text-center">
+                        {% if it.late_void %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 font-bold">LATE</span>
+                        {% else %}
+                        <span class="text-slate-400 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9" class="py-6 text-center text-sm text-slate-400">Tidak ada void dalam rentang & filter ini.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# Pagination footer #}
+    <div class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+            Total {{ data.total_count }} entries
+        </div>
+        <div class="flex gap-2">
+            {% if prev_url %}
+            <a href="{{ prev_url }}"
+               class="px-3 py-1.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                ← Prev
+            </a>
+            {% else %}
+            <span class="px-3 py-1.5 text-sm border border-slate-200 text-slate-300 rounded-lg cursor-not-allowed">← Prev</span>
+            {% endif %}
+            {% if next_url %}
+            <a href="{{ next_url }}"
+               class="px-3 py-1.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                Next →
+            </a>
+            {% else %}
+            <span class="px-3 py-1.5 text-sm border border-slate-200 text-slate-300 rounded-lg cursor-not-allowed">Next →</span>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

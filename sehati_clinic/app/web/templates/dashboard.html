@@ -1,0 +1,228 @@
+{% extends "_app.html" %}
+{% block title %}Dashboard — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Show error if dashboard service crashed — debug aid #}
+    {% if stats._error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+        ⚠ <strong>Dashboard service error:</strong> <code class="text-xs">{{ stats._error }}</code>
+    </div>
+    {% endif %}
+
+    {# Welcome card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4 flex items-center justify-between">
+        <div class="flex items-start gap-3">
+            <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-2xl">👋</div>
+            <div>
+                <h2 class="text-xl font-bold text-slate-800">Hai, {{ user.nama_staf }}!</h2>
+                <p class="text-slate-600 text-sm">Login sebagai <strong>{{ user.role.value if user.role.value is defined else user.role }}</strong> · {{ today_label }}</p>
+            </div>
+        </div>
+        <a href="/web/dashboard" class="text-sm px-3 py-1.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition flex items-center gap-1.5">
+            🔄 Refresh
+        </a>
+    </div>
+
+    {# KPI Grid — 4 cards #}
+    {% if stats.kpi %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        {% for k in stats.kpi %}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-xs text-slate-500 uppercase tracking-wider">{{ k.label }}</div>
+                <div class="text-2xl">{{ k.icon }}</div>
+            </div>
+            {% if k.value_money is defined %}
+            <div class="text-2xl font-bold text-{{ k.color }}-700">
+                Rp {{ "{:,.0f}".format(k.value_money).replace(",", ".") }}
+            </div>
+            {% else %}
+            <div class="text-3xl font-bold text-{{ k.color }}-700">{{ k.value }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Alerts (Owner/Apoteker/Purchasing) #}
+    {% if stats.alerts %}
+    {% set has_alert = stats.alerts | select | list %}
+    {% if has_alert %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        {% for a in stats.alerts %}
+        {% if a %}
+        <a href="{{ a.url }}" class="block bg-white border border-{{ 'red' if a.severity == 'high' else 'amber' }}-200 rounded-xl p-4 hover:shadow-md transition">
+            <div class="flex items-center gap-3">
+                <div class="text-3xl">{{ a.icon }}</div>
+                <div class="flex-1">
+                    <div class="text-xs text-slate-500 uppercase">{{ a.label }}</div>
+                    <div class="text-2xl font-bold text-{{ 'red' if a.severity == 'high' else 'amber' }}-700">{{ a.count }}</div>
+                </div>
+                <div class="text-slate-400">→</div>
+            </div>
+        </a>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# Antrian per Stage (Owner/Admin/FO) #}
+    {% if stats.antrian_per_stage %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📊</span> Antrian per Tahap Hari Ini
+        </h3>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {% for st in stats.antrian_per_stage %}
+            <div class="border border-{{ st.color }}-200 bg-{{ st.color }}-50/30 rounded-lg p-3 text-center">
+                <div class="text-2xl mb-1">{{ st.icon }}</div>
+                <div class="text-xs text-slate-600 uppercase">{{ st.label }}</div>
+                <div class="text-2xl font-bold text-{{ st.color }}-700 mt-1">{{ st.count }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Recent Activity (Owner/Admin) #}
+    {% if stats.recent_activity %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📋</span> Kunjungan Terakhir Hari Ini
+        </h3>
+        {% if stats.recent_activity %}
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 pr-4">Jam</th>
+                    <th class="text-left py-2 pr-4">No. RM</th>
+                    <th class="text-left py-2 pr-4">Nama Pasien</th>
+                    <th class="text-left py-2 pr-4">Status</th>
+                    <th class="text-left py-2">Keluhan</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for k in stats.recent_activity %}
+                <tr class="hover:bg-slate-50/50">
+                    <td class="py-2 pr-4 font-mono text-xs text-slate-700">{{ k.tgl_kunjungan }}</td>
+                    <td class="py-2 pr-4 font-mono text-xs text-slate-600">{{ k.no_rm }}</td>
+                    <td class="py-2 pr-4 font-medium text-slate-800">{{ k.nama_pasien }}</td>
+                    <td class="py-2 pr-4">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">{{ k.status }}</span>
+                    </td>
+                    <td class="py-2 text-xs text-slate-600">{{ k.keluhan_utama or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Belum ada kunjungan hari ini.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Phase 5 (#364 DEC-063): Void Hari Ini — Owner/Superadmin #}
+    {% if stats.void_today is defined %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <span>⚠</span> Void Pembayaran Hari Ini
+            </h3>
+            <a href="/web/reports/void"
+               class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                Lihat Laporan Lengkap →
+            </a>
+        </div>
+        {% if stats.void_today.count == 0 %}
+        <div class="flex items-center gap-3 py-4 text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4">
+            <span class="text-xl">✅</span>
+            <span>Tidak ada void hari ini.</span>
+        </div>
+        {% else %}
+        {# 3 stat tile #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div class="text-xs text-red-600 uppercase font-medium">Jumlah Void</div>
+                <div class="text-2xl font-bold text-red-700 mt-1">{{ stats.void_today.count }}</div>
+                <div class="text-xs text-red-600 mt-1">transaksi</div>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <div class="text-xs text-amber-700 uppercase font-medium">Nominal Voided</div>
+                <div class="text-xl font-bold text-amber-800 mt-1">
+                    Rp {{ "{:,.0f}".format(stats.void_today.total_nominal).replace(",", ".") }}
+                </div>
+                <div class="text-xs text-amber-700 mt-1">total tagihan</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-xs text-slate-600 uppercase font-medium">Late Void</div>
+                <div class="text-2xl font-bold text-slate-800 mt-1">{{ stats.void_today.late_void_count }}</div>
+                <div class="text-xs text-slate-600 mt-1">force past-day (Admin/Owner)</div>
+            </div>
+        </div>
+        {# Breakdown by reason #}
+        {% if stats.void_today.by_reason %}
+        <div class="text-xs text-slate-500 uppercase font-medium mb-2">Breakdown Per Alasan</div>
+        <div class="space-y-1.5">
+            {% for r in stats.void_today.by_reason %}
+            {% set pct = (r.count * 100 / stats.void_today.count) | round | int %}
+            <div class="flex items-center gap-3">
+                <div class="w-40 text-xs font-mono text-slate-700">{{ r.reason_code }}</div>
+                <div class="flex-1 bg-slate-100 rounded-full h-5 relative overflow-hidden">
+                    <div class="bg-red-500 h-full rounded-full" style="width: {{ pct }}%"></div>
+                    <div class="absolute inset-0 flex items-center px-2 text-xs text-slate-700 font-medium">
+                        {{ r.count }} × · Rp {{ "{:,.0f}".format(r.total_nominal).replace(",", ".") }}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Shortcuts (FO/Dokter/Perawat/Kasir/Apoteker/Purchasing) #}
+    {% if stats.shortcuts %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>⚡</span> Akses Cepat
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {% for s in stats.shortcuts %}
+            <a href="{{ s.url }}"
+               class="flex items-center gap-3 p-4 border border-{{ s.color }}-200 bg-{{ s.color }}-50/30 rounded-lg hover:bg-{{ s.color }}-50 hover:shadow-md transition">
+                <span class="text-2xl">{{ s.icon }}</span>
+                <span class="font-medium text-slate-800 text-sm">{{ s.label }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Menu groups full — always show for navigation #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>🗂</span> Semua Menu
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {% for group in menu_groups %}
+            {% for item in group["items"] %}
+            <a href="{{ item.url }}"
+               class="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/50 transition">
+                <span class="text-xl">{{ item.icon }}</span>
+                <div>
+                    <div class="font-medium text-slate-800 text-sm">{{ item.label }}</div>
+                    <div class="text-xs text-slate-500">{{ group.group }}</div>
+                </div>
+            </a>
+            {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

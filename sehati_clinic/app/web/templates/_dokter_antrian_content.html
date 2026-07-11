@@ -1,0 +1,137 @@
+{# Partial — di-swap ke #antrian-content setiap 10 detik #}
+
+{# Pesan kosong kalau semua bucket 0 #}
+{% if antrian.total == 0 %}
+<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-8 mb-4 text-center">
+    <div class="text-4xl mb-2">🎉</div>
+    <div class="text-lg font-semibold text-emerald-800">Antrian Anda kosong!</div>
+    <p class="text-sm text-emerald-700 mt-1">
+        Tidak ada pasien yang menunggu Anda. Bapak bisa pulang awal kalau tidak ada appointment lain.
+    </p>
+</div>
+{% endif %}
+
+{# Counter cards — 6 statuses + total #}
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+    <div class="bg-white rounded-lg border border-slate-200 p-3 text-center">
+        <div class="text-xs text-slate-500 uppercase">Total</div>
+        <div class="text-2xl font-bold text-slate-800">{{ antrian.total }}</div>
+    </div>
+    <div class="bg-white rounded-lg border-2 {% if counter.menunggu_konsultasi > 0 %}border-blue-300 bg-blue-50{% else %}border-slate-200{% endif %} p-3 text-center">
+        <div class="text-xs text-blue-600 uppercase">Antri Konsul</div>
+        <div class="text-2xl font-bold text-blue-700">{{ counter.menunggu_konsultasi }}</div>
+    </div>
+    <div class="bg-white rounded-lg border-2 {% if counter.sedang_konsultasi > 0 %}border-indigo-300 bg-indigo-50{% else %}border-slate-200{% endif %} p-3 text-center">
+        <div class="text-xs text-indigo-600 uppercase">Sedang Konsul</div>
+        <div class="text-2xl font-bold text-indigo-700">{{ counter.sedang_konsultasi }}</div>
+    </div>
+    <div class="bg-white rounded-lg border border-purple-200 p-3 text-center">
+        <div class="text-xs text-purple-600 uppercase">Antri Treatment</div>
+        <div class="text-2xl font-bold text-purple-700">{{ counter.antri_treatment }}</div>
+    </div>
+    <div class="bg-white rounded-lg border border-purple-300 p-3 text-center">
+        <div class="text-xs text-purple-700 uppercase">On Treatment</div>
+        <div class="text-2xl font-bold text-purple-800">{{ counter.sedang_treatment }}</div>
+    </div>
+    <div class="bg-white rounded-lg border border-amber-200 p-3 text-center">
+        <div class="text-xs text-amber-600 uppercase">Antri Bayar</div>
+        <div class="text-2xl font-bold text-amber-700">{{ counter.antri_bayar }}</div>
+    </div>
+    <div class="bg-white rounded-lg border border-emerald-200 p-3 text-center">
+        <div class="text-xs text-emerald-600 uppercase">Antri Obat</div>
+        <div class="text-2xl font-bold text-emerald-700">{{ counter.antri_obat }}</div>
+    </div>
+</div>
+
+{# Tabel antrian #}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+        <span>Pasien yang relevan dengan Anda — {{ antrian.tanggal }}</span>
+        <span class="text-slate-500 normal-case">{{ antrian.total }} pasien</span>
+    </div>
+
+    {% if antrian.data %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">No</th>
+                    <th class="text-left px-4 py-2 font-medium">No. RM</th>
+                    <th class="text-left px-4 py-2 font-medium">Nama Pasien</th>
+                    <th class="text-left px-4 py-2 font-medium">JK</th>
+                    <th class="text-left px-4 py-2 font-medium">Keluhan</th>
+                    <th class="text-center px-4 py-2 font-medium">SOAP</th>
+                    <th class="text-left px-4 py-2 font-medium">Status</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for item in antrian.data %}
+                {% set st = item.status_antrian or "" %}
+                <tr class="hover:bg-blue-50/30 transition
+                           {% if st == 'ANTRI_KONSULTASI' %}bg-blue-50/20{% elif st == 'KONSULTASI' %}bg-indigo-50/30{% endif %}">
+                    <td class="px-4 py-3 font-bold text-slate-700">#{{ item.nomor_antrean or "-" }}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ item.no_rm }}</td>
+                    <td class="px-4 py-3 font-medium text-slate-800">{{ item.nama_pasien }}</td>
+                    <td class="px-4 py-3 text-slate-600">{{ item.jenis_kelamin or "-" }}</td>
+                    <td class="px-4 py-3 text-slate-700 text-xs">
+                        {{ (item.keluhan_utama or "—")[:60] }}{% if item.keluhan_utama and item.keluhan_utama|length > 60 %}…{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% if item.sudah_konsultasi %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">✓ Ada</span>
+                        {% else %}
+                        <span class="text-xs text-slate-400">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        {% if st == "ANTRI_KONSULTASI" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800 font-medium">Antri Konsultasi</span>
+                        {% elif st == "KONSULTASI" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800 font-medium">Konsultasi</span>
+                        {% elif st == "ANTRI_TREATMENT" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700 font-medium">Antri Treatment</span>
+                        {% elif st == "ON_TREATMENT" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-medium">On Treatment</span>
+                        {% elif st == "ANTRI_BAYAR" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">Antri Bayar</span>
+                        {% elif st == "ANTRI_OBAT" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">Antri Obat</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{{ st }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <div class="inline-flex items-center gap-1.5">
+                            {% if item.sudah_konsultasi %}
+                            {# Sudah ada SOAP - bisa diubah di semua status non-terminal.
+                               Service tidak regress status; audit log capture siapa+kapan. #}
+                            <a href="/web/dokter/kunjungan/{{ item.id_kunjungan }}/soap"
+                               class="inline-flex items-center px-2.5 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 transition font-medium">
+                                Ubah Konsul
+                            </a>
+                            {% elif st in ("ANTRI_KONSULTASI", "KONSULTASI") %}
+                            {# Belum ada SOAP - mulai konsul baru #}
+                            <a href="/web/dokter/kunjungan/{{ item.id_kunjungan }}/soap"
+                               class="inline-flex items-center px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 transition font-medium">
+                                Mulai Konsul
+                            </a>
+                            {% endif %}
+                            <a href="/web/pasien/{{ item.id_pasien }}"
+                               class="inline-flex items-center px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                                Detail
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="p-12 text-center text-slate-400">
+        <div class="text-4xl mb-2">📋</div>
+        <p class="text-sm">Tidak ada pasien antri saat ini.</p>
+    </div>
+    {% endif %}
+</div>

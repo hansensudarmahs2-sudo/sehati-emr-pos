@@ -1,0 +1,76 @@
+{# Single row resep — di-append ke #resep-rows via HTMX #}
+{# TODO-NEW-3 #31: option carry data-cara-pakai → JS auto-fill input aturan_pakai #}
+<div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end resep-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+    <div class="md:col-span-5">
+        <label class="block text-xs text-slate-500 mb-1">Produk</label>
+        <select name="id_produk" required
+                onchange="window.applyDefaultCaraPakai && window.applyDefaultCaraPakai(this);"
+                class="searchable-dropdown produk-select w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                data-placeholder="Cari produk...">
+            <option value="">— Pilih produk —</option>
+            {% for p in master_produks %}
+            <option value="{{ p.id_produk }}"
+                    data-harga="{{ p.harga_jual }}"
+                    data-cara-pakai="{{ p.default_cara_pakai or '' }}">
+                [{{ p.kode_produk }}] {{ p.nama_produk }} (Rp {{ "{:,.0f}".format(p.harga_jual|float).replace(",", ".") }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="md:col-span-2">
+        <label class="block text-xs text-slate-500 mb-1">Qty</label>
+        <input type="number" name="qty" min="0.1" step="0.1" value="1"
+               class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    <div class="md:col-span-4">
+        <label class="block text-xs text-slate-500 mb-1">
+            Aturan Pakai
+            <span class="text-slate-400 font-normal">(auto-fill dari master, bisa diedit)</span>
+        </label>
+        <input type="text" name="aturan_pakai" maxlength="100"
+               class="aturan-pakai-input w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+               placeholder="contoh: 3x1 sesudah makan">
+    </div>
+    <div class="md:col-span-1 text-right">
+        <button type="button" onclick="this.closest('.resep-row').remove()"
+                class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">
+            🗑️
+        </button>
+    </div>
+</div>
+
+<script>
+// TODO-NEW-3 #31 — Auto-fill aturan_pakai dari master_produk.default_cara_pakai
+// Idempotent: window.applyDefaultCaraPakai didefinisikan sekali, dipakai oleh
+// semua resep-row (current & future yang di-append HTMX).
+(function() {
+    if (window.applyDefaultCaraPakai) return;  // sudah ada, skip define ulang
+    window.applyDefaultCaraPakai = function(selectEl) {
+        try {
+            var opt = selectEl.options[selectEl.selectedIndex];
+            if (!opt) return;
+            var caraPakai = opt.getAttribute('data-cara-pakai') || '';
+            // Cari input aturan_pakai di row yang sama (resep-row terdekat)
+            var row = selectEl.closest('.resep-row');
+            if (!row) return;
+            var input = row.querySelector('input.aturan-pakai-input, input[name="aturan_pakai"]');
+            if (!input) return;
+            // Jangan overwrite kalau user sudah ngetik manual.
+            // (kecuali sebelumnya emang auto-filled dari produk lain → ganti)
+            var isAutoFilled = input.dataset.autoFilled === '1';
+            if (input.value && !isAutoFilled) return;
+            input.value = caraPakai;
+            input.dataset.autoFilled = caraPakai ? '1' : '0';
+        } catch (e) {
+            console.warn('[resep-row] applyDefaultCaraPakai failed:', e);
+        }
+    };
+    // Saat user manual edit input → clear auto-flag biar tidak ke-overwrite
+    document.addEventListener('input', function(ev) {
+        var el = ev.target;
+        if (el && el.matches && el.matches('input.aturan-pakai-input, input[name="aturan_pakai"]')) {
+            el.dataset.autoFilled = '0';
+        }
+    });
+})();
+</script>

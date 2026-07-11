@@ -1,0 +1,50 @@
+{# Partial table - dipakai 4x di apotek_suggested_order.html #}
+{# Context: kategori_items (list) atau pakai by_kategori['URGENT'] di first block #}
+
+{% set rows = kategori_items if kategori_items is defined else by_kategori['URGENT'] %}
+
+<table class="w-full text-sm">
+    <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+        <tr>
+            <th class="text-left px-4 py-2 font-medium">Kode</th>
+            <th class="text-left px-4 py-2 font-medium">Nama Produk</th>
+            <th class="text-right px-4 py-2 font-medium">Stok Kini</th>
+            <th class="text-right px-4 py-2 font-medium">Stok Min</th>
+            <th class="text-right px-4 py-2 font-medium">Terjual 30hr</th>
+            <th class="text-right px-4 py-2 font-medium">Hari Habis</th>
+            <th class="text-right px-4 py-2 font-medium">Saran Order</th>
+            <th class="text-right px-4 py-2 font-medium">Aksi</th>
+        </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+        {% for item in rows %}
+        <tr class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ item.kode_produk }}</td>
+            <td class="px-4 py-3 font-medium text-slate-800">{{ item.nama_produk }}</td>
+            <td class="px-4 py-3 text-right font-mono {% if item.kategori == 'URGENT' %}text-red-600 font-semibold{% endif %}">
+                {{ item.stok_terkini }}
+            </td>
+            <td class="px-4 py-3 text-right font-mono text-slate-500">{{ item.stok_minimal }}</td>
+            <td class="px-4 py-3 text-right font-mono text-slate-700">{{ item.qty_terjual_30_hari }}</td>
+            <td class="px-4 py-3 text-right font-mono text-slate-700">
+                {% if item.estimasi_hari_habis is not none %}
+                    {% if item.estimasi_hari_habis < 7 %}
+                    <span class="text-red-600 font-semibold">{{ "%.0f"|format(item.estimasi_hari_habis) }}</span>
+                    {% else %}
+                    {{ "%.0f"|format(item.estimasi_hari_habis) }}
+                    {% endif %}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right font-mono font-semibold text-teal-700">{{ item.saran_order_qty }}</td>
+            <td class="px-4 py-3 text-right whitespace-nowrap">
+                <a href="/web/apotek/produk/{{ item.id_produk }}/write-off"
+                   class="inline-flex items-center px-2 py-1 text-xs border border-slate-300 text-slate-700 rounded hover:bg-slate-50">
+                    Write-off
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

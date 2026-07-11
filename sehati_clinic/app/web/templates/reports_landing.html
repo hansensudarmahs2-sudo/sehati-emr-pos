@@ -1,0 +1,220 @@
+{% extends "_app.html" %}
+{% block title %}Rekap & Laporan{% endblock %}
+{% block page_title %}Rekap & Laporan{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {% if is_dokter_view %}
+    <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+        <div class="flex items-start gap-2 text-sm text-blue-800">
+            <span class="text-lg">🩺</span>
+            <div>
+                <div class="font-medium">View: Kinerja Saya</div>
+                <p class="text-xs text-blue-700 mt-0.5">
+                    Sebagai Dokter, Bapak hanya melihat statistik konsul + tindakan + omzet kontribusi pasien Bapak sendiri.
+                </p>
+            </div>
+        </div>
+    </div>
+    {% elif is_kasir_view %}
+    <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+        <div class="flex items-start gap-2 text-sm text-amber-800">
+            <span class="text-lg">💰</span>
+            <div>
+                <div class="font-medium">View: Rekap Shift Saya</div>
+                <p class="text-xs text-amber-700 mt-0.5">
+                    Sebagai Kasir, Bapak hanya melihat rekap transaksi yang Bapak proses sendiri.
+                </p>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-600 mb-5">Pilih jenis laporan yang ingin Bapak lihat.</p>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {% if can_see_omzet %}
+        <a href="/web/reports/omzet"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center text-2xl flex-shrink-0">📊</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Omzet Bulanan</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Rekap omzet per bulan dengan chart bar + line, breakdown per metode pembayaran, dan KPI rentang.
+                </p>
+                <div class="text-xs text-emerald-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_top_treatment %}
+        <a href="/web/reports/top-treatment"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-purple-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center text-2xl flex-shrink-0">💉</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Top Treatment</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Ranking treatment paling sering + paling profitable. Chart horizontal bar top 10 + tabel ranking detail.
+                </p>
+                <div class="text-xs text-purple-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_kinerja_dokter %}
+        <a href="/web/reports/kinerja-dokter"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-blue-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center text-2xl flex-shrink-0">🩺</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">
+                    {% if is_dokter_view %}Kinerja Saya{% else %}Kinerja Dokter{% endif %}
+                </h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    {% if is_dokter_view %}
+                    Statistik konsul Bapak: pasien unique, jumlah konsul, conversion rate konsul → tindakan, omzet kontribusi.
+                    {% else %}
+                    Ranking dokter: pasien unique, jumlah konsul, conversion rate konsul → tindakan, estimasi omzet kontribusi.
+                    {% endif %}
+                </p>
+                <div class="text-xs text-blue-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_rekap_kasir %}
+        <a href="/web/reports/rekap-kasir"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-amber-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center text-2xl flex-shrink-0">💰</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">
+                    {% if is_kasir_view %}Rekap Shift Saya{% else %}Rekap Kasir Shift{% endif %}
+                </h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    {% if is_kasir_view %}
+                    Rekap omzet shift Bapak hari ini: jumlah transaksi + total omzet yang Bapak proses.
+                    {% else %}
+                    Rekap per-kasir per tanggal: jumlah transaksi + total omzet. Default hari ini.
+                    {% endif %}
+                </p>
+                <div class="text-xs text-amber-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_tutup_kasir %}
+        <a href="/web/reports/tutup-kasir"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center text-2xl flex-shrink-0">🧾</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">
+                    {% if is_kasir_view %}Tutup Kasir Saya{% else %}Laporan Tutup Kasir{% endif %}
+                </h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Rekonsiliasi shift: expected vs hitungan fisik + selisih over/short per sesi kasir.
+                </p>
+                <div class="text-xs text-emerald-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_rekap_harian %}
+        <a href="/web/reports/rekap-harian"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center text-2xl flex-shrink-0">📊</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Rekap Harian Kasir</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Analitik harian: pasien berkunjung, transaksi per metode, single vs split, konsultasi vs retail, per kasir.
+                </p>
+                <div class="text-xs text-indigo-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_komisi %}
+        <a href="/web/reports/komisi"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center text-2xl flex-shrink-0">💵</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Komisi Staf</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Total & rincian komisi Dokter/Perawat per periode (tindakan & produk). Dokter/perawat melihat komisinya sendiri.
+                </p>
+                <div class="text-xs text-emerald-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_void_report %}
+        <a href="/web/reports/void"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-red-400 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-red-50 flex items-center justify-center text-2xl flex-shrink-0">⚠</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Void Pembayaran</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Laporan semua void transaksi: filter rentang tanggal + reason + kasir/voider. Summary stats + CSV export. <strong>Owner/Superadmin/Admin only.</strong>
+                </p>
+                <div class="text-xs text-red-600 mt-2 font-medium">Buka laporan void →</div>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_apoteker_dispensed %}
+        <a href="/web/reports/apoteker-dispensed"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-emerald-50 flex items-center justify-center text-2xl flex-shrink-0">💊</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Rekap Resep Apoteker</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Daftar resep yang sudah diserahkan apoteker per periode + breakdown performance per apoteker. Filter tanggal + apoteker. CSV export. <strong>Apoteker/Admin/Owner.</strong>
+                </p>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_writeoff_report %}
+        <a href="/web/reports/write-off"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-orange-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl flex-shrink-0">🗑</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Rekap Write-off Produk</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Stok yang dibuang (EXPIRED/RUSAK/PENYESUAIAN) per periode + breakdown jenis + estimasi loss. Filter tanggal + jenis + apoteker. CSV. <strong>Apoteker/Admin/Owner.</strong>
+                </p>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_top_produk %}
+        <a href="/web/reports/top-produk"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-indigo-50 flex items-center justify-center text-2xl flex-shrink-0">🏆</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Top Dispensed Products</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Ranking produk paling sering keluar via resep (top 20-500). Sort by qty/event/nominal. Berguna untuk planning restock. <strong>Apoteker/Admin/Owner.</strong>
+                </p>
+            </div>
+        </a>
+        {% endif %}
+
+        {% if can_see_audit_log %}
+        <a href="/web/reports/audit-log"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-slate-400 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center text-2xl flex-shrink-0">📋</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Audit Log Viewer</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Trace semua aktivitas user: filter per user / tabel / aksi / tanggal. Pagination + JSON diff (data_lama vs data_baru). <strong>Owner/Superadmin only.</strong>
+                </p>
+                <div class="text-xs text-slate-700 mt-2 font-medium">Buka audit log →</div>
+            </div>
+        </a>
+        {% endif %}
+
+    </div>
+
+</div>
+{% endblock %}

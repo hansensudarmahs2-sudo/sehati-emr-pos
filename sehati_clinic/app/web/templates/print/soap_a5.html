@@ -1,0 +1,143 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Resume Medis - {{ pasien.nama }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+
+{% block doc_content %}
+{# ===== Header klinik ===== #}
+<div class="klinik-header">
+    {% if klinik.logo_path %}
+    <img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo">
+    {% endif %}
+    <div class="klinik-name">{{ klinik.nama_klinik }}</div>
+    <div class="klinik-addr">
+        {% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}
+        {% if klinik.alamat_baris2 %}{{ klinik.alamat_baris2 }}<br>{% endif %}
+        {% if klinik.alamat_baris3 %}{{ klinik.alamat_baris3 }}<br>{% endif %}
+        {% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}
+        {% if klinik.no_whatsapp %}{% if klinik.no_telepon %} · {% endif %}WA: {{ klinik.no_whatsapp }}{% endif %}
+    </div>
+</div>
+
+<div class="divider-solid"></div>
+
+<div class="text-center font-bold" style="font-size: 1.1em; margin: 6px 0;">RESUME MEDIS</div>
+
+{# ===== Identitas pasien + kunjungan ===== #}
+<table style="margin-bottom: 8px;">
+    <tr>
+        <td style="width: 22%;" class="muted">No. RM</td>
+        <td style="width: 28%;" class="mono">{{ pasien.no_rm }}</td>
+        <td style="width: 22%;" class="muted">Tgl Kunjungan</td>
+        <td class="mono">{% if kunjungan.tgl_kunjungan %}{{ kunjungan.tgl_kunjungan.strftime("%d %b %Y") }}{% else %}—{% endif %}</td>
+    </tr>
+    <tr>
+        <td class="muted">Nama</td>
+        <td class="font-bold">{{ pasien.nama }}</td>
+        <td class="muted">Dokter</td>
+        <td>{{ dokter.nama_staf }}</td>
+    </tr>
+    <tr>
+        <td class="muted">L/P · Umur</td>
+        <td>
+            {{ pasien.jenis_kelamin }}
+            {% if pasien.umur_tahun is not none %} · {{ pasien.umur_tahun }} th{% endif %}
+        </td>
+        <td class="muted">No. Kunjungan</td>
+        <td class="mono">#{{ kunjungan.id_kunjungan }}</td>
+    </tr>
+</table>
+
+<div class="divider"></div>
+
+{# ===== SOAP — Subjective ===== #}
+<div class="section-title">S - Anamnesa / Keluhan</div>
+<div style="white-space: pre-wrap; min-height: 1.5em; padding: 4px 0;">
+{{ soap.anamnesa or "—" }}
+</div>
+
+{# ===== Objective ===== #}
+<div class="section-title">O - Pemeriksaan Fisik</div>
+<div style="white-space: pre-wrap; min-height: 1.5em; padding: 4px 0;">
+{{ soap.pemeriksaan_fisik or "—" }}
+</div>
+
+{# ===== Assessment ===== #}
+<div class="section-title">A - Diagnosa</div>
+<div style="white-space: pre-wrap; min-height: 1.5em; padding: 4px 0;">
+{{ soap.diagnosa or "—" }}
+</div>
+
+{# ===== Plan — tindakan + resep ===== #}
+<div class="section-title">P - Rencana / Tindakan</div>
+
+{% if tindakan %}
+<div style="margin: 4px 0;">
+    <div class="font-bold" style="margin-bottom: 3px;">Tindakan:</div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 70%;">Nama Treatment</th>
+                <th style="width: 30%;">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tindakan %}
+            <tr>
+                <td>{{ t.nama_treatment }}</td>
+                <td class="mono" style="font-size: 0.85em;">{{ t.status }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if resep %}
+<div style="margin: 6px 0;">
+    <div class="font-bold" style="margin-bottom: 3px;">Resep / Produk:</div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 45%;">Nama Produk</th>
+                <th style="width: 15%;">Qty</th>
+                <th style="width: 40%;">Aturan Pakai</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in resep %}
+            <tr>
+                <td>{{ r.nama_produk }}</td>
+                <td class="mono">{{ "%g"|format(r.qty) }}</td>
+                <td>{{ r.aturan_pakai or "—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if soap.saran_produk %}
+<div style="margin: 6px 0;">
+    <div class="font-bold">Instruksi Pemakaian Produk:</div>
+    <div style="white-space: pre-wrap;">{{ soap.saran_produk }}</div>
+</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Sign-off dokter ===== #}
+<div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+    <div style="text-align: center; min-width: 200px;">
+        <div>{% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}, {% endif %}{{ tgl_cetak.split(' ')[0] if tgl_cetak else "" }}</div>
+        <div style="margin-bottom: 50px;">{{ ttd_text }}</div>
+        <div class="font-bold" style="border-top: 1px solid #000; padding-top: 2px;">
+            ({{ dokter.nama_staf }})
+        </div>
+    </div>
+</div>
+
+{# ===== Footer ===== #}
+<div class="text-center muted" style="margin-top: 12px; font-size: 0.75em;">
+    Dicetak: {{ tgl_cetak }} · RM {{ pasien.no_rm }} · Kunjungan #{{ kunjungan.id_kunjungan }}
+</div>
+{% endblock %}

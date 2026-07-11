@@ -1,0 +1,147 @@
+{% extends "_base.html" %}
+{% block title %}{{ pasien.nama }} — {{ klinik.nama }}{% endblock %}
+
+{% block content %}
+<div class="text-sm text-slate-500 mb-4">
+    <a href="/antrian" class="hover:text-blue-600">📋 Antrian</a>
+    <span class="mx-2">›</span>
+    <span class="text-slate-700 font-medium">{{ pasien.nama }}</span>
+</div>
+
+{# Header Pasien #}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    <div class="flex items-center gap-4">
+        <div class="w-16 h-16 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xl">
+            {{ pasien.nama[:2] }}
+        </div>
+        <div class="flex-1">
+            <h1 class="text-xl font-bold text-slate-800">{{ pasien.nama }}</h1>
+            <div class="text-sm text-slate-500 mt-1">
+                <span class="font-mono">{{ pasien.no_rm }}</span> ·
+                {{ pasien.jk }} · {{ pasien.umur }} tahun ·
+                {{ pasien.telp }} · {{ pasien.alamat }}
+            </div>
+        </div>
+        {% if antrian %}
+        <div class="text-right">
+            <div class="text-xs text-slate-500">Status Antrian</div>
+            <div class="inline-block mt-1 px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">
+                {{ antrian.no_antrian }} — {{ antrian.status.replace('_', ' ') }}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if antrian %}
+{# SOAP FORM (in-line for demo) #}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+        <span>📝</span> SOAP Konsultasi Hari Ini
+        <span class="text-xs font-normal text-slate-500">— {{ antrian.dokter }}</span>
+    </h3>
+
+    <form method="POST" action="/pasien/{{ pasien.id }}/soap" class="space-y-3">
+        <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Keluhan Utama (S - Subjective)</label>
+            <textarea name="keluhan" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">{{ antrian.keluhan }}</textarea>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-700 mb-1">Pemeriksaan (O - Objective)</label>
+                <textarea name="objective" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="Kondisi kulit, vital sign..."></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-700 mb-1">Diagnosa (A - Assessment)</label>
+                <textarea name="diagnosa" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="Diagnosa medis..."></textarea>
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Plan / Saran (P - Plan)</label>
+            <textarea name="plan" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="Rencana tindakan..."></textarea>
+        </div>
+
+        {# Tindakan dropdown #}
+        <div class="border-t border-slate-200 pt-3">
+            <label class="block text-xs font-medium text-slate-700 mb-1">+ Tindakan Hari Ini</label>
+            <select name="tindakan" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                <option value="">— Pilih treatment —</option>
+                {% for t in treatment_list %}
+                <option value="{{ t.id }}">{{ t.nama }} — Rp {{ "{:,}".format(t.harga).replace(",", ".") }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        {# Resep produk #}
+        <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">+ Resep Produk</label>
+            <select name="resep" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                <option value="">— Pilih produk —</option>
+                {% for p in produk_list %}
+                <option value="{{ p.id }}">{{ p.nama }} — Rp {{ "{:,}".format(p.harga).replace(",", ".") }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="flex items-center justify-between pt-3 border-t border-slate-200">
+            <div class="text-xs text-slate-500">
+                {% if request.query_params.get('soap_ok') %}
+                <span class="text-emerald-700 font-semibold">✓ SOAP berhasil disimpan</span>
+                {% endif %}
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg">
+                    💾 Simpan SOAP
+                </button>
+                <a href="/kasir" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2 rounded-lg">
+                    → Lanjut ke Kasir
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{# Riwayat SOAP #}
+{% if riwayat %}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h3 class="font-semibold text-slate-800 mb-3">📜 Riwayat Konsultasi</h3>
+    <div class="space-y-3">
+        {% for r in riwayat %}
+        <div class="border-l-4 border-blue-400 pl-4 py-2">
+            <div class="flex items-center gap-3 text-xs text-slate-500 mb-1">
+                <span class="font-semibold text-slate-700">{{ r.tgl }}</span>
+                <span>·</span>
+                <span>{{ r.dokter }}</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div>
+                    <div class="text-xs text-slate-500 uppercase font-semibold">Keluhan</div>
+                    <div class="text-slate-700">{{ r.keluhan }}</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 uppercase font-semibold">Diagnosa</div>
+                    <div class="text-slate-700">{{ r.diagnosa }}</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 uppercase font-semibold">Plan</div>
+                    <div class="text-slate-700">{{ r.plan }}</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 uppercase font-semibold">Tindakan</div>
+                    <div class="text-slate-700">{{ r.tindakan }}</div>
+                    {% if r.produk %}
+                    <div class="text-xs text-slate-500 mt-1">Produk: {{ r.produk|join(', ') }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 text-center text-sm text-slate-500">
+    Belum ada riwayat konsultasi untuk pasien ini.
+</div>
+{% endif %}
+{% endblock %}

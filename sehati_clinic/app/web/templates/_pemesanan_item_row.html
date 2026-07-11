@@ -1,0 +1,100 @@
+{# Partial — 1 row item untuk PO. Dipakai via HTMX +Tambah Item.
+   Optional `prefill` context var (dict) untuk pre-fill dari Suggested Order:
+     {tipe_item: "PRODUK", id_produk: 12, qty_dipesan: "20"} #}
+{% set pf = prefill if prefill is defined and prefill else none %}
+<div class="pemesanan-item-row border border-slate-200 rounded-lg p-3 mb-2 bg-slate-50/30">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+        {# Tipe item #}
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Tipe</label>
+            <select name="tipe_item" required class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded tipe-select">
+                <option value="PRODUK" {% if pf and pf.tipe_item == "PRODUK" %}selected{% endif %}>📦 PRODUK</option>
+                {% if not is_apoteker %}
+                <option value="BAHAN" {% if pf and pf.tipe_item == "BAHAN" %}selected{% endif %}>🧪 BAHAN</option>
+                {% endif %}
+            </select>
+        </div>
+
+        {# Dropdown produk #}
+        <div class="md:col-span-4 produk-panel">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Produk</label>
+            <select name="id_produk" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+                <option value="">— pilih —</option>
+                {% for p in master_produk %}
+                <option value="{{ p.id_produk }}" data-satuan="{{ p.satuan or '' }}"
+                        {% if pf and pf.id_produk == p.id_produk %}selected{% endif %}>
+                    {{ p.kode_produk }} — {{ p.nama_produk }} [{{ p.tipe_produk }}]
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        {# Dropdown bahan — hidden untuk apoteker #}
+        {% if not is_apoteker %}
+        <div class="md:col-span-4 bahan-panel hidden">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Bahan</label>
+            <select name="id_bahan" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+                <option value="">— pilih —</option>
+                {% for b in master_bahan %}
+                <option value="{{ b.id_bahan }}" data-satuan="{{ b.satuan_pembelian or b.satuan }}">
+                    {{ b.nama_bahan }} ({{ b.satuan_pembelian or b.satuan or 'unit' }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        {# Qty + Harga #}
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Qty</label>
+            <input type="number" name="qty_dipesan" required min="0.01" step="any"
+                   value="{{ pf.qty_dipesan if pf and pf.qty_dipesan else '' }}"
+                   class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+        </div>
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Harga Satuan (opsional)</label>
+            <input type="number" name="harga_satuan" min="0" step="any" placeholder="0"
+                   class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+        </div>
+
+        {# Tombol hapus row #}
+        <div class="md:col-span-2 flex items-end justify-end">
+            <button type="button" onclick="this.closest('.pemesanan-item-row').remove()"
+                    class="px-2 py-1.5 text-xs border border-red-200 text-red-600 rounded hover:bg-red-50">
+                🗑 Hapus
+            </button>
+        </div>
+    </div>
+    {# Catatan #}
+    <div class="mt-2">
+        <input type="text" name="catatan_item" maxlength="200" placeholder="Catatan (opsional)"
+               class="w-full px-2 py-1 text-xs border border-slate-300 rounded">
+    </div>
+</div>
+
+<script>
+(function() {
+    // Toggle panel produk/bahan saat ubah tipe
+    var lastRow = document.currentScript.previousElementSibling;
+    if (!lastRow || !lastRow.classList.contains('pemesanan-item-row')) {
+        lastRow = document.querySelectorAll('.pemesanan-item-row');
+        lastRow = lastRow[lastRow.length - 1];
+    }
+    if (!lastRow) return;
+
+    var tipeSelect = lastRow.querySelector('.tipe-select');
+    var produkPanel = lastRow.querySelector('.produk-panel');
+    var bahanPanel = lastRow.querySelector('.bahan-panel');
+    if (tipeSelect && produkPanel) {
+        tipeSelect.addEventListener('change', function() {
+            if (this.value === 'PRODUK') {
+                produkPanel.classList.remove('hidden');
+                if (bahanPanel) bahanPanel.classList.add('hidden');
+            } else {
+                produkPanel.classList.add('hidden');
+                if (bahanPanel) bahanPanel.classList.remove('hidden');
+            }
+        });
+    }
+})();
+</script>

@@ -1,0 +1,195 @@
+{% extends "_app.html" %}
+{% block title %}Kinerja Dokter — Reports{% endblock %}
+{% block page_title %}Reports — Kinerja Dokter{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/reports" class="hover:text-blue-600">Reports</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{% if is_own_only %}Kinerja Saya{% else %}Kinerja Dokter{% endif %}</span>
+    </div>
+
+    {% if is_own_only %}
+    <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+        🔒 Mode: <strong>Kinerja Saya</strong> (auto-filter ke konsul Bapak sendiri).
+    </div>
+    {% endif %}
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" action="/web/reports/kinerja-dokter" class="flex flex-wrap items-end gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Dari Tanggal</label>
+                <input type="date" name="tgl_dari" value="{{ tgl_dari_selected }}"
+                       class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Sampai Tanggal</label>
+                <input type="date" name="tgl_sampai" value="{{ tgl_sampai_selected }}"
+                       class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">
+                🔍 Tampilkan
+            </button>
+        </form>
+    </div>
+
+    {# KPI Cards #}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Dokter Aktif</div>
+            <div class="text-2xl font-bold text-blue-700 mt-1">{{ data.total_dokter }}</div>
+            <div class="text-xs text-slate-500 mt-1">menjalankan konsul</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Total Konsul</div>
+            <div class="text-2xl font-bold text-purple-700 mt-1">{{ data.total_konsul }}</div>
+            <div class="text-xs text-slate-500 mt-1">SOAP entries</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Total Tindakan</div>
+            <div class="text-2xl font-bold text-emerald-700 mt-1">{{ data.total_tindakan }}</div>
+            <div class="text-xs text-slate-500 mt-1">selesai dari konsul dokter</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Top Omzet</div>
+            <div class="text-base font-bold text-amber-700 mt-1">{{ data.top_omzet_label or "—" }}</div>
+            <div class="text-xs text-slate-500 mt-1">
+                Rp {{ "{:,.0f}".format(data.top_omzet_value|float).replace(",", ".") }}
+            </div>
+        </div>
+    </div>
+
+    {# Chart grouped bar — konsul vs tindakan per dokter #}
+    {% if data["items"] %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📊</span> Volume Konsul vs Tindakan per Dokter
+        </h3>
+        <div style="position: relative; height: {{ 60 + 50 * (chart_labels|length) }}px;">
+            <canvas id="kinerjaDokterChart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Tabel ranking lengkap #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📋</span> Ranking Lengkap ({{ data["items"]|length }} dokter)
+        </h3>
+        {% if data["items"] %}
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 pr-3 w-10">#</th>
+                    <th class="text-left py-2 pr-3">Dokter</th>
+                    <th class="text-right py-2 pr-3">Pasien Unik</th>
+                    <th class="text-right py-2 pr-3">Konsul</th>
+                    <th class="text-right py-2 pr-3">Konsul → Tindakan</th>
+                    <th class="text-right py-2 pr-3">Konversi</th>
+                    <th class="text-right py-2 pr-3">Total Tindakan</th>
+                    <th class="text-right py-2">Estimasi Omzet</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in data["items"] %}
+                <tr class="hover:bg-slate-50/50">
+                    <td class="py-2 pr-3 font-mono text-slate-600">
+                        {% if it.rank <= 3 %}<span class="font-bold {% if it.rank == 1 %}text-amber-600{% elif it.rank == 2 %}text-slate-500{% else %}text-orange-600{% endif %}">{{ it.rank }}</span>{% else %}{{ it.rank }}{% endif %}
+                    </td>
+                    <td class="py-2 pr-3 font-medium text-slate-800">{{ it.nama_dokter }}</td>
+                    <td class="py-2 pr-3 text-right font-mono text-slate-700">{{ it.pasien_unique }}</td>
+                    <td class="py-2 pr-3 text-right font-mono font-semibold text-purple-700">{{ it.jumlah_konsul }}</td>
+                    <td class="py-2 pr-3 text-right font-mono text-slate-600">{{ it.konsul_dengan_tindakan }}</td>
+                    <td class="py-2 pr-3 text-right">
+                        {% set rate = it.conversion_rate %}
+                        <span class="inline-block px-2 py-0.5 text-xs rounded font-mono
+                            {% if rate >= 70 %}bg-emerald-100 text-emerald-700
+                            {% elif rate >= 40 %}bg-amber-100 text-amber-700
+                            {% else %}bg-slate-100 text-slate-600{% endif %}">
+                            {{ "%.1f"|format(rate) }}%
+                        </span>
+                    </td>
+                    <td class="py-2 pr-3 text-right font-mono font-semibold text-blue-700">{{ it.jumlah_tindakan }}</td>
+                    <td class="py-2 text-right font-mono font-semibold text-emerald-700">
+                        Rp {{ "{:,.0f}".format(it.estimasi_omzet|float).replace(",", ".") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="text-xs text-slate-500 mt-3">
+            💡 <strong>Konversi</strong> = persentase kunjungan dokter yang berlanjut menjadi tindakan SELESAI.
+            Hijau ≥ 70%, kuning 40-69%, abu &lt; 40%.
+        </p>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-8">Belum ada konsul dokter dalam rentang tanggal ini.</p>
+        {% endif %}
+    </div>
+
+    <div class="text-xs text-slate-500 text-center mt-4">
+        Generated: {{ data.waktu_rekap }}
+    </div>
+
+</div>
+
+{# Chart.js — grouped bar konsul vs tindakan (horizontal) #}
+{% if data["items"] %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function() {
+    const ctx = document.getElementById('kinerjaDokterChart');
+    if (!ctx) return;
+    const labels = {{ chart_labels | tojson }};
+    const konsul = {{ chart_konsul | tojson }};
+    const tindakan = {{ chart_tindakan | tojson }};
+    const omzet = {{ chart_omzet | tojson }};
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Konsul',
+                    data: konsul,
+                    backgroundColor: 'rgba(168, 85, 247, 0.7)',
+                    borderColor: 'rgba(168, 85, 247, 1)',
+                    borderWidth: 1,
+                },
+                {
+                    label: 'Tindakan SELESAI',
+                    data: tindakan,
+                    backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1,
+                }
+            ]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { title: { display: true, text: 'Jumlah' }, ticks: { stepSize: 1 } }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        afterBody: function(tooltipItems) {
+                            const idx = tooltipItems[0].dataIndex;
+                            const om = omzet[idx];
+                            return 'Omzet: Rp ' + om.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

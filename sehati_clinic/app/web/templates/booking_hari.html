@@ -1,0 +1,112 @@
+{% extends "_app.html" %}
+{% block title %}Booking {{ tgl.strftime('%d/%m/%Y') }} — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Detail Booking — {{ tgl.strftime('%d %B %Y') }}{% endblock %}
+
+{% set BADGE = {
+    "BOOKED":     "bg-slate-100 text-slate-700 border-slate-200",
+    "CONFIRMED":  "bg-blue-50 text-blue-700 border-blue-200",
+    "RESCHEDULED":"bg-amber-50 text-amber-700 border-amber-200",
+    "CANCELLED":  "bg-red-50 text-red-600 border-red-200",
+    "CHECKED_IN": "bg-emerald-50 text-emerald-700 border-emerald-200"
+} %}
+{% set STATUS_ID = {
+    "BOOKED":"Booked", "CONFIRMED":"Confirmed", "RESCHEDULED":"Dijadwal-ulang",
+    "CANCELLED":"Dibatalkan", "CHECKED_IN":"Sudah check-in"
+} %}
+
+{% block page_content %}
+<div class="max-w-4xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <a href="/web/booking?bulan={{ bulan_kembali }}" class="inline-flex items-center px-3 py-2 text-sm text-blue-600 hover:underline">‹ Kembali ke kalender</a>
+        <a href="/web/booking/tambah?tgl={{ tgl_iso }}"
+           class="inline-flex items-center px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">➕ Tambah di tanggal ini</a>
+    </div>
+
+    {% if items and items|length > 0 %}
+    <div class="space-y-3">
+        {% for b in items %}
+        {% set locked = b.status in ["CANCELLED", "CHECKED_IN", "RESCHEDULED"] %}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4"{% if locked %} style="opacity:.7"{% endif %}>
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-mono text-lg font-semibold text-slate-800">{{ b.jam }}</span>
+                        <span class="px-2 py-0.5 rounded border text-xs font-medium {{ BADGE.get(b.status, BADGE['BOOKED']) }}">{{ STATUS_ID.get(b.status, b.status) }}</span>
+                    </div>
+                    <div class="text-sm text-slate-800 font-medium">{{ b.nama_pasien }}
+                        <span class="text-slate-400 font-mono text-xs">({{ b.no_rm }})</span>
+                    </div>
+                    {% if b.keluhan_utama %}<div class="text-xs text-slate-500 mt-1">Keluhan: {{ b.keluhan_utama }}</div>{% endif %}
+                    {% if b.catatan %}<div class="text-xs text-slate-400 mt-0.5">Catatan: {{ b.catatan }}</div>{% endif %}
+                    {% if b.status == "RESCHEDULED" %}<div class="text-xs text-amber-600 mt-1">↻ Slot ini sudah dipindah ke jadwal lain (riwayat). Cek audit log untuk detail perubahan.</div>{% endif %}
+                    {% if b.status == "CHECKED_IN" %}<div class="text-xs text-emerald-600 mt-1">✓ Pasien sudah masuk antrian hari ini.</div>{% endif %}
+                </div>
+
+                {# ---------- Aksi per-booking (hanya kalau belum terkunci) ---------- #}
+                {% if not locked %}
+                <div class="flex flex-col items-end gap-1.5">
+                    {# baris 1: check-in (aksi utama) — HANYA di hari-H booking #}
+                    {% if is_hari_ini %}
+                    <div class="flex items-center gap-1.5">
+                        <form method="POST" action="/web/booking/{{ b.id_booking }}/checkin">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="status_antrian" value="ANTRI_KONSULTASI">
+                            <button type="submit" class="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700" title="Masukkan ke antrian konsultasi hari ini">▶ Check-in Konsul</button>
+                        </form>
+                        <form method="POST" action="/web/booking/{{ b.id_booking }}/checkin">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="status_antrian" value="ANTRI_TREATMENT">
+                            <button type="submit" class="px-2.5 py-1 text-xs text-white rounded" style="background:#9333ea" title="Masukkan ke antrian tindakan (mis. lanjutan series)">💉 Check-in Tindakan</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <div class="text-xs text-slate-400 italic text-right">Check-in tersedia pada hari-H booking.</div>
+                    {% endif %}
+                    {# baris 2: kelola #}
+                    <div class="flex items-center gap-1.5">
+                        {% if b.status != "CONFIRMED" %}
+                        <form method="POST" action="/web/booking/{{ b.id_booking }}/confirm">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">✓ Konfirmasi</button>
+                        </form>
+                        {% endif %}
+                        <a href="/web/booking/{{ b.id_booking }}/edit" class="px-2.5 py-1 text-xs bg-white border border-slate-300 rounded hover:bg-slate-50 text-slate-600">✏️ Edit</a>
+                        <form method="POST" action="/web/booking/{{ b.id_booking }}/cancel"
+                              data-confirm="Batalkan booking {{ b.nama_pasien }} jam {{ b.jam }}?">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="px-2.5 py-1 text-xs bg-white border border-red-300 rounded hover:bg-red-50 text-red-600">✕ Batal</button>
+                        </form>
+                    </div>
+                    {# baris 3: reschedule #}
+                    <details class="text-right">
+                        <summary class="text-xs text-amber-600 cursor-pointer hover:underline">↻ Jadwal ulang</summary>
+                        <form method="POST" action="/web/booking/{{ b.id_booking }}/reschedule" class="flex items-center gap-1 mt-1.5">
+                            {{ csrf_input(request) }}
+                            <input type="date" name="tgl_rencana" required value="{{ tgl_iso }}"
+                                   class="px-2 py-1 text-xs border border-slate-300 rounded">
+                            <input type="time" name="jam_rencana" required value="{{ b.jam }}"
+                                   class="px-2 py-1 text-xs border border-slate-300 rounded">
+                            <button type="submit" class="px-2 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600">OK</button>
+                        </form>
+                    </details>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+        <p class="text-slate-500">Belum ada booking di tanggal ini.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

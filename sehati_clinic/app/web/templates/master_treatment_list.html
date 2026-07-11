@@ -1,0 +1,91 @@
+{% extends "_app.html" %}
+{% block title %}Master Treatment{% endblock %}
+{% block page_title %}Master Treatment{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <form method="GET" class="flex items-center gap-2">
+            <input type="text" name="q" value="{{ q or '' }}" placeholder="Cari nama treatment..."
+                   class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            <label class="flex items-center gap-1.5 text-sm text-slate-700">
+                <input type="checkbox" name="only_active" value="1" {% if only_active %}checked{% endif %} class="rounded">
+                Aktif saja
+            </label>
+            <button type="submit" class="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700">Filter</button>
+            {% if q or only_active %}
+            <a href="/web/master/treatment" class="text-sm text-slate-500 hover:underline">Reset</a>
+            {% endif %}
+        </form>
+        <a href="/web/master/treatment/tambah"
+           class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1.5 font-medium">
+            ➕ Tambah Treatment
+        </a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            Total: {{ total }} treatment
+        </div>
+
+        {% if data %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Nama Treatment</th>
+                    <th class="text-left px-4 py-2 font-medium">Role Pelaksana</th>
+                    <th class="text-right px-4 py-2 font-medium">Durasi</th>
+                    <th class="text-right px-4 py-2 font-medium">Harga</th>
+                    <th class="text-center px-4 py-2 font-medium">Butuh Otorisasi</th>
+                    <th class="text-center px-4 py-2 font-medium">Status</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for t in data %}
+                <tr class="hover:bg-blue-50/30 transition">
+                    <td class="px-4 py-3 font-medium text-slate-800">{{ t.nama_treatment }}</td>
+                    <td class="px-4 py-3 text-xs text-slate-600">{{ t.role_pelaksana }}</td>
+                    <td class="px-4 py-3 text-right text-slate-700 font-mono">{{ t.durasi_menit }} mnt</td>
+                    <td class="px-4 py-3 text-right text-slate-800 font-semibold">Rp {{ "{:,.0f}".format(t.harga).replace(",", ".") }}</td>
+                    <td class="px-4 py-3 text-center">
+                        {% if t.butuh_otorisasi %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">🔒 Ya</span>
+                        {% else %}
+                        <span class="text-slate-400 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% if t.is_active %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">● Aktif</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-500">Nonaktif</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <a href="/web/master/treatment/{{ t.id_treatment }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+                            ✏️ Edit
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-400">
+            <p class="text-sm">Belum ada treatment. <a href="/web/master/treatment/tambah" class="text-blue-600 hover:underline">Tambah sekarang</a>.</p>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

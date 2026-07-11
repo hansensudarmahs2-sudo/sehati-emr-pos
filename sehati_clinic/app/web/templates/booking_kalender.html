@@ -1,0 +1,154 @@
+{% extends "_app.html" %}
+{% block title %}Booking — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Kalender Booking{% endblock %}
+
+{% set LABEL_HARI = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"] %}
+
+{% block page_content %}
+<style>
+    /* Self-contained: app.css (Tailwind purged) tak punya grid-cols-7 / arbitrary values */
+    .cal-wrap { border:1px solid #e2e8f0; border-radius:0.75rem; overflow:hidden; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .cal-head, .cal-row { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); }
+    .cal-head > div { padding:0.5rem; text-align:center; font-size:0.7rem; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:.03em; background:#f8fafc; border-bottom:1px solid #e2e8f0; }
+    .cal-head .wknd { color:#f87171; }
+    .cal-cell { min-height:8rem; border-bottom:1px solid #f1f5f9; border-right:1px solid #f1f5f9; padding:0.4rem; display:flex; flex-direction:column; }
+    .cal-cell.out { background:#f8fafc99; }
+    .cal-cell.today { box-shadow:inset 0 0 0 2px #93c5fd; }
+    .cal-daynum { font-size:0.72rem; font-weight:600; color:#475569; }
+    .cal-daynum.muted { color:#cbd5e1; }
+    .cal-daynum.wknd { color:#f87171; }
+    .cal-count { font-size:0.62rem; color:#94a3b8; }
+    .cal-items { flex:1; display:flex; flex-direction:column; gap:0.2rem; margin-top:0.2rem; overflow:hidden; }
+    .chip { display:block; font-size:0.68rem; padding:0.1rem 0.35rem; border-radius:0.3rem; border:1px solid; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; }
+    .chip .jam { font-family:ui-monospace,monospace; font-weight:600; }
+    .chip.BOOKED      { background:#f1f5f9; color:#334155; border-color:#e2e8f0; }
+    .chip.CONFIRMED   { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+    .chip.RESCHEDULED { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+    .chip.CANCELLED   { background:#fef2f2; color:#dc2626; border-color:#fecaca; text-decoration:line-through; }
+    .chip.CHECKED_IN  { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+    .chip-more { font-size:0.62rem; color:#2563eb; text-decoration:none; padding:0 0.35rem; }
+    .cal-actions { display:flex; align-items:center; gap:0.25rem; margin-top:0.3rem; }
+    .bk-dropdown { position:relative; display:inline-block; }
+    .bk-trigger { font-size:0.68rem; padding:0.15rem 0.4rem; background:#059669; color:#fff; border:0; border-radius:0.3rem; cursor:pointer; }
+    .bk-trigger:hover { background:#047857; }
+    .bk-menu { position:absolute; left:0; margin-top:0.25rem; width:9.5rem; background:#fff; border:1px solid #e2e8f0; border-radius:0.5rem; box-shadow:0 10px 25px rgba(0,0,0,.15); z-index:9999; display:none; }
+    .bk-menu a { display:block; padding:0.4rem 0.6rem; font-size:0.72rem; color:#334155; text-decoration:none; border-bottom:1px solid #f1f5f9; }
+    .bk-menu a:last-child { border-bottom:0; }
+    .bk-menu a:hover { background:#f8fafc; }
+    .cal-details { font-size:0.68rem; padding:0.15rem 0.4rem; background:#fff; border:1px solid #cbd5e1; border-radius:0.3rem; color:#475569; text-decoration:none; }
+    .cal-details:hover { background:#f8fafc; }
+    .lgnd { display:inline-block; padding:0.1rem 0.4rem; border-radius:0.3rem; border:1px solid; font-size:0.7rem; }
+</style>
+
+<div class="max-w-6xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    {# ---------- Header: navigasi bulan ---------- #}
+    <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+            <a href="/web/booking?bulan={{ bulan_prev }}"
+               class="inline-flex items-center px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600">‹ Sebelumnya</a>
+            <h2 class="text-lg font-semibold text-slate-800 px-2 text-center" style="min-width:11rem">{{ bulan_label }}</h2>
+            <a href="/web/booking?bulan={{ bulan_next }}"
+               class="inline-flex items-center px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600">Berikutnya ›</a>
+            <a href="/web/booking" class="ml-1 inline-flex items-center px-3 py-2 text-sm text-blue-600 hover:underline">Hari ini</a>
+        </div>
+        <a href="/web/booking/tambah"
+           class="inline-flex items-center px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">➕ Booking Baru</a>
+    </div>
+
+    {# ---------- Legenda status ---------- #}
+    <div class="flex flex-wrap items-center gap-2 mb-3 text-xs text-slate-500">
+        <span class="lgnd chip BOOKED">Booked</span>
+        <span class="lgnd chip CONFIRMED">Confirmed</span>
+        <span class="lgnd chip RESCHEDULED">Rescheduled</span>
+        <span class="lgnd chip CHECKED_IN">Checked-in</span>
+        <span class="lgnd chip CANCELLED">Cancelled</span>
+        <span class="ml-auto text-slate-400">Booking hanya untuk member (VIP/VVIP).</span>
+    </div>
+
+    {# ---------- Grid kalender ---------- #}
+    <div class="cal-wrap">
+        <div class="cal-head">
+            {% for h in LABEL_HARI %}
+            <div class="{% if loop.index0 == 6 %}wknd{% endif %}">{{ h }}</div>
+            {% endfor %}
+        </div>
+
+        {% for week in weeks %}
+        <div class="cal-row">
+            {% for cell in week %}
+            {% set day_items = bookings.get(cell.iso, []) %}
+            <div class="cal-cell {% if not cell.in_month %}out{% endif %} {% if cell.iso == today_iso %}today{% endif %}">
+
+                <div class="flex items-center justify-between">
+                    <span class="cal-daynum {% if not cell.in_month %}muted{% elif loop.index0 == 6 %}wknd{% endif %}">{{ cell.day }}</span>
+                    {% if day_items|length > 0 %}<span class="cal-count">{{ day_items|length }}</span>{% endif %}
+                </div>
+
+                <div class="cal-items">
+                    {% for b in day_items[:3] %}
+                    <a href="/web/booking/hari/{{ cell.iso }}" class="chip {{ b.status }}"
+                       title="{{ b.jam }} {{ b.nama_pasien }} — {{ b.status }}">
+                        <span class="jam">{{ b.jam }}</span> {{ b.nama_pasien }}
+                    </a>
+                    {% endfor %}
+                    {% if day_items|length > 3 %}
+                    <a href="/web/booking/hari/{{ cell.iso }}" class="chip-more">+{{ day_items|length - 3 }} lagi…</a>
+                    {% endif %}
+                </div>
+
+                <div class="cal-actions">
+                    <div class="bk-dropdown">
+                        <button type="button" class="bk-trigger">Booking ▾</button>
+                        <div class="bk-menu">
+                            <a href="/web/booking/tambah?tgl={{ cell.iso }}">➕ Tambah</a>
+                            <a href="/web/booking/hari/{{ cell.iso }}">✏️ Edit / Hapus</a>
+                            <a href="/web/booking/hari/{{ cell.iso }}">📋 Detail hari</a>
+                        </div>
+                    </div>
+                    {% if day_items|length > 0 %}
+                    <a href="/web/booking/hari/{{ cell.iso }}" class="cal-details">Details</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+(function() {
+    function closeAll() {
+        document.querySelectorAll('.bk-menu').forEach(function(m){ m.style.display='none'; m.style.top=''; m.style.bottom=''; m.style.marginTop=''; m.style.marginBottom=''; });
+    }
+    function position(menu, trigger) {
+        var margin=8, rect=trigger.getBoundingClientRect();
+        var spaceBelow=window.innerHeight-rect.bottom-margin, needed=menu.offsetHeight;
+        if (needed<=spaceBelow) { menu.style.top='100%'; menu.style.bottom='auto'; menu.style.marginTop='4px'; }
+        else { menu.style.top='auto'; menu.style.bottom='100%'; menu.style.marginBottom='4px'; }
+    }
+    document.addEventListener('click', function(e){
+        var t=e.target.closest('.bk-trigger');
+        if (t) {
+            e.preventDefault();
+            var m=t.closest('.bk-dropdown').querySelector('.bk-menu');
+            var wasOpen=m.style.display==='block'; closeAll();
+            if (!wasOpen) { m.style.display='block'; position(m,t); }
+            return;
+        }
+        if (!e.target.closest('.bk-dropdown')) closeAll();
+    });
+    window.addEventListener('scroll', closeAll, true);
+    window.addEventListener('resize', closeAll);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeAll(); });
+})();
+</script>
+{% endblock %}

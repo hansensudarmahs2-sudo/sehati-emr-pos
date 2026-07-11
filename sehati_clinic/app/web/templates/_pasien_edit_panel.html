@@ -1,0 +1,133 @@
+{# TODO-NEW-6 #50 - Edit profile pasien (inline expand panel).
+
+Variables needed:
+- pasien (dict dengan field profile)
+- request (for csrf)
+
+Permission server-side: FO + Admin + Owner + Superadmin.
+Caller harus role-check sebelum include (lihat pasien_detail.html).
+#}
+
+<div class="border-t border-slate-100 pt-4 mt-4">
+    <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-slate-700">✏ Edit Profile Pasien</div>
+        <button type="button"
+                onclick="document.getElementById('pasien-edit-form-{{ pasien.id_pasien }}').classList.toggle('hidden')"
+                class="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded hover:bg-amber-100 font-medium">
+            ✏ Edit
+        </button>
+    </div>
+
+    <form id="pasien-edit-form-{{ pasien.id_pasien }}"
+          method="POST"
+          action="/web/pasien/{{ pasien.id_pasien }}/edit"
+          class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+        {{ csrf_input(request) }}
+
+        <div class="text-xs font-medium text-amber-800 mb-2">
+            🔒 No. RM tetap (tidak bisa diubah): <span class="font-mono">{{ pasien.no_rm }}</span>
+        </div>
+
+        {# Baris 1: Nama + Jenis Kelamin + Tgl Lahir #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Nama Lengkap</label>
+                <input type="text" name="nama" value="{{ pasien.nama or '' }}" maxlength="100"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Jenis Kelamin</label>
+                <select name="jenis_kelamin"
+                        class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+                    <option value="">— Pilih —</option>
+                    <option value="L" {% if pasien.jenis_kelamin == "L" %}selected{% endif %}>Laki-laki (L)</option>
+                    <option value="P" {% if pasien.jenis_kelamin == "P" %}selected{% endif %}>Perempuan (P)</option>
+                </select>
+            </div>
+        </div>
+
+        {# Baris 2: Tanggal Lahir + Tipe Membership #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">
+                    Tanggal Lahir
+                    <span class="text-amber-700">(penting untuk hitung Body Fat %)</span>
+                </label>
+                <input type="date" name="tgl_lahir"
+                       value="{{ pasien.tgl_lahir.isoformat() if pasien.tgl_lahir else '' }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Tipe Membership</label>
+                {# #362E - Tier display read-only. Ubah via section Membership #}
+                <div class="px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm text-slate-700 flex items-center justify-between">
+                    <span class="font-medium">
+                        {% if pasien.tipe_membership == 'VVIP' %}⭐⭐ VVIP
+                        {% elif pasien.tipe_membership == 'VIP' %}⭐ VIP
+                        {% else %}{{ pasien.tipe_membership or 'REGULAR' }}{% endif %}
+                    </span>
+                    <a href="/web/pasien/{{ pasien.id_pasien }}/membership" target="_blank"
+                       class="text-xs text-blue-600 hover:underline">Kelola →</a>
+                </div>
+            </div>
+        </div>
+
+        {# Baris 3: Alamat #}
+        <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Alamat</label>
+            <textarea name="alamat" rows="2" maxlength="500"
+                      class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">{{ pasien.alamat or "" }}</textarea>
+        </div>
+
+        {# Baris 4: Telepon + Email #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">No. Telepon</label>
+                <input type="text" name="nomor_telepon" value="{{ pasien.nomor_telepon or '' }}" maxlength="20"
+                       placeholder="08xxxxxxxxxx"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                <input type="email" name="email_address" value="{{ pasien.email_address or '' }}" maxlength="100"
+                       placeholder="email@example.com"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+            </div>
+        </div>
+
+        {# Baris 5: KTP + Sumber Referensi #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">
+                    No. KTP
+                    <span class="text-[10px] text-red-600">⚠ Sensitif PII</span>
+                </label>
+                <input type="text" name="nomor_ktp" value="{{ pasien.nomor_ktp or '' }}" maxlength="30"
+                       placeholder="32xxxxxxxxxxxxxx"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400 font-mono">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Sumber Referensi</label>
+                <input type="text" name="sumber_referensi" value="{{ pasien.sumber_referensi or '' }}" maxlength="100"
+                       placeholder="Instagram / Teman / Walk-in"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400">
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 pt-2 border-t border-amber-200">
+            <button type="submit"
+                    class="flex-1 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium">
+                ✓ Simpan Perubahan
+            </button>
+            <button type="button"
+                    onclick="document.getElementById('pasien-edit-form-{{ pasien.id_pasien }}').classList.add('hidden')"
+                    class="px-4 py-2 text-sm bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300">
+                Batal
+            </button>
+        </div>
+
+        <div class="text-[10px] text-amber-700 italic">
+            💡 Perubahan ter-audit. PII (alamat, KTP, tgl lahir) dicatat sebagai "diubah" tanpa nilai raw.
+        </div>
+    </form>
+</div>

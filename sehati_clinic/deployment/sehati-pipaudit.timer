@@ -1,0 +1,15 @@
+# ============================================================================
+# systemd timer — jalankan pip-audit tiap Senin 03:00 (mingguan).
+# Salin ke /etc/systemd/system/ lalu: systemctl enable --now sehati-pipaudit.timer
+# ============================================================================
+[Unit]
+Description=Jalankan Sehati pip-audit mingguan
+
+[Timer]
+OnCalendar=Mon *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=sehati-pipaudit.service
+
+[Install]
+WantedBy=timers.target

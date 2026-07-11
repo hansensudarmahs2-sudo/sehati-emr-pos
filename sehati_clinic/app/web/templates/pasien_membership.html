@@ -1,0 +1,377 @@
+{% extends "_app.html" %}
+{% block title %}Membership — {{ status_data.pasien.nama }}{% endblock %}
+{% block page_title %}🎖️ Kelola Membership{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pasien" class="hover:text-blue-600">Cari Pasien</a>
+        <span class="mx-2">›</span>
+        <a href="/web/pasien/{{ status_data.pasien.id_pasien }}" class="hover:text-blue-600">{{ status_data.pasien.nama }}</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Membership</span>
+    </div>
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    {# Pasien info card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+        <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center text-2xl">👤</div>
+            <div>
+                <h2 class="text-xl font-bold text-slate-800">{{ status_data.pasien.nama }}</h2>
+                <div class="text-sm text-slate-500">
+                    <span class="font-mono">{{ status_data.pasien.no_rm }}</span>
+                    <span class="mx-2">·</span>
+                    <span>Tier saat ini: <strong>{{ status_data.pasien.tipe_membership }}</strong></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# === STATUS CARDS === #}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+        {# Active Membership Card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <span class="text-emerald-600">●</span> Membership Aktif
+            </h3>
+            {% if status_data.active %}
+            <div class="space-y-2">
+                <div class="text-2xl font-bold
+                    {% if status_data.active.nama_tier == 'VVIP' %}text-amber-700
+                    {% elif status_data.active.nama_tier == 'VIP' %}text-blue-700
+                    {% else %}text-slate-700{% endif %}">
+                    {% if status_data.active.nama_tier == 'VVIP' %}⭐⭐ {% elif status_data.active.nama_tier == 'VIP' %}⭐ {% endif %}{{ status_data.active.nama_tier }}
+                </div>
+                <div class="text-sm text-slate-600">
+                    Aktif: <strong>{{ status_data.active.tgl_aktif }}</strong> →
+                    Expired: <strong>{{ status_data.active.tgl_expired }}</strong>
+                </div>
+                <div class="text-sm">
+                    Sisa hari:
+                    <strong class="
+                        {% if status_data.active.days_to_expire < 30 %}text-red-700
+                        {% elif status_data.active.days_to_expire < 60 %}text-amber-700
+                        {% else %}text-emerald-700{% endif %}">
+                        {{ status_data.active.days_to_expire }} hari
+                    </strong>
+                    {% if status_data.active.days_to_expire < 30 %}
+                    <span class="text-xs text-red-600 ml-2">⚠ Mendekati expired, pertimbangkan perpanjang</span>
+                    {% endif %}
+                </div>
+                <div class="text-xs text-slate-500">
+                    Aktivasi via transaksi #{{ status_data.active.id_transaksi_aktivasi }}
+                </div>
+            </div>
+            {% else %}
+            <div class="text-center py-4 text-slate-400">
+                <div class="text-3xl mb-1">⚪</div>
+                <p class="text-sm">Belum ada membership aktif</p>
+                <p class="text-xs mt-1">Pasien masih tier REGULAR (default)</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {# Pending Membership Card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <span class="text-amber-600">●</span> Pending (Belum Dibayar)
+            </h3>
+            {% if status_data.pending %}
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <div class="font-bold text-amber-900">{{ status_data.pending.nama_tier }}</div>
+                <div class="text-sm text-amber-800">
+                    Tagihan aktivasi: <strong>Rp {{ "{:,.0f}".format(status_data.pending.harga_bayar).replace(",", ".") }}</strong>
+                </div>
+                <div class="text-xs text-amber-700">
+                    Akan otomatis muncul di kasir saat pasien bayar tindakan/resep berikutnya.
+                    <br>Atau klik <strong>"Buat Tagihan Sekarang"</strong> untuk bayar langsung (tanpa konsul).
+                </div>
+                <div class="text-xs text-slate-500 italic">{{ status_data.pending.catatan or "" }}</div>
+                {% if can_manage %}
+                <div class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
+                    {# FIX-362E-B: Standalone billing — buat kunjungan ANTRI_BAYAR-only #}
+                    {# FIX-362E-D: Disable button after submit untuk cegah double-click #}
+                    {# #362B-D: Hide Buat Tagihan kalau sudah ada kunjungan ANTRI_BAYAR membership-only #}
+                    {% if status_data.existing_billing_kunjungan_id %}
+                    <div class="flex-1 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded text-center">
+                        ✓ Tagihan #{{ status_data.existing_billing_kunjungan_id }} sudah dibuat.
+                        <span class="text-blue-600 italic">Pasien sudah di antrian kasir.</span>
+                    </div>
+                    {% else %}
+                    <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/create-billing"
+                          data-confirm="Buat tagihan {{ status_data.pending.nama_tier }} sekarang? Pasien akan masuk antrian kasir tanpa kunjungan konsultasi."
+                          class="flex-1">
+                        {{ csrf_input(request) }}
+                        <button type="submit"
+                                class="w-full text-xs px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed font-medium">
+                            💰 Buat Tagihan Sekarang →
+                        </button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/{{ status_data.pending.id_history }}/cancel"
+                          data-confirm="Cancel pending {{ status_data.pending.nama_tier }}? History akan dihapus.">
+                        {{ csrf_input(request) }}
+                        <button type="submit"
+                                class="text-xs px-3 py-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:bg-slate-200 disabled:cursor-not-allowed font-medium">
+                            🗑 Cancel Pending
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="text-center py-4 text-slate-400">
+                <div class="text-3xl mb-1">—</div>
+                <p class="text-sm">Tidak ada pending</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# === P2-#2: KUOTA BENEFIT BREAKDOWN === #}
+    {% if status_data.active and status_data.kuota_list and status_data.kuota_list|length > 0 %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>🎁</span> Kuota Benefit ({{ status_data.kuota_list|length }} treatment)
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {% for k in status_data.kuota_list %}
+            <div class="border border-slate-200 rounded-lg p-3
+                {% if k.sisa == 0 %}bg-red-50/30
+                {% elif k.sisa <= 2 %}bg-amber-50/30
+                {% else %}bg-emerald-50/30{% endif %}">
+                <div class="flex items-start justify-between mb-1">
+                    <div class="font-medium text-slate-800 text-sm">{{ k.nama_treatment }}</div>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold
+                        {% if k.periode_kuota == 'BULANAN' %}bg-blue-100 text-blue-700
+                        {% else %}bg-purple-100 text-purple-700{% endif %}">
+                        {{ k.periode_kuota }}
+                    </span>
+                </div>
+                <div class="text-xs text-slate-500 mb-2">
+                    Harga normal: Rp {{ "{:,.0f}".format(k.harga_treatment).replace(",", ".") }}
+                    {% if k.periode_kuota == 'BULANAN' and k.bulan_periode %}
+                    · Periode: <strong>{{ k.bulan_periode }}</strong>
+                    {% endif %}
+                </div>
+
+                {# Progress bar #}
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-600">
+                            Terpakai: <strong>{{ k.kuota_terpakai }}</strong> / {{ k.kuota_total }}
+                        </span>
+                        <span class="font-bold
+                            {% if k.sisa == 0 %}text-red-700
+                            {% elif k.sisa <= 2 %}text-amber-700
+                            {% else %}text-emerald-700{% endif %}">
+                            Sisa: {{ k.sisa }}x
+                        </span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2">
+                        {% set pct = (k.kuota_terpakai / k.kuota_total * 100)|round(0)|int if k.kuota_total > 0 else 0 %}
+                        <div class="h-2 rounded-full
+                            {% if k.sisa == 0 %}bg-red-500
+                            {% elif k.sisa <= 2 %}bg-amber-500
+                            {% else %}bg-emerald-500{% endif %}"
+                             style="width: {{ pct }}%"></div>
+                    </div>
+                </div>
+
+                {% if k.catatan %}
+                <div class="text-xs text-slate-500 italic mt-2">💬 {{ k.catatan }}</div>
+                {% endif %}
+                {% if k.is_lazy_pending %}
+                <div class="text-[10px] text-blue-600 italic mt-1">
+                    ℹ Kuota bulan {{ k.bulan_periode }} akan ter-create otomatis saat dipakai pertama kali
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <div class="mt-3 text-xs text-slate-500 italic">
+            💡 <strong>Per Bulan</strong>: kuota reset setiap awal bulan, sisa tidak akumulasi.
+            <strong>Total Paket</strong>: kuota berlaku sepanjang periode aktif.
+        </div>
+    </div>
+    {% endif %}
+
+    {# === ACTION BUTTONS === #}
+    {% if can_manage and not status_data.pending %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-3">Tindakan Membership</h3>
+
+        {% set has_active = status_data.active is not none %}
+
+        {% if not has_active %}
+        {# REGULAR or expired → ACTIVATION #}
+        <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/aktivasi"
+              class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="action_type" value="ACTIVATION">
+            <div class="text-sm font-medium text-emerald-900">🎖️ Aktivasi Membership Baru</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Pilih Tier</label>
+                    <select name="id_membership" required
+                            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                        <option value="">— Pilih tier —</option>
+                        {% for t in status_data.available_tiers %}
+                        <option value="{{ t.id_membership }}">
+                            {% if t.nama_tier == 'VVIP' %}⭐⭐ {% elif t.nama_tier == 'VIP' %}⭐ {% endif %}{{ t.nama_tier }}
+                            — Rp {{ "{:,.0f}".format(t.harga_aktivasi).replace(",", ".") }} / {{ t.durasi_bulan }} bln
+                            (diskon {{ "%g"|format(t.diskon_treatment_persen) }}% treatment, {{ "%g"|format(t.diskon_produk_persen) }}% produk)
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button type="submit"
+                            class="w-full px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                        ✓ Buat Pending
+                    </button>
+                </div>
+            </div>
+            <div class="text-xs text-emerald-700">
+                💡 Setelah submit, tagihan aktivasi akan muncul di kasir pada kunjungan berikutnya.
+            </div>
+        </form>
+        {% else %}
+        {# Active → RENEWAL or UPGRADE #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {# Renewal — #362F carry-over from current expiry #}
+            <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/aktivasi"
+                  {% if status_data.active.days_to_expire > 60 %}
+                  data-confirm="⚠ Sisa membership masih {{ status_data.active.days_to_expire }} hari. Yakin ingin perpanjang sekarang? Total expired akan extend (carry-over)."
+                  {% endif %}
+                  class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="action_type" value="RENEWAL">
+                <input type="hidden" name="id_membership" value="{{ status_data.active.id_membership }}">
+                <div class="text-sm font-medium text-blue-900">🔄 Perpanjang {{ status_data.active.nama_tier }}</div>
+                <div class="text-xs text-blue-700">
+                    Extend tier yang sama. <strong>Carry-over</strong> — sisa hari tidak hilang.
+                </div>
+                {% if status_data.active.days_to_expire > 60 %}
+                <div class="text-xs bg-amber-100 text-amber-800 border border-amber-300 rounded p-2">
+                    ⚠ Sisa <strong>{{ status_data.active.days_to_expire }} hari</strong> belum perlu renewal. Bisa tunggu kalau belum mendesak.
+                </div>
+                {% endif %}
+                <button type="submit"
+                        class="w-full px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔄 Perpanjang
+                </button>
+            </form>
+
+            {# FIX-362E-D-v2: Upgrade — pakai selectattr (Jinja2 set di dalam for tidak persist) #}
+            {% set _current_tier = status_data.available_tiers|selectattr('id_membership', 'equalto', status_data.active.id_membership)|first %}
+            {% set _current_harga = _current_tier.harga_aktivasi if _current_tier else 0 %}
+            {% set _higher_tiers = status_data.available_tiers|selectattr('harga_aktivasi', 'gt', _current_harga)|list %}
+            {% if _higher_tiers|length > 0 %}
+            <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/aktivasi"
+                  class="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-2">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="action_type" value="UPGRADE">
+                <div class="text-sm font-medium text-purple-900">⬆ Upgrade Tier</div>
+                <select name="id_membership" required
+                        class="w-full px-2 py-1.5 text-xs border border-slate-300 rounded">
+                    <option value="">— Pilih tier baru —</option>
+                    {% for t in _higher_tiers %}
+                    <option value="{{ t.id_membership }}">
+                        {{ t.nama_tier }} — Rp {{ "{:,.0f}".format(t.harga_aktivasi).replace(",", ".") }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit"
+                        class="w-full px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium">
+                    ⬆ Upgrade
+                </button>
+            </form>
+            {% else %}
+            {# No higher tier available — sudah tier tertinggi #}
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-1 flex flex-col items-center justify-center">
+                <div class="text-2xl">🏆</div>
+                <div class="text-sm font-medium text-amber-900">Sudah Tier Tertinggi</div>
+                <div class="text-xs text-amber-700 text-center">Tidak ada tier yang lebih tinggi dari {{ status_data.active.nama_tier }}.</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% elif not can_manage %}
+    <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6 text-sm text-slate-600 italic">
+        🔒 Hanya FO, Admin, atau Owner yang bisa kelola membership.
+    </div>
+    {% endif %}
+
+    {# === HISTORY LIST === #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-base font-semibold text-slate-800">📋 Riwayat Membership</h3>
+            <span class="text-xs text-slate-500">{{ status_data.history_list|length }} entry (max 20 terakhir)</span>
+        </div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Tier</th>
+                    <th class="text-left py-2 px-3">Periode</th>
+                    <th class="text-right py-2 px-3">Harga</th>
+                    <th class="text-left py-2 px-3">Trx</th>
+                    <th class="text-center py-2 px-3">Status</th>
+                    <th class="text-left py-2 px-3">Catatan</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for h in status_data.history_list %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold
+                            {% if h.nama_tier == 'VVIP' %}bg-amber-100 text-amber-700
+                            {% elif h.nama_tier == 'VIP' %}bg-blue-100 text-blue-700
+                            {% else %}bg-slate-100 text-slate-700{% endif %}">
+                            {{ h.nama_tier }}
+                        </span>
+                    </td>
+                    <td class="py-2 px-3 text-xs">
+                        {{ h.tgl_aktif }} → {{ h.tgl_expired }}
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono text-xs">Rp {{ "{:,.0f}".format(h.harga_bayar).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 font-mono text-xs">
+                        {% if h.id_transaksi_aktivasi %}
+                        <a href="/web/kasir/tagihan/{{ h.id_transaksi_aktivasi }}" class="text-blue-600 hover:underline">#{{ h.id_transaksi_aktivasi }}</a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                        {% if h.status_label == 'ACTIVE' %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 font-medium">ACTIVE</span>
+                        {% elif h.status_label == 'PENDING' %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700 font-medium">PENDING</span>
+                        {% else %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 font-medium">EXPIRED</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-xs text-slate-600 max-w-xs truncate" title="{{ h.catatan }}">{{ h.catatan or "—" }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="py-12 text-center text-slate-400">
+                        <div class="text-3xl mb-2">📭</div>
+                        <p class="text-sm">Belum ada riwayat membership untuk pasien ini.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

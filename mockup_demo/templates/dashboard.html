@@ -1,0 +1,118 @@
+{% extends "_base.html" %}
+{% block title %}Dashboard — {{ klinik.nama }}{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">📊 Dashboard Owner</h1>
+    <p class="text-sm text-slate-500 mt-1">Ringkasan operasional hari ini</p>
+</div>
+
+{# Stats Cards #}
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500 uppercase font-semibold">Omzet Hari Ini</div>
+        <div class="mt-2 text-2xl font-bold text-emerald-600">Rp {{ "{:,}".format(stats.omzet_hari_ini).replace(",", ".") }}</div>
+        <div class="text-xs text-slate-400 mt-1">{{ stats.transaksi_hari_ini }} transaksi</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500 uppercase font-semibold">Omzet Bulan Ini</div>
+        <div class="mt-2 text-2xl font-bold text-blue-600">Rp {{ "{:,}".format(stats.omzet_bulan_ini).replace(",", ".") }}</div>
+        <div class="text-xs text-slate-400 mt-1">Target tercapai 85%</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500 uppercase font-semibold">Pasien Hari Ini</div>
+        <div class="mt-2 text-2xl font-bold text-slate-800">{{ stats.pasien_hari_ini }}</div>
+        <div class="text-xs text-slate-400 mt-1">Total {{ stats.pasien_total }} pasien terdaftar</div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500 uppercase font-semibold">Antrian Aktif</div>
+        <div class="mt-2 text-2xl font-bold text-amber-600">{{ stats.antrian_aktif }}</div>
+        <div class="text-xs text-slate-400 mt-1">⚠ {{ stats.stok_menipis }} item stok menipis</div>
+    </div>
+</div>
+
+{# Omzet Chart + Top Treatment #}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+    <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">📈 Omzet 7 Hari Terakhir</h3>
+        <canvas id="omzetChart" height="100"></canvas>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">🏆 Top Treatment</h3>
+        <div class="space-y-2">
+            {% for t in top_treatment %}
+            <div class="flex items-center justify-between text-sm">
+                <div class="flex-1">
+                    <div class="font-medium text-slate-700">{{ t.nama }}</div>
+                    <div class="text-xs text-slate-500">{{ t.qty }} sesi minggu ini</div>
+                </div>
+                <div class="text-right">
+                    <div class="font-semibold text-emerald-600 text-xs">Rp {{ "{:,}".format(t.omzet).replace(",", ".") }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{# Kinerja Dokter #}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+    <h3 class="font-semibold text-slate-800 mb-3">👨‍⚕️ Kinerja Dokter (Minggu Ini)</h3>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+                <tr>
+                    <th class="px-3 py-2 text-left">Dokter</th>
+                    <th class="px-3 py-2 text-right">Pasien</th>
+                    <th class="px-3 py-2 text-right">Omzet</th>
+                    <th class="px-3 py-2 text-right">Komisi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+                {% for d in kinerja_dokter %}
+                <tr>
+                    <td class="px-3 py-2 font-medium text-slate-700">{{ d.nama }}</td>
+                    <td class="px-3 py-2 text-right">{{ d.pasien }}</td>
+                    <td class="px-3 py-2 text-right font-semibold text-emerald-600">Rp {{ "{:,}".format(d.omzet).replace(",", ".") }}</td>
+                    <td class="px-3 py-2 text-right text-blue-600">Rp {{ "{:,}".format(d.komisi).replace(",", ".") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+    <strong>💡 Tip Demo:</strong> Klik <a href="/antrian" class="text-blue-600 font-semibold hover:underline">Antrian</a> untuk lihat 5 pasien antri hari ini, lalu klik pasien Jasmin Aulia (A-03) untuk demo flow lengkap konsultasi → kasir → nota.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ctx = document.getElementById('omzetChart');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [{% for o in omzet %}'{{ o.label }}'{% if not loop.last %},{% endif %}{% endfor %}],
+        datasets: [{
+            label: 'Omzet (Rp)',
+            data: [{% for o in omzet %}{{ o.omzet }}{% if not loop.last %},{% endif %}{% endfor %}],
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            tension: 0.3,
+            fill: true,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: { callback: (v) => 'Rp ' + (v/1000000).toFixed(0) + 'jt' }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,194 @@
+{% extends "_app.html" %}
+{% block title %}Terima Barang {{ po_nomor }}{% endblock %}
+{% block page_title %}Terima Barang — {{ po_nomor }}{% endblock %}
+
+{% macro rp(v) %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endmacro %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3">
+        <a href="/web/pengadaan/pemesanan/{{ id_pemesanan }}" class="text-blue-600 hover:underline">‹ Kembali ke PO</a>
+    </nav>
+    {% if error %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>{% endif %}
+
+    {% if items|length == 0 %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center text-slate-500">Semua item PO ini sudah diterima penuh.</div>
+    {% else %}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-800">
+        Klik <strong>Terima</strong> pada item yang datang di pengiriman ini. Hanya item yang ditandai Terima yang masuk faktur.
+        Kalau tak semua item/qty diterima, PO otomatis jadi <strong>PARTIAL (berjalan)</strong>.
+    </div>
+    <form method="POST" action="/web/pengadaan/pemesanan/{{ id_pemesanan }}/faktur"
+          target="_blank"
+          onsubmit="setTimeout(function(){ window.location='/web/pengadaan/pemesanan/{{ id_pemesanan }}'; }, 800);">
+        {{ csrf_input(request) }}
+
+        {# Header faktur #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Distributor</label>
+                    <select name="id_distributor" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg">
+                        <option value="">— Pilih distributor —</option>
+                        {% for d in distributors %}<option value="{{ d.id }}">{{ d.nama }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nomor Faktur</label>
+                    <input type="text" name="nomor_faktur" maxlength="100" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Tanggal Faktur</label>
+                    <input type="date" name="tgl_faktur" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">PPN %</label>
+                    <input type="number" id="ppn_persen" name="ppn_persen" min="0" max="100" step="any" value="11"
+                           class="w-full px-3 py-2.5 border border-slate-300 rounded-lg">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Total Ditagih (opsional)</label>
+                    <input type="number" id="total_ditagih" name="total_ditagih" min="0" step="any" placeholder="mis. 888000"
+                           class="w-full px-3 py-2.5 border border-slate-300 rounded-lg">
+                    <p class="text-xs text-slate-400 mt-1">Isi bila mau harga terima dihitung otomatis dari total (diskon distributor). Kosongkan bila harga terima = harga order.</p>
+                </div>
+            </div>
+        </div>
+
+        {# Tabel item #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-4">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                    <tr>
+                        <th class="text-left px-3 py-2 font-medium">Item</th>
+                        <th class="text-right px-3 py-2 font-medium">Sisa</th>
+                        <th class="text-right px-3 py-2 font-medium">Qty Terima</th>
+                        <th class="text-left px-3 py-2 font-medium">No. Batch</th>
+                        <th class="text-left px-3 py-2 font-medium">ED</th>
+                        <th class="text-right px-3 py-2 font-medium">Harga Order</th>
+                        <th class="text-right px-3 py-2 font-medium">Harga Terima</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for it in items %}
+                    <tr class="faktur-item-row" data-harga-order="{{ it.harga_order }}" data-received="0">
+                        <td class="px-3 py-2 font-medium text-slate-800">{{ it.nama }} <span class="text-slate-400 text-xs">{{ it.satuan }}</span></td>
+                        <td class="px-3 py-2 text-right text-slate-600">{{ it.sisa|int if it.sisa == it.sisa|int else it.sisa }}</td>
+                        <td class="px-3 py-2 text-right">
+                            <button type="button" class="btn-terima px-3 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Terima</button>
+                            <input type="number" name="qty_{{ it.id_item }}" min="0" max="{{ it.sisa }}" step="any" value="{{ it.sisa|int if it.sisa == it.sisa|int else it.sisa }}" disabled
+                                   class="terima-input qty-input w-20 px-2 py-1 border border-slate-300 rounded text-right" style="display:none">
+                        </td>
+                        <td class="px-3 py-2"><input type="text" name="batch_{{ it.id_item }}" maxlength="50" placeholder="No. batch" disabled class="terima-input w-28 px-2 py-1 border border-slate-300 rounded" style="display:none"></td>
+                        <td class="px-3 py-2"><input type="date" name="ed_{{ it.id_item }}" disabled class="terima-input px-2 py-1 border border-slate-300 rounded" style="display:none"></td>
+                        <td class="px-3 py-2 text-right text-slate-500">{{ rp(it.harga_order) }}</td>
+                        <td class="px-3 py-2 text-right">
+                            <input type="number" name="harga_{{ it.id_item }}" min="0" step="any" value="{{ it.harga_order|int }}" disabled
+                                   class="terima-input harga-input w-24 px-2 py-1 border border-slate-300 rounded text-right" style="display:none">
+                            <a href="javascript:void(0)" class="btn-batal terima-input text-xs text-red-500 hover:underline" style="display:none">batal</a>
+                            <span class="terima-placeholder text-xs text-slate-300">—</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# Ringkasan #}
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div><div class="text-xs text-slate-500">Subtotal diterima</div><div id="sum-subtotal" class="font-semibold text-slate-800">Rp 0</div></div>
+                <div><div class="text-xs text-slate-500">Diskon</div><div id="sum-diskon" class="font-semibold text-blue-700">0%</div></div>
+                <div><div class="text-xs text-slate-500">Extra diskon</div><div id="sum-extra" class="font-semibold text-slate-800">Rp 0</div></div>
+                <div><div class="text-xs text-slate-500">Total (dgn PPN)</div><div id="sum-total" class="font-semibold text-emerald-700">Rp 0</div></div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button type="submit" class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium">📥 Terima Barang &amp; Buat Faktur</button>
+            <a href="/web/pengadaan/pemesanan/{{ id_pemesanan }}" class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800">Batal</a>
+        </div>
+    </form>
+    {% endif %}
+</div>
+
+<script>
+(function() {
+    function D(x) { var n = parseFloat(x); return isNaN(n) ? 0 : n; }
+    function fmt(n) { return 'Rp ' + Math.round(n).toLocaleString('id-ID'); }
+    function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+    function r2(n) { return Math.round(n * 100) / 100; }
+
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.faktur-item-row'));
+    function qtyOf(r) { return r.querySelector('.qty-input'); }
+    function hargaOf(r) { return r.querySelector('.harga-input'); }
+
+    function setReceived(r, on) {
+        r.setAttribute('data-received', on ? '1' : '0');
+        r.querySelectorAll('.terima-input').forEach(function(el) {
+            el.style.display = on ? '' : 'none';
+            if (el.tagName === 'INPUT') el.disabled = !on;
+        });
+        var btn = r.querySelector('.btn-terima');
+        if (btn) btn.style.display = on ? 'none' : '';
+        var ph = r.querySelector('.terima-placeholder');
+        if (ph) ph.style.display = on ? 'none' : '';
+    }
+
+    function ppn() { return D((document.getElementById('ppn_persen') || {}).value) / 100; }
+
+    function applyReverse() {
+        var Yraw = ((document.getElementById('total_ditagih') || {}).value || '').trim();
+        if (Yraw === '') return;
+        var p = ppn(), X = 0, recv = [];
+        rows.forEach(function(r) {
+            if (r.getAttribute('data-received') !== '1') return;
+            var order = D(r.getAttribute('data-harga-order')), qty = D(qtyOf(r).value);
+            X += order * qty; recv.push(r);
+        });
+        if (X <= 0) return;
+        var d = 1 - (D(Yraw) / (X * (1 + p)));
+        recv.forEach(function(r) {
+            var order = D(r.getAttribute('data-harga-order'));
+            var terima = Math.max(0, Math.round(order * (1 - d)));
+            hargaOf(r).value = terima;
+        });
+    }
+
+    function recompute() {
+        var p = ppn(), X = 0, S = 0;
+        rows.forEach(function(r) {
+            if (r.getAttribute('data-received') !== '1') return;
+            var order = D(r.getAttribute('data-harga-order'));
+            var qty = D(qtyOf(r).value), harga = D(hargaOf(r).value);
+            X += order * qty; S += harga * qty;
+        });
+        var totalComputed = r2(S * (1 + p));
+        var Yraw = ((document.getElementById('total_ditagih') || {}).value || '').trim();
+        var d = X > 0 ? (1 - S / X) * 100 : 0;
+        var extra = 0, total = totalComputed;
+        if (Yraw !== '') { total = D(Yraw); extra = r2(totalComputed - total); }
+        setText('sum-subtotal', fmt(X));
+        setText('sum-diskon', d.toFixed(2) + '%');
+        setText('sum-extra', fmt(extra));
+        setText('sum-total', fmt(total));
+    }
+
+    rows.forEach(function(r) {
+        var btn = r.querySelector('.btn-terima');
+        if (btn) btn.addEventListener('click', function() { setReceived(r, true); applyReverse(); recompute(); });
+        var batal = r.querySelector('.btn-batal');
+        if (batal) batal.addEventListener('click', function() { setReceived(r, false); recompute(); });
+        var qi = qtyOf(r), hi = hargaOf(r);
+        if (qi) qi.addEventListener('input', recompute);
+        if (hi) hi.addEventListener('input', recompute);
+    });
+    ['ppn_persen', 'total_ditagih'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) { el.addEventListener('change', function() { applyReverse(); recompute(); });
+                  el.addEventListener('input', recompute); }
+    });
+    recompute();
+})();
+</script>
+{% endblock %}

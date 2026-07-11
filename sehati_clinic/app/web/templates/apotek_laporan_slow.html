@@ -1,0 +1,31 @@
+{% extends "_app.html" %}
+{% block title %}Slow-Moving — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Laporan Slow-Moving{% endblock %}
+{% macro rp(v) %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endmacro %}
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3"><a href="/web/apotek/stok" class="text-blue-600 hover:underline">‹ Manajemen Stok</a></nav>
+    <p class="text-xs text-slate-500 mb-3">Basis penjualan 3 bulan terakhir. "Bulan tersisa" = stok ÷ pemakaian/bulan (makin besar/∞ = makin lambat gerak).</p>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {% if rows and rows|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr><th class="text-left px-4 py-2 font-medium">Produk</th><th class="text-right px-4 py-2 font-medium">Stok</th><th class="text-right px-4 py-2 font-medium">Terjual 90h</th><th class="text-right px-4 py-2 font-medium">/Bulan</th><th class="text-right px-4 py-2 font-medium">Bulan Tersisa</th><th class="text-right px-4 py-2 font-medium">Harga Jual</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                <tr class="hover:bg-blue-50/30 {% if r.per_bulan == 0 and r.stok_terkini > 0 %}bg-red-50/30{% endif %}">
+                    <td class="px-4 py-2"><span class="font-medium text-slate-800">{{ r.nama_produk }}</span> <span class="font-mono text-xs text-slate-400">{{ r.kode_produk }}</span></td>
+                    <td class="px-4 py-2 text-right font-mono text-slate-700">{{ "%g"|format(r.stok_terkini) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">{{ "%g"|format(r.terjual_90) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">{{ r.per_bulan }}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if r.per_bulan == 0 and r.stok_terkini > 0 %}text-red-700 font-bold{% endif %}">{% if r.bulan_tersisa is none %}∞{% else %}{{ r.bulan_tersisa }}{% endif %}</td>
+                    <td class="px-4 py-2 text-right text-slate-500">{{ rp(r.harga_jual) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<div class="p-12 text-center text-slate-500">Belum ada data.</div>{% endif %}
+    </div>
+</div>
+{% endblock %}

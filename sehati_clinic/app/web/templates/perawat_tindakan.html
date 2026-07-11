@@ -1,0 +1,409 @@
+{% extends "_app.html" %}
+{% block title %}Tindakan #{{ detail.id_kunjungan }} - {{ detail.nama_pasien }}{% endblock %}
+{% block page_title %}Eksekusi Tindakan{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/ruang-tindakan/antrian" class="hover:text-blue-600">Ruang Tindakan</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ detail.nama_pasien }}</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    {# Header pasien #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 sticky top-0 z-30">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="font-bold text-slate-800 text-lg">{{ detail.nama_pasien }}</div>
+                <div class="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                    <span class="font-mono">{{ detail.no_rm }}</span>
+                    <span>•</span>
+                    <span>Kunjungan #{{ detail.id_kunjungan }}</span>
+                    <span>•</span>
+                    {% if detail.status_kunjungan == "ON_TREATMENT" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-medium">{{ detail.status_kunjungan }}</span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700 font-medium">{{ detail.status_kunjungan }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Instruksi dokter dari SOAP #}
+    {% if detail.instruksi_dokter %}
+    <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4">
+        <h3 class="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+            🩺 Instruksi dari Dokter (SOAP)
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            {% if detail.instruksi_dokter.anamnesa %}
+            <div>
+                <div class="text-xs text-blue-700 uppercase font-medium">Anamnesa</div>
+                <div class="text-blue-900 mt-0.5 whitespace-pre-wrap">{{ detail.instruksi_dokter.anamnesa }}</div>
+            </div>
+            {% endif %}
+            {% if detail.instruksi_dokter.pemeriksaan_fisik %}
+            <div>
+                <div class="text-xs text-blue-700 uppercase font-medium">Pemeriksaan Fisik</div>
+                <div class="text-blue-900 mt-0.5 whitespace-pre-wrap">{{ detail.instruksi_dokter.pemeriksaan_fisik }}</div>
+            </div>
+            {% endif %}
+            {% if detail.instruksi_dokter.diagnosa %}
+            <div class="md:col-span-2">
+                <div class="text-xs text-blue-700 uppercase font-medium">Diagnosa</div>
+                <div class="text-blue-900 mt-0.5 whitespace-pre-wrap">{{ detail.instruksi_dokter.diagnosa }}</div>
+            </div>
+            {% endif %}
+            {% if detail.instruksi_dokter.saran_treatment %}
+            <div class="md:col-span-2">
+                <div class="text-xs text-amber-700 uppercase font-medium">⚠ Saran/Catatan untuk Perawat</div>
+                <div class="text-amber-900 mt-0.5 whitespace-pre-wrap p-2 bg-amber-50 rounded">{{ detail.instruksi_dokter.saran_treatment }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Daftar Tindakan #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">
+                💉 Daftar Tindakan ({{ detail.daftar_tindakan|length }})
+            </h3>
+            {% if detail.status_kunjungan not in ["COMPLETED", "BATAL"] %}
+            <button type="button" onclick="openUpsellModal()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+                ➕ Upsell Tindakan / Produk
+            </button>
+            {% endif %}
+        </div>
+        {% if detail.daftar_tindakan %}
+        <div class="space-y-3">
+            {% for t in detail.daftar_tindakan %}
+            <div class="border border-slate-200 rounded-lg p-4 hover:bg-slate-50/50 transition">
+                <div class="flex items-start justify-between mb-2">
+                    <div class="flex-1">
+                        <div class="font-medium text-slate-800 flex items-center gap-2">
+                            {{ t.nama_treatment }}
+                            {% if t.role_pelaksana %}
+                            {% set rp = t.role_pelaksana|upper %}
+                            {% if rp == "DOKTER" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-blue-100 text-blue-800 font-bold" title="Wajib dilakukan oleh dokter">⚕ DOKTER</span>
+                            {% elif rp == "PERAWAT" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-medium" title="Bisa dilakukan oleh perawat">PERAWAT</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-medium">{{ rp }}</span>
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                        <div class="text-xs text-slate-500 mt-1">
+                            Tindakan #{{ t.id_kunjungan_tindakan }}
+                            {% if t.id_staf_pelaksana %}
+                            • Pelaksana: {{ t.nama_staf_pelaksana or "(staf #" ~ t.id_staf_pelaksana ~ ")" }}
+                            {% endif %}
+                        </div>
+                        {% if t.waktu_mulai %}
+                        <div class="text-xs text-slate-500 mt-1">
+                            ▶ Mulai: <span class="font-mono">{{ t.waktu_mulai }}</span>
+                            {% if t.waktu_selesai %}
+                            <span class="ml-3">⏹ Selesai: <span class="font-mono">{{ t.waktu_selesai }}</span></span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="ml-4 text-right">
+                        {% set ts = t.status_tindakan or "" %}
+                        {% if ts == "SELESAI" or ts == "COMPLETED" %}
+                        <span class="inline-flex items-center px-3 py-1 rounded text-xs bg-emerald-50 text-emerald-700 font-medium mb-2">✓ Selesai</span>
+                        {% elif ts == "PROSES" or ts == "IN_PROGRESS" or ts == "SEDANG_DIKERJAKAN" %}
+                        <span class="inline-flex items-center px-3 py-1 rounded text-xs bg-purple-100 text-purple-800 font-medium mb-2">⏳ Sedang Dikerjakan</span>
+                        {% elif ts == "PENDING" %}
+                        <span class="inline-flex items-center px-3 py-1 rounded text-xs bg-amber-50 text-amber-700 font-medium mb-2">⏸ Pending</span>
+                        {% elif ts == "BATAL" %}
+                        <span class="inline-flex items-center px-3 py-1 rounded text-xs bg-red-50 text-red-700 font-medium mb-2">✗ Batal</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-3 py-1 rounded text-xs bg-slate-100 text-slate-600 font-medium mb-2">{{ ts }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {# Action buttons per tindakan #}
+                <div class="mt-3 flex gap-2 justify-end">
+                    {% if ts == "PENDING" %}
+                    {% set rp_upper = (t.role_pelaksana or "")|upper %}
+                    {% set user_role_str = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+                    {% set is_doc_only = rp_upper == "DOKTER" and user_role_str not in ["DOKTER", "ADMIN", "OWNER", "SUPERADMIN"] %}
+                    <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/start" class="inline"
+                          {% if is_doc_only %}onsubmit="alert('Tindakan ini hanya bisa dilakukan oleh DOKTER. Role Anda: {{ user_role_str }}.'); return false;"{% endif %}>
+                        {{ csrf_input(request) }}
+                        <button type="submit"
+                                class="inline-flex items-center px-4 py-2 text-sm {% if is_doc_only %}bg-slate-300 text-slate-500 cursor-not-allowed{% else %}bg-purple-600 text-white hover:bg-purple-700{% endif %} rounded-lg transition font-medium"
+                                {% if is_doc_only %}title="Hanya dokter yang boleh mulai tindakan ini"{% endif %}>
+                            {% if is_doc_only %}🔒 Hanya Dokter{% else %}▶ Mulai Tindakan{% endif %}
+                        </button>
+                    </form>
+                    {% elif ts == "PROSES" or ts == "IN_PROGRESS" or ts == "SEDANG_DIKERJAKAN" %}
+                    <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/end"
+                          data-confirm="Selesaikan tindakan {{ t.nama_treatment }}?" class="inline">
+                        {{ csrf_input(request) }}
+                        <button type="submit"
+                                class="inline-flex items-center px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">
+                            ⏹ Selesai
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Belum ada tindakan untuk kunjungan ini.</p>
+        {% endif %}
+    </div>
+
+    <div class="flex items-center justify-between">
+        <a href="/web/ruang-tindakan/antrian"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+            ← Kembali ke Antrian
+        </a>
+        <a href="/web/pasien/{{ detail.id_pasien }}"
+           class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            Lihat Detail Pasien →
+        </a>
+    </div>
+
+</div>
+
+{# ========================================================================
+   UPSELL MODAL - popup form untuk tambah tindakan/produk on-the-fly.
+   ======================================================================== #}
+{% if detail.status_kunjungan not in ["COMPLETED", "BATAL"] %}
+<div id="upsell-modal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">➕ Upsell Tindakan / Produk</h3>
+            <button type="button" onclick="closeUpsellModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <form method="POST" action="/web/ruang-tindakan/kunjungan/{{ detail.id_kunjungan }}/upsell" class="p-5 space-y-4" id="upsell-form">
+            {{ csrf_input(request) }}
+
+            {# Tipe item - radio #}
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Tipe Item</label>
+                <div class="flex gap-3">
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="tipe_item" value="TREATMENT" checked
+                               onchange="switchUpsellType('TREATMENT')" class="sr-only peer">
+                        <div class="border-2 border-slate-200 peer-checked:border-indigo-500 peer-checked:bg-indigo-50 rounded-lg p-3 text-center text-sm font-medium text-slate-700 transition">
+                            💉 Tindakan / Treatment
+                        </div>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="tipe_item" value="PRODUK"
+                               onchange="switchUpsellType('PRODUK')" class="sr-only peer">
+                        <div class="border-2 border-slate-200 peer-checked:border-indigo-500 peer-checked:bg-indigo-50 rounded-lg p-3 text-center text-sm font-medium text-slate-700 transition">
+                            📦 Produk / Obat
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            {# Dropdown treatment - visible by default #}
+            <div id="upsell-treatment-panel">
+                <label for="treatment-select" class="block text-sm font-medium text-slate-700 mb-1">Pilih Treatment</label>
+                <select id="treatment-select" name="id_item" onchange="onTreatmentChange()"
+                        class="searchable-dropdown w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        data-placeholder="Cari treatment...">
+                    <option value="">— pilih treatment —</option>
+                    {% for t in master_treatments %}
+                    <option value="{{ t.id_treatment }}" data-butuh-otorisasi="{{ '1' if t.butuh_otorisasi else '0' }}">
+                        {{ t.nama_treatment }}{% if t.butuh_otorisasi %} 🔒{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-slate-500 mt-1">🔒 = treatment butuh otorisasi PIN dokter</p>
+            </div>
+
+            {# Dropdown produk - hidden by default. Tidak pakai disabled supaya Tom Select bisa dipilih saat panel di-show. #}
+            <div id="upsell-produk-panel" class="hidden">
+                <label for="produk-select" class="block text-sm font-medium text-slate-700 mb-1">Pilih Produk</label>
+                <select id="produk-select"
+                        class="searchable-dropdown w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        data-placeholder="Cari produk...">
+                    <option value="">— pilih produk —</option>
+                    {% for p in master_produk %}
+                    <option value="{{ p.id_produk }}">
+                        {{ p.kode_produk }} — {{ p.nama_produk }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {# Qty input #}
+            <div>
+                <label for="qty-input" class="block text-sm font-medium text-slate-700 mb-1">Qty</label>
+                <input type="number" id="qty-input" name="qty" value="1" min="1" step="any"
+                       class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <p class="text-xs text-slate-500 mt-1">Untuk treatment biasanya qty=1. Untuk produk sesuai kemasan (1 botol, 2 sachet, dll).</p>
+            </div>
+
+            {# PIN authorization section - hidden by default #}
+            <div id="upsell-pin-section" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                <div class="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                    🔒 Otorisasi Dokter Diperlukan
+                </div>
+                <p class="text-xs text-amber-700">Treatment ini butuh persetujuan dokter. Mohon dokter input ID + PIN.</p>
+
+                <div>
+                    <label for="dokter-select" class="block text-xs font-medium text-amber-900 mb-1">ID Dokter Otorisator</label>
+                    <select id="dokter-select" name="id_staf_otorisasi"
+                            class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-amber-500">
+                        <option value="">— pilih dokter —</option>
+                        {% for d in dokter_otorisasi_list %}
+                        <option value="{{ d.id_staf }}">[{{ d.role }}] {{ d.nama_staf }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="pin-input" class="block text-xs font-medium text-amber-900 mb-1">PIN Dokter</label>
+                    <input type="password" id="pin-input" name="pin_otorisasi" autocomplete="off"
+                           inputmode="numeric" maxlength="20"
+                           class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-amber-500">
+                </div>
+            </div>
+
+            {# Action buttons #}
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <button type="button" onclick="closeUpsellModal()"
+                        class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Batal
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">
+                    Simpan Upsell
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function() {
+    const modal = document.getElementById('upsell-modal');
+    const treatmentPanel = document.getElementById('upsell-treatment-panel');
+    const produkPanel = document.getElementById('upsell-produk-panel');
+    const treatmentSelect = document.getElementById('treatment-select');
+    const produkSelect = document.getElementById('produk-select');
+    const pinSection = document.getElementById('upsell-pin-section');
+    const dokterSelect = document.getElementById('dokter-select');
+    const pinInput = document.getElementById('pin-input');
+    const form = document.getElementById('upsell-form');
+
+    window.openUpsellModal = function() {
+        modal.classList.remove('hidden');
+        form.reset();
+        document.querySelector('input[name="tipe_item"][value="TREATMENT"]').checked = true;
+        switchUpsellType('TREATMENT');
+        onTreatmentChange();
+    };
+
+    window.closeUpsellModal = function() {
+        modal.classList.add('hidden');
+    };
+
+    window.switchUpsellType = function(tipe) {
+        if (tipe === 'TREATMENT') {
+            treatmentPanel.classList.remove('hidden');
+            produkPanel.classList.add('hidden');
+            treatmentSelect.name = 'id_item';
+            produkSelect.removeAttribute('name');
+            // Tom Select enable/disable API kalau ada
+            if (treatmentSelect.tomselect) treatmentSelect.tomselect.enable();
+            if (produkSelect.tomselect) produkSelect.tomselect.disable();
+            onTreatmentChange();
+        } else {
+            treatmentPanel.classList.add('hidden');
+            produkPanel.classList.remove('hidden');
+            treatmentSelect.removeAttribute('name');
+            produkSelect.name = 'id_item';
+            if (treatmentSelect.tomselect) treatmentSelect.tomselect.disable();
+            if (produkSelect.tomselect) produkSelect.tomselect.enable();
+            hidePinSection();
+        }
+    };
+
+    window.onTreatmentChange = function() {
+        const opt = treatmentSelect.options[treatmentSelect.selectedIndex];
+        if (!opt || !opt.value) {
+            hidePinSection();
+            return;
+        }
+        const butuhOtorisasi = opt.getAttribute('data-butuh-otorisasi') === '1';
+        if (butuhOtorisasi) {
+            showPinSection();
+        } else {
+            hidePinSection();
+        }
+    };
+
+    function showPinSection() {
+        pinSection.classList.remove('hidden');
+        dokterSelect.required = true;
+        pinInput.required = true;
+    }
+    function hidePinSection() {
+        pinSection.classList.add('hidden');
+        dokterSelect.required = false;
+        pinInput.required = false;
+        dokterSelect.value = '';
+        pinInput.value = '';
+    }
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeUpsellModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeUpsellModal();
+    });
+
+    form.addEventListener('submit', function(e) {
+        const tipe = document.querySelector('input[name="tipe_item"]:checked').value;
+        if (tipe === 'TREATMENT' && !treatmentSelect.value) {
+            e.preventDefault();
+            alert('Pilih treatment dulu.');
+            return false;
+        }
+        if (tipe === 'PRODUK' && !produkSelect.value) {
+            e.preventDefault();
+            alert('Pilih produk dulu.');
+            return false;
+        }
+        const showsPin = !pinSection.classList.contains('hidden');
+        if (showsPin) {
+            if (!dokterSelect.value) {
+                e.preventDefault();
+                alert('Treatment ini butuh otorisasi - pilih dokter.');
+                return false;
+            }
+            if (!pinInput.value || pinInput.value.length < 4) {
+                alert('Treatment ini butuh otorisasi - masukkan PIN dokter (min 4 karakter).');
+                return false;
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% endblock %}

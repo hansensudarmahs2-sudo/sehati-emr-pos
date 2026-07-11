@@ -1,0 +1,389 @@
+{% extends "_app.html" %}
+{% block title %}{{ pasien.nama }} — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Detail Pasien{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pasien" class="hover:text-blue-600">Cari Pasien</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ pasien.nama }}</span>
+    </div>
+
+    {# Header card — identitas #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div class="flex items-start justify-between">
+            <div class="flex items-start gap-4">
+                <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-2xl">
+                    {% if pasien.jenis_kelamin == "L" %}👨{% elif pasien.jenis_kelamin == "P" %}👩{% else %}👤{% endif %}
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">{{ pasien.nama }}</h2>
+                    <div class="flex items-center gap-3 mt-1 text-sm text-slate-600">
+                        <span class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">{{ pasien.no_rm }}</span>
+                        <span>•</span>
+                        <span>{{ pasien.jenis_kelamin or "-" }}</span>
+                        {% if pasien.tgl_lahir %}
+                        <span>•</span>
+                        <span>{{ pasien.tgl_lahir }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                {% if pasien.tipe_membership == "VVIP" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-sm font-medium">⭐⭐ VVIP</span>
+                {% elif pasien.tipe_membership == "VIP" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-sm font-medium">⭐ VIP</span>
+                {% else %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-sm">{{ pasien.tipe_membership or "REGULAR" }}</span>
+                {% endif %}
+                {# #362E - Link ke section Membership #}
+                <a href="/web/pasien/{{ pasien.id_pasien }}/membership"
+                   class="inline-flex items-center px-3 py-1 rounded-lg bg-purple-50 text-purple-700 text-xs font-medium hover:bg-purple-100 border border-purple-200">
+                    🎖️ Kelola Membership →
+                </a>
+            </div>
+        </div>
+
+        {# Contact info grid #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-100">
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">Telepon</div>
+                <div class="text-sm text-slate-800">{{ pasien.nomor_telepon or "-" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">Email</div>
+                <div class="text-sm text-slate-800">{{ pasien.email_address or "-" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">No. KTP</div>
+                <div class="text-sm font-mono text-xs text-slate-800">
+                    {% if pasien.nomor_ktp and pasien.nomor_ktp|length > 5 %}
+                        {{ pasien.nomor_ktp[:3] }}{{ "*" * (pasien.nomor_ktp|length - 5) }}{{ pasien.nomor_ktp[-2:] }}
+                        <span class="text-[10px] text-slate-400 ml-1">(masked)</span>
+                    {% else %}
+                        {{ pasien.nomor_ktp or "-" }}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="md:col-span-2">
+                <div class="text-xs text-slate-500 uppercase mb-1">Alamat</div>
+                <div class="text-sm text-slate-800">{{ pasien.alamat or "-" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">Sumber Referensi</div>
+                <div class="text-sm text-slate-800">{{ pasien.sumber_referensi or "-" }}</div>
+            </div>
+        </div>
+
+        {# TODO-NEW-6 #50 — Edit profile pasien (FO + Admin/Owner/Superadmin) #}
+        {% set _ur_pe = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+        {% if _ur_pe in ["FO", "ADMIN", "OWNER", "SUPERADMIN"] %}
+        {% include "_pasien_edit_panel.html" %}
+        {% endif %}
+    </div>
+
+    {# 2-column: Alergi + Penyakit Kronis #}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+
+        {# Alergi #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span>⚠️</span> Alergi Aktif
+                <span class="ml-auto text-xs font-normal text-slate-500">{{ pasien.alergi|length }}</span>
+            </h3>
+            {% if pasien.alergi and pasien.alergi|length > 0 %}
+            <ul class="space-y-2">
+                {% for a in pasien.alergi %}
+                <li class="flex items-start gap-3 p-3 rounded-lg
+                           {% if a.tingkat_keparahan == 'BERAT' %}bg-red-50 border border-red-200{% elif a.tingkat_keparahan == 'SEDANG' %}bg-amber-50 border border-amber-200{% else %}bg-slate-50 border border-slate-200{% endif %}">
+                    <div>
+                        <div class="font-medium text-slate-800">{{ a.alergen }}</div>
+                        {% if a.gejala %}
+                        <div class="text-sm text-slate-600 mt-0.5">Gejala: {{ a.gejala }}</div>
+                        {% endif %}
+                        <span class="inline-flex items-center px-2 py-0.5 mt-1.5 rounded text-xs font-medium
+                                     {% if a.tingkat_keparahan == 'BERAT' %}bg-red-100 text-red-700{% elif a.tingkat_keparahan == 'SEDANG' %}bg-amber-100 text-amber-700{% else %}bg-slate-200 text-slate-700{% endif %}">
+                            {{ a.tingkat_keparahan or "RINGAN" }}
+                        </span>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-400 text-center py-4">Tidak ada catatan alergi.</p>
+            {% endif %}
+
+            {# TODO-NEW-1 #29A — Dokter inline kelola alergi #}
+            {% set _ur = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+            {% if _ur in ["DOKTER", "ADMIN", "OWNER", "SUPERADMIN"] %}
+            {% set alergi_action_base = "/web/pasien/" ~ pasien.id_pasien ~ "/alergi" %}
+            {% set alergi_panel_uid = "ps" ~ pasien.id_pasien ~ "" %}
+            {% include "_dokter_alergi_panel.html" %}
+            {% endif %}
+        </div>
+
+        {# Penyakit Kronis #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span>🩺</span> Penyakit Kronis
+                <span class="ml-auto text-xs font-normal text-slate-500">{{ pasien.penyakit_kronis|length }}</span>
+            </h3>
+            {% if pasien.penyakit_kronis and pasien.penyakit_kronis|length > 0 %}
+            <ul class="space-y-2">
+                {% for pk in pasien.penyakit_kronis %}
+                <li class="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                    <div class="font-medium text-slate-800">{{ pk.nama_penyakit }}</div>
+                    {% if pk.catatan %}
+                    <div class="text-sm text-slate-600 mt-0.5">{{ pk.catatan }}</div>
+                    {% endif %}
+
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-400 text-center py-4">Tidak ada catatan penyakit kronis.</p>
+            {% endif %}
+
+            {# TODO-NEW-1 #29B — Dokter inline kelola penyakit kronis #}
+            {% if _ur in ["DOKTER", "ADMIN", "OWNER", "SUPERADMIN"] %}
+            {% set pk_action_base = "/web/pasien/" ~ pasien.id_pasien ~ "/penyakit-kronis" %}
+            {% set pk_panel_uid = "ps" ~ pasien.id_pasien ~ "" %}
+            {% set pk_next = "/web/pasien/" ~ pasien.id_pasien %}
+            {% include "_dokter_penyakit_kronis_panel.html" %}
+            {% endif %}
+        </div>
+    </div>
+
+    {# Flash messages #}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    {# Rencana Series Aktif — sesi yang sudah dijadwalkan dokter, menunggu eksekusi #}
+    {% if series_aktif %}
+    <div class="bg-amber-50 rounded-xl shadow-sm border border-amber-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-base font-semibold text-amber-900 flex items-center gap-2">
+                <span>🔄</span> Rencana Series Aktif ({{ series_aktif|length }})
+            </h3>
+            {% if kunjungan_aktif_id %}
+            <span class="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">
+                ✓ Pasien aktif di kunjungan #{{ kunjungan_aktif_id }}
+            </span>
+            {% else %}
+            <span class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded">
+                Belum ada kunjungan hari ini
+            </span>
+            {% endif %}
+        </div>
+        <div class="space-y-3">
+            {% for s in series_aktif %}
+            <div class="bg-white rounded-lg p-4 border border-amber-100">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex-1">
+                        <div class="font-medium text-slate-800">{{ s.nama_tindakan }}</div>
+                        <div class="text-xs text-slate-500 mt-1">
+                            <span class="font-semibold text-amber-700">{{ s.sisa_pending }}</span> sesi tersisa
+                            dari total {{ s.total_sesi }} sesi
+                            ({{ s.sudah_terpakai }} sudah dipakai)
+                        </div>
+                        {% if s.harga_paket %}
+                        <div class="text-xs text-emerald-700 mt-1">
+                            💰 Harga paket: Rp {{ "{:,.0f}".format(s.harga_paket).replace(",", ".") }}/sesi
+                            (lunas di sesi 1)
+                        </div>
+                        {% else %}
+                        <div class="text-xs text-slate-500 mt-1">
+                            💰 Harga: Rp {{ "{:,.0f}".format(s.harga_normal).replace(",", ".") }}/sesi
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="flex-shrink-0">
+                        {% if kunjungan_aktif_id and s.rencana_pending %}
+                        {% set next_rencana = s.rencana_pending[0] %}
+                        <form method="POST" action="/web/series/use" data-confirm="Pakai sesi {{ next_rencana.urutan_sesi }} untuk kunjungan #{{ kunjungan_aktif_id }} hari ini?">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="id_rencana" value="{{ next_rencana.id_rencana }}">
+                            <input type="hidden" name="id_kunjungan" value="{{ kunjungan_aktif_id }}">
+                            <input type="hidden" name="id_pasien" value="{{ pasien.id_pasien }}">
+                            <button type="submit"
+                                    class="inline-flex items-center px-3 py-2 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium">
+                                🔄 Pakai Sesi {{ next_rencana.urutan_sesi }}
+                            </button>
+                        </form>
+                        {% else %}
+                        <span class="text-xs text-slate-400 italic">Daftarkan pasien ke antrian dulu</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% if not kunjungan_aktif_id %}
+        <p class="text-xs text-amber-700 mt-3">
+            ⓘ Untuk pakai sesi, daftarkan pasien ke antrian hari ini dulu (klik "Tambah ke Antrian" / "Beli Produk").
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Antropometri — Laporan AI dari modul eksternal (AN-L2c). Sehati pull-only. #}
+    {% set _ur = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+            <h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <span>📏</span> Antropometri (Laporan AI)
+            </h3>
+            {% if antro_laporan and antro_laporan.enabled and _ur in ["DOKTER","PERAWAT","ADMIN","OWNER","SUPERADMIN"] %}
+            <form method="POST" action="/web/pasien/{{ pasien.id_pasien }}/antro/buat" class="inline-flex" target="_blank" rel="noopener">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="return_to" value="/web/pasien/{{ pasien.id_pasien }}">
+                <button type="submit"
+                        class="text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition font-medium">
+                    + Buat Laporan Antropometri
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if not (antro_laporan and antro_laporan.enabled) %}
+        <div class="text-xs text-slate-400 italic bg-slate-50 border border-slate-200 rounded p-3">
+            Modul Antropometri AI belum diaktifkan.
+        </div>
+        {% elif antro_laporan.error %}
+        <div class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            ⚠ Modul antropometri tidak dapat dihubungi saat ini. Laporan akan tampil begitu modul aktif kembali.
+        </div>
+        {% else %}
+            {% if antro_laporan.approved %}
+            <div class="space-y-2">
+                {% for r in antro_laporan.approved %}
+                <div class="flex items-center justify-between gap-3 border border-emerald-200 bg-emerald-50 rounded-lg px-3 py-2">
+                    <div class="min-w-0">
+                        <div class="text-sm font-medium text-slate-800 truncate">{{ r.name or "Laporan" }}</div>
+                        <div class="text-xs text-slate-500">{{ r.date or r.updated_at or "" }}
+                            <span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px]">Disetujui</span>
+                        </div>
+                    </div>
+                    <a href="{{ r.view_url }}" target="_blank" rel="noopener"
+                       class="text-xs px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-100 whitespace-nowrap">
+                        Buka laporan ↗
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-6 text-slate-400">
+                <div class="text-2xl mb-1">📐</div>
+                <p class="text-sm">Belum ada laporan antropometri yang disetujui.</p>
+            </div>
+            {% endif %}
+            {% if antro_laporan.processing %}
+            <div class="text-xs text-slate-500 mt-2">
+                ⏳ {{ antro_laporan.processing|length }} laporan sedang diproses…
+            </div>
+            {% endif %}
+            {% if antro_laporan.pending %}
+            <div class="text-xs text-amber-700 mt-3">
+                ⏳ {{ antro_laporan.pending|length }} draft menunggu persetujuan dokter (dibuka & di-approve di modul).
+            </div>
+            {% endif %}
+        {% endif %}
+
+        {# Pengukuran lama (read-only) — data warisan sebelum modul AI. Tak bisa diedit. #}
+        {% if antropometri and antropometri.has_data %}
+        <details class="mt-4 border-t border-slate-100 pt-3">
+            <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
+                Pengukuran lama (read-only){% if antropometri.tgl_ukur %} — {{ antropometri.tgl_ukur }}{% endif %}
+            </summary>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-xs text-slate-600">
+                <div>BB: <strong>{{ antropometri.berat_badan or "-" }} kg</strong></div>
+                <div>TB: <strong>{{ antropometri.tinggi_badan or "-" }} cm</strong></div>
+                <div>BMI: <strong>{{ antropometri.bmi or "-" }}</strong> {{ antropometri.kategori_bmi or "" }}</div>
+                <div>Body Fat: <strong>{{ antropometri.body_fat_pct or "-" }}%</strong></div>
+                <div>Lean: <strong>{{ antropometri.lean_mass_pct or "-" }}%</strong></div>
+                <div>TD: <strong>{{ antropometri.tekanan_darah or "-" }}</strong></div>
+                <div>Suhu: <strong>{{ antropometri.suhu_tubuh or "-" }}°C</strong></div>
+                <div>L.Perut: <strong>{{ antropometri.lingkar_perut or "-" }} cm</strong></div>
+            </div>
+        </details>
+        {% endif %}
+    </div>
+
+    {# Riwayat SOAP — N terakhir #}
+    {% if soap_riwayat and soap_riwayat|length > 0 %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>📝</span> Riwayat SOAP ({{ soap_riwayat|length }} terakhir)
+        </h3>
+        <div class="space-y-3">
+            {% for soap in soap_riwayat %}
+            <div class="border border-slate-200 rounded-lg p-4 hover:bg-slate-50/50 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs text-slate-500">
+                        {{ soap.tanggal or "-" }}
+                        {% if soap.nama_dokter %}
+                        <span class="ml-2">• Dr. <strong>{{ soap.nama_dokter }}</strong></span>
+                        {% endif %}
+                    </div>
+                    <div class="text-xs font-mono text-slate-400">#{{ soap.id_pemeriksaan }}</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    {% if soap.anamnesa %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">S - Anamnesa</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ soap.anamnesa }}</div>
+                    </div>
+                    {% endif %}
+                    {% if soap.pemeriksaan_fisik %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">O - Pemeriksaan Fisik</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ soap.pemeriksaan_fisik }}</div>
+                    </div>
+                    {% endif %}
+                    {% if soap.diagnosa %}
+                    <div class="md:col-span-2">
+                        <div class="text-xs text-slate-500 uppercase font-medium">A - Diagnosa</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ soap.diagnosa }}</div>
+                    </div>
+                    {% endif %}
+                    {% if soap.saran_treatment %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">P - Saran Treatment</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ soap.saran_treatment }}</div>
+                    </div>
+                    {% endif %}
+                    {% if soap.saran_produk %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">P - Saran Produk</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ soap.saran_produk }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Actions #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex gap-3 flex-wrap">
+        <a href="/web/pasien/{{ pasien.id_pasien }}/riwayat"
+           class="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            📜 Lihat Riwayat Lengkap
+        </a>
+        <a href="/web/pasien"
+           class="ml-auto inline-flex items-center px-4 py-2 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition">
+            ← Kembali ke Pencarian
+        </a>
+    </div>
+
+</div>
+{% endblock %}

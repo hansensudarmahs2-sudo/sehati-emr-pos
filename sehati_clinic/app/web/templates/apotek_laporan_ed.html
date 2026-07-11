@@ -1,0 +1,38 @@
+{% extends "_app.html" %}
+{% block title %}Laporan ED — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Laporan Kadaluarsa (ED){% endblock %}
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3"><a href="/web/apotek/stok" class="text-blue-600 hover:underline">‹ Manajemen Stok</a></nav>
+
+    <div class="grid grid-cols-4 gap-3 mb-5">
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4"><div class="text-xs text-red-700">&lt; 1 bulan / lewat</div><div class="text-2xl font-bold text-red-700 mt-1">{{ data.buckets.lt1 }}</div></div>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4"><div class="text-xs text-amber-700">&lt; 3 bulan</div><div class="text-2xl font-bold text-amber-700 mt-1">{{ data.buckets.lt3 }}</div></div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4"><div class="text-xs text-slate-500">&lt; 6 bulan</div><div class="text-2xl font-bold text-slate-700 mt-1">{{ data.buckets.lt6 }}</div></div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4"><div class="text-xs text-emerald-700">&lt; 1 tahun</div><div class="text-2xl font-bold text-emerald-700 mt-1">{{ data.buckets.lt12 }}</div></div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">Lot mendekati ED (≤ 1 tahun) — {{ data.total }}</div>
+        {% if data.lots and data.lots|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr><th class="text-left px-4 py-2 font-medium">Item</th><th class="text-left px-4 py-2 font-medium">Lokasi</th><th class="text-left px-4 py-2 font-medium">Batch</th><th class="text-left px-4 py-2 font-medium">ED</th><th class="text-right px-4 py-2 font-medium">Sisa Hari</th><th class="text-right px-4 py-2 font-medium">Qty</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in data.lots %}
+                <tr class="hover:bg-blue-50/30 {% if it.bucket == 'lt1' %}bg-red-50/40{% elif it.bucket == 'lt3' %}bg-amber-50/30{% endif %}">
+                    <td class="px-4 py-2 font-medium text-slate-800">{{ it.nama }} <span class="text-slate-400 text-xs">{{ it.tipe_item }}</span></td>
+                    <td class="px-4 py-2 text-slate-600 text-xs">{{ it.lokasi }}</td>
+                    <td class="px-4 py-2 text-slate-700">{{ it.batch_no }}</td>
+                    <td class="px-4 py-2 text-slate-700">{{ it.tgl_ed.strftime('%d/%m/%Y') }}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if it.days < 30 %}text-red-700 font-bold{% elif it.days < 90 %}text-amber-700{% else %}text-slate-500{% endif %}">{{ it.days }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-slate-700">{{ "%g"|format(it.qty_sisa) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<div class="p-12 text-center text-slate-500">Tak ada lot ber-ED yang mendekati kadaluarsa dalam 1 tahun. 👍</div>{% endif %}
+    </div>
+</div>
+{% endblock %}

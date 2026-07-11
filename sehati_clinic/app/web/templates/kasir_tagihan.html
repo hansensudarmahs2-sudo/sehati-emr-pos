@@ -1,0 +1,572 @@
+{% extends "_app.html" %}
+{% block title %}Tagihan #{{ tagihan.id_kunjungan }} - {{ tagihan.nama_pasien }}{% endblock %}
+{% block page_title %}{% if tagihan and tagihan.sudah_lunas %}Detail Transaksi{% else %}Proses Pembayaran{% endif %}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/kasir/antrian" class="hover:text-blue-600">Antrian Kasir</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ tagihan.nama_pasien }}</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    {# FLOW-D Part B: Banner "Tagihan Tambahan" kalau ada existing trx tapi belum lunas #}
+    {% if not tagihan.sudah_lunas and tagihan.id_transaksi_existing %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg mb-4 text-sm">
+        🔄 <strong>Tagihan Tambahan.</strong>
+        Kunjungan ini sebelumnya sudah ada transaksi
+        <a href="/web/kasir/nota/{{ tagihan.id_transaksi_existing }}/cetak?paper=a5"
+           target="_blank" class="underline font-medium hover:text-amber-900">#{{ tagihan.id_transaksi_existing }}</a>.
+        Items di bawah adalah tindakan/resep baru yang ditambahkan setelah pembayaran sebelumnya.
+    </div>
+    {% endif %}
+
+    {# Sticky header card - pasien info #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 sticky top-0 z-30">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="font-bold text-slate-800 text-lg">{{ tagihan.nama_pasien }}</div>
+                <div class="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                    <span class="font-mono">{{ tagihan.no_rm }}</span>
+                    <span>•</span>
+                    <span>Kunjungan #{{ tagihan.id_kunjungan }}</span>
+                    {% if tagihan.tipe_membership %}
+                    <span>•</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">{{ tagihan.tipe_membership }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if tagihan.sudah_lunas %}
+            <div class="text-right">
+                {% if tagihan.is_voided %}
+                <div class="inline-flex items-center px-3 py-1 rounded-full bg-red-100 text-red-700 text-sm font-bold">✗ TRANSAKSI VOID</div>
+                {% else %}
+                <div class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-sm font-medium">✓ Sudah Lunas</div>
+                {% endif %}
+                <div class="text-xs text-slate-500 mt-1">Trx #{{ tagihan.id_transaksi_existing }}{% if tagihan.waktu_bayar %} · {{ tagihan.waktu_bayar }}{% endif %}</div>
+                {% if tagihan.id_transaksi_existing %}
+                <div class="flex items-center justify-end gap-2 mt-2">
+                    <a href="/web/kasir/nota/{{ tagihan.id_transaksi_existing }}/cetak?paper=a5"
+                       target="_blank"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 text-xs {% if tagihan.is_voided %}bg-red-600 hover:bg-red-700{% else %}bg-blue-600 hover:bg-blue-700{% endif %} text-white rounded-lg font-medium">
+                        🖨 {% if tagihan.is_voided %}Cetak Nota Void (A5){% else %}Cetak Nota (A5){% endif %}
+                    </a>
+                    <a href="/web/kasir/nota/{{ tagihan.id_transaksi_existing }}/cetak?paper=thermal"
+                       target="_blank"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium">
+                        🖨 Thermal
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="text-right">
+                <div class="text-xs text-slate-500">Total Tagihan</div>
+                <div class="text-2xl font-bold text-slate-800">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.total_tagihan|float).replace(",", ".") }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# VOID Warning Card — kalau transaksi sudah di-void #}
+    {% if tagihan.is_voided %}
+    <div class="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
+        <div class="flex items-start gap-3">
+            <div class="text-3xl">⚠</div>
+            <div class="flex-1">
+                <div class="font-bold text-red-800 text-base mb-1">
+                    Transaksi Di-Void
+                    {% if tagihan.late_void %}<span class="ml-2 text-xs px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">FORCE PAST-DAY</span>{% endif %}
+                </div>
+                <div class="text-sm text-red-700 space-y-0.5">
+                    <div><strong>Alasan:</strong> {{ tagihan.void_reason_code or "-" }}</div>
+                    {% if tagihan.void_reason_note %}<div><strong>Catatan:</strong> {{ tagihan.void_reason_note }}</div>{% endif %}
+                    {% if tagihan.voided_by_nama %}<div><strong>Oleh:</strong> {{ tagihan.voided_by_nama }}</div>{% endif %}
+                    {% if tagihan.void_at %}<div><strong>Waktu:</strong> {{ tagihan.void_at }}</div>{% endif %}
+                </div>
+                <p class="text-xs text-red-600 mt-2 italic">
+                    Tagihan asli ditampilkan untuk referensi. Untuk audit lengkap, cek Reports → Audit Log Viewer.
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Force Past-Day Void Card — Admin/Superadmin/Owner only kalau transaksi belum di-void #}
+    {% if tagihan.can_force_void_past_day %}
+    <div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-4">
+        <div class="flex items-start gap-3">
+            <div class="text-2xl">⚡</div>
+            <div class="flex-1">
+                <div class="font-bold text-amber-800 text-sm mb-1">
+                    {% if tagihan.days_past == 0 %}Force Void Available (Admin Override){% else %}Force Past-Day Void Available{% endif %}
+                </div>
+                <p class="text-xs text-amber-700">
+                    {% if tagihan.days_past == 0 %}
+                    Transaksi ini dibuat <strong>hari ini</strong>. Sebagai
+                    <strong>{{ user.role.value if user.role.value is defined else user.role }}</strong>
+                    Bapak/Ibu bisa override void tanpa lewat kasir (limit Bapak: {{ tagihan.max_force_days }} hari).
+                    {% else %}
+                    Transaksi ini sudah <strong>{{ tagihan.days_past }} hari lalu</strong>. Sebagai
+                    <strong>{{ user.role.value if user.role.value is defined else user.role }}</strong>
+                    Bapak/Ibu masih bisa void (limit: {{ tagihan.max_force_days }} hari). Aksi tercatat sebagai
+                    <span class="font-mono text-xs">late_void=TRUE</span> di audit log.
+                    {% endif %}
+                </p>
+                <button type="button" onclick="document.getElementById('force-void-modal').classList.remove('hidden')"
+                        class="mt-3 px-3 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 font-medium">
+                    {% if tagihan.days_past == 0 %}⚡ Force Void (Admin){% else %}⚡ Force Void Past-Day{% endif %}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Modal Force Past-Day Void #}
+    <div id="force-void-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <form method="POST" action="/web/kasir/transaksi/{{ tagihan.id_transaksi_existing }}/force-void"
+                  onsubmit="return validateForceVoidForm(this);">
+                {{ csrf_input(request) }}
+
+                <div class="p-5 border-b border-amber-200 bg-amber-50">
+                    <h3 class="text-lg font-bold text-amber-800 flex items-center gap-2">
+                        <span>⚡</span> Force Void — Trx #{{ tagihan.id_transaksi_existing }}
+                    </h3>
+                    <p class="text-xs text-amber-700 mt-1">
+                        {% if tagihan.days_past == 0 %}
+                        Admin override day 0 — kasir flow di Pembayaran Berhasil masih jadi pilihan utama.
+                        {% else %}
+                        Transaksi {{ tagihan.days_past }} hari lalu. Akan tercatat sebagai LATE VOID di audit log.
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div class="p-5 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Alasan Void <span class="text-red-500">*</span></label>
+                        <select name="reason_code" required
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                                onchange="updateForceNoteHint(this.value)">
+                            <option value="">— Pilih alasan —</option>
+                            <option value="SALAH_INPUT">Salah Input (qty/harga keliru)</option>
+                            <option value="CUSTOMER_CANCEL">Customer Cancel</option>
+                            <option value="REFUND_PASCA_TINDAKAN">Refund Pasca Tindakan</option>
+                            <option value="ITEM_RUSAK">Item Rusak</option>
+                            <option value="DUPLICATE_TRANSAKSI">Duplicate Transaksi</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">
+                            Catatan <span class="text-red-500">*</span>
+                            <span id="force-note-hint" class="text-xs text-slate-500 font-normal">(pilih alasan dulu)</span>
+                        </label>
+                        <textarea name="reason_note" required rows="3"
+                                  placeholder="Jelaskan kenapa void dilakukan setelah hari ini..."
+                                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"></textarea>
+                    </div>
+                    {% if tagihan.rincian_produk %}
+                    <div class="border-t border-slate-200 pt-3">
+                        <label class="block text-sm font-medium text-slate-700 mb-2">
+                            Reverse Stok Produk?
+                            <span class="text-xs text-slate-500 font-normal">(Centang yang masih utuh & bisa dijual)</span>
+                        </label>
+                        <div class="space-y-1 bg-slate-50 p-3 rounded-lg max-h-40 overflow-y-auto">
+                            {% for item in tagihan.rincian_produk %}
+                            <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded">
+                                <input type="checkbox" name="force_items_reverse_list" value="{{ item.id_resep }}"
+                                       class="rounded text-amber-600 focus:ring-amber-500">
+                                <span class="flex-1">{{ item.nama_produk }}</span>
+                                <span class="text-xs text-slate-500">qty {{ item.qty }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    <input type="hidden" name="items_reverse_stok" id="force-hidden-reverse-list" value="">
+                </div>
+
+                <div class="p-5 border-t border-slate-200 flex items-center justify-end gap-2">
+                    <button type="button" onclick="document.getElementById('force-void-modal').classList.add('hidden')"
+                            class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                        Batal
+                    </button>
+                    <button type="submit"
+                            class="px-5 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium">
+                        ⚡ Force Void
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        var FORCE_VOID_MIN_CHARS = {
+            'SALAH_INPUT': 5, 'CUSTOMER_CANCEL': 5, 'ITEM_RUSAK': 5,
+            'DUPLICATE_TRANSAKSI': 5, 'REFUND_PASCA_TINDAKAN': 10, 'OTHER': 20,
+        };
+        function updateForceNoteHint(code) {
+            var hint = document.getElementById('force-note-hint');
+            if (code && FORCE_VOID_MIN_CHARS[code]) {
+                hint.textContent = '(min ' + FORCE_VOID_MIN_CHARS[code] + ' karakter)';
+            } else {
+                hint.textContent = '(pilih alasan dulu)';
+            }
+        }
+        function validateForceVoidForm(form) {
+            var reason = form.querySelector('select[name="reason_code"]').value;
+            var note = (form.querySelector('textarea[name="reason_note"]').value || '').trim();
+            var minChars = FORCE_VOID_MIN_CHARS[reason] || 5;
+            if (!reason) { alert('Pilih alasan void terlebih dahulu.'); return false; }
+            if (note.length < minChars) {
+                alert('Catatan untuk alasan "' + reason + '" minimal ' + minChars + ' karakter.\nSaat ini: ' + note.length + ' karakter.');
+                return false;
+            }
+            var checks = form.querySelectorAll('input[name="force_items_reverse_list"]:checked');
+            var hidden = form.querySelector('#force-hidden-reverse-list');
+            if (hidden) {
+                hidden.value = Array.from(checks).map(function(c) { return c.value; }).join(',');
+            }
+            var d = {{ tagihan.days_past }};
+            var pesan = (d === 0)
+                ? 'PERHATIAN: Force Void (Admin override) TIDAK BISA dibatalkan.\n\nLanjutkan void transaksi hari ini?'
+                : 'PERHATIAN: Force Past-Day Void TIDAK BISA dibatalkan.\n\nLanjutkan void transaksi ' + d + ' hari lalu?';
+            window.appConfirm(pesan).then(function(ok){
+                if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
+            });
+            return false;
+        }
+    </script>
+    {% endif %}
+
+    {# Breakdown: Tindakan #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4 {% if tagihan.is_voided %}opacity-60{% endif %}">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            💉 Tindakan ({{ tagihan.rincian_tindakan|length }})
+        </h3>
+        {% if tagihan.rincian_tindakan %}
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 font-medium">Nama Treatment</th>
+                    <th class="text-right py-2 font-medium">Harga</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for t in tagihan.rincian_tindakan %}
+                <tr>
+                    <td class="py-2 text-slate-700">{{ t.nama_treatment }}</td>
+                    <td class="py-2 text-right text-slate-700">Rp {{ "{:,.0f}".format(t.harga|float).replace(",", ".") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-xs text-slate-400 text-center py-2">Tidak ada tindakan.</p>
+        {% endif %}
+    </div>
+
+    {# Breakdown: Produk / Resep #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            💊 Produk / Resep ({{ tagihan.rincian_produk|length }})
+        </h3>
+        {% if tagihan.rincian_produk %}
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 font-medium">Nama Produk</th>
+                    <th class="text-right py-2 font-medium">Qty</th>
+                    <th class="text-right py-2 font-medium">Harga</th>
+                    <th class="text-right py-2 font-medium">Subtotal</th>
+                    <th class="text-center py-2 font-medium">Status</th>
+                    {% if not tagihan.sudah_lunas %}
+                    <th class="text-right py-2 font-medium">Aksi</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for p in tagihan.rincian_produk %}
+                <tr class="{% if p.status_item == 'BATAL' %}opacity-50 line-through{% endif %}">
+                    <td class="py-2 text-slate-700">{{ p.nama_produk }}</td>
+                    <td class="py-2 text-right text-slate-700">{{ p.qty }}</td>
+                    <td class="py-2 text-right text-slate-700">Rp {{ "{:,.0f}".format(p.harga_satuan|float).replace(",", ".") }}</td>
+                    <td class="py-2 text-right font-medium text-slate-800">Rp {{ "{:,.0f}".format(p.subtotal|float).replace(",", ".") }}</td>
+                    <td class="py-2 text-center">
+                        {% if p.status_item == "DIBAYAR" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">DIBAYAR</span>
+                        {% elif p.status_item == "BATAL" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">BATAL</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">PENDING</span>
+                        {% endif %}
+                    </td>
+                    {% if not tagihan.sudah_lunas %}
+                    <td class="py-2 text-right">
+                        {% if p.status_item == "PENDING" %}
+                        <button type="button"
+                                onclick='openVoidModal({{ p.id_resep }}, {{ p.nama_produk|tojson|forceescape }})'
+                                class="inline-flex items-center px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">
+                            Void
+                        </button>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-xs text-slate-400 text-center py-2">Tidak ada resep produk.</p>
+        {% endif %}
+    </div>
+
+    {# Ringkasan biaya #}
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-5 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-3">Ringkasan Biaya</h3>
+        <dl class="text-sm space-y-1">
+            <div class="flex justify-between">
+                <dt class="text-slate-600">Subtotal Tindakan</dt>
+                <dd class="text-slate-800">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal_tindakan|float).replace(",", ".") }}</dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-slate-600">Subtotal Produk</dt>
+                <dd class="text-slate-800">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal_produk|float).replace(",", ".") }}</dd>
+            </div>
+            {# #362D - Aktivasi membership line item (kalau ada pending) #}
+            {% if tagihan.ringkasan_biaya.subtotal_aktivasi_membership|float > 0 %}
+            <div class="flex justify-between bg-amber-50 border-l-4 border-amber-400 px-3 py-2 rounded">
+                <dt class="text-amber-900 font-medium">
+                    🎖️ Aktivasi Membership {{ tagihan.ringkasan_biaya.nama_tier_aktivasi }}
+                    <span class="text-xs text-amber-700 font-normal block">Tier baru aktif setelah dibayar. Diskon belum apply untuk transaksi ini.</span>
+                </dt>
+                <dd class="text-amber-900 font-bold">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal_aktivasi_membership|float).replace(",", ".") }}</dd>
+            </div>
+            {% endif %}
+            <div class="flex justify-between border-t border-slate-200 pt-1 mt-1">
+                <dt class="text-slate-700 font-medium">Subtotal</dt>
+                <dd class="text-slate-800 font-medium">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal|float).replace(",", ".") }}</dd>
+            </div>
+            {% if tagihan.ringkasan_biaya.nominal_diskon_treatment|float > 0 %}
+            <div class="flex justify-between text-emerald-700">
+                <dt>Diskon Treatment ({{ tagihan.ringkasan_biaya.persen_diskon_treatment }}%)</dt>
+                <dd>- Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.nominal_diskon_treatment|float).replace(",", ".") }}</dd>
+            </div>
+            {% endif %}
+            {% if tagihan.ringkasan_biaya.nominal_diskon_produk|float > 0 %}
+            <div class="flex justify-between text-emerald-700">
+                <dt>Diskon Produk ({{ tagihan.ringkasan_biaya.persen_diskon_produk }}%)</dt>
+                <dd>- Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.nominal_diskon_produk|float).replace(",", ".") }}</dd>
+            </div>
+            {% endif %}
+            <div class="flex justify-between border-t-2 border-slate-300 pt-2 mt-2">
+                <dt class="text-base font-bold text-slate-900">TOTAL TAGIHAN</dt>
+                <dd class="text-base font-bold text-slate-900">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.total_tagihan|float).replace(",", ".") }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    {# Form bayar - hanya kalau belum lunas #}
+    {% if not tagihan.sudah_lunas %}
+    {% set total_check = tagihan.ringkasan_biaya.total_tagihan|float %}
+    {% if total_check == 0 %}
+    {# Total Rp 0 — series sesi 2..N sudah lunas di sesi 1. Skip form pembayaran. #}
+    <form method="POST" action="/web/kasir/tagihan/{{ tagihan.id_kunjungan }}/bayar"
+          class="bg-emerald-50 rounded-xl shadow-sm border border-emerald-200 p-5 mb-6">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+        <input type="hidden" name="keterangan_promo" value="Lanjutan Series — lunas di sesi 1">
+        <div class="flex items-start gap-3">
+            <div class="text-3xl">✅</div>
+            <div class="flex-1">
+                <h3 class="text-base font-semibold text-emerald-900 mb-1">Tidak Ada Tagihan</h3>
+                <p class="text-sm text-emerald-800">
+                    Tagihan kunjungan ini Rp 0 — semua tindakan adalah lanjutan series yang sudah dibayar paket di sesi 1.
+                    Klik tombol di bawah untuk finalisasi & cetak nota Rp 0 sebagai bukti.
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center justify-between pt-4 mt-4 border-t border-emerald-200">
+            <a href="/web/kasir/antrian"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                ← Batal
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                ✓ Selesaikan & Cetak Nota
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <form method="POST" action="/web/kasir/tagihan/{{ tagihan.id_kunjungan }}/bayar"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            💰 Pembayaran
+        </h3>
+
+        <p class="text-xs text-slate-500 mb-3">
+            Bisa split payment (mis. sebagian TUNAI + sebagian QRIS). Total pembayaran harus ≥ total tagihan.
+        </p>
+
+        <div id="pembayaran-rows" class="space-y-2 mb-3">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end pembayaran-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="md:col-span-5">
+                    <label class="block text-xs text-slate-500 mb-1">Metode</label>
+                    <select name="metode_bayar" required
+                            class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="TUNAI">TUNAI</option>
+                        <option value="QRIS">QRIS</option>
+                        <option value="DEBIT">DEBIT</option>
+                        <option value="KREDIT">KREDIT</option>
+                        <option value="TRANSFER">TRANSFER</option>
+                    </select>
+                </div>
+                <div class="md:col-span-5">
+                    <label class="block text-xs text-slate-500 mb-1">Nominal</label>
+                    <input type="number" name="nominal" min="1" step="1" required
+                           value="{{ tagihan.ringkasan_biaya.total_tagihan|float|int }}"
+                           class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-2 text-right">
+                    <button type="button" onclick="this.closest('.pembayaran-row').remove()"
+                            class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <button type="button"
+                hx-get="/web/kasir/_pembayaran-row"
+                hx-target="#pembayaran-rows"
+                hx-swap="beforeend"
+                class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition mb-4">
+            + Tambah Pembayaran (Split)
+        </button>
+
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Keterangan / Promo (opsional)</label>
+            <input type="text" name="keterangan_promo" maxlength="100"
+                   placeholder="mis. Diskon karyawan, voucher AB123"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <div class="flex items-center justify-between pt-4 mt-4 border-t border-slate-100">
+            <a href="/web/kasir/antrian"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                ← Batal
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                ✓ Proses Pembayaran
+            </button>
+        </div>
+    </form>
+    {% endif %}
+    {% endif %}
+</div>
+
+{# Void modal - hanya kalau belum lunas #}
+{% if not tagihan.sudah_lunas %}
+<div id="void-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-3">⚠ Batalkan Item Resep</h3>
+        <p class="text-sm text-slate-600 mb-4">
+            Anda akan membatalkan <strong id="void-nama-produk"></strong>.
+            Aksi ini tercatat permanen di audit log.
+        </p>
+        <form method="POST" id="void-form" class="space-y-3">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="id_resep" id="void-id-resep">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Alasan Pembatalan <span class="text-red-500">*</span></label>
+                <select name="reason_code" required
+                        class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="">— Pilih alasan —</option>
+                    <option value="SALAH_INPUT">Salah Input (qty/harga keliru)</option>
+                    <option value="CUSTOMER_CANCEL">Customer Cancel (berubah pikiran)</option>
+                    <option value="DUPLICATE_TRANSAKSI">Duplicate Input</option>
+                    <option value="ITEM_RUSAK">Item Rusak</option>
+                    <option value="OTHER">Lainnya</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Catatan <span class="text-red-500">*</span></label>
+                <textarea name="alasan" rows="2" minlength="3" maxlength="200" required
+                          placeholder="Penjelasan singkat..."
+                          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+            </div>
+            <div class="flex gap-2 pt-2">
+                <button type="button" onclick="closeVoidModal()"
+                        class="flex-1 px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Batal
+                </button>
+                <button type="submit"
+                        class="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                    ✗ Void Item
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    var TOTAL_TAGIHAN = {{ (tagihan.ringkasan_biaya.total_tagihan or 0)|float }};
+    var ID_KUNJUNGAN = {{ tagihan.id_kunjungan|tojson }};
+
+    function openVoidModal(id_resep, nama_produk) {
+        document.getElementById('void-id-resep').value = id_resep;
+        document.getElementById('void-nama-produk').textContent = nama_produk;
+        document.getElementById('void-form').action =
+            '/web/kasir/tagihan/' + ID_KUNJUNGAN + '/void';
+        document.getElementById('void-modal').classList.remove('hidden');
+    }
+    function closeVoidModal() {
+        document.getElementById('void-modal').classList.add('hidden');
+    }
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeVoidModal();
+    });
+
+    function autoFillSisaNominal() {
+        var rows = document.querySelectorAll('#pembayaran-rows .pembayaran-row');
+        if (rows.length === 0) return;
+        var sudahDibayar = 0;
+        for (var i = 0; i < rows.length - 1; i++) {
+            var input = rows[i].querySelector('input[name="nominal"]');
+            sudahDibayar += parseFloat(input.value) || 0;
+        }
+        var sisa = TOTAL_TAGIHAN - sudahDibayar;
+        if (sisa < 0) sisa = 0;
+        var lastRow = rows[rows.length - 1];
+        var lastInput = lastRow.querySelector('input[name="nominal"]');
+        if (lastInput && !lastInput.value) {
+            lastInput.value = Math.round(sisa);
+        }
+    }
+
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'pembayaran-rows') {
+            autoFillSisaNominal();
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        autoFillSisaNominal();
+    });
+</script>
+{% endif %}
+
+{% endblock %}

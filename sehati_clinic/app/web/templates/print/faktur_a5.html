@@ -1,0 +1,87 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Faktur Penerimaan {{ po.nomor_po }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+
+{% macro rp(v) %}{% if v is none %}-{% else %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endif %}{% endmacro %}
+
+{% block doc_content %}
+<div class="klinik-header">
+    {% if klinik.logo_path %}<img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo">{% endif %}
+    <div class="klinik-name">{{ klinik.nama_klinik }}</div>
+    <div class="klinik-addr">
+        {% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}
+        {% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}
+    </div>
+</div>
+<div class="divider-solid"></div>
+<div class="text-center font-bold" style="font-size:1.1em; letter-spacing:1px;">FAKTUR PENERIMAAN BARANG</div>
+<div class="divider"></div>
+
+{# ===== Distributor & Penerima ===== #}
+<div class="row">
+    <div style="width:48%">
+        <div class="section-title">Distributor</div>
+        <div class="font-bold">{{ dist_header or "-" }}</div>
+        {% if dist_obj %}
+        {% if dist_obj.alamat %}<div class="muted">{{ dist_obj.alamat }}</div>{% endif %}
+        {% if dist_obj.telepon %}<div class="muted">Telp: {{ dist_obj.telepon }}</div>{% endif %}
+        {% endif %}
+    </div>
+    <div style="width:48%">
+        <div class="section-title">Penerima</div>
+        <div class="font-bold">{{ klinik.nama_klinik }}</div>
+        {% if klinik.alamat_baris1 %}<div class="muted">{{ klinik.alamat_baris1 }}</div>{% endif %}
+        <div class="muted">Diterima oleh: {{ penerima_nama }} (ID {{ penerima_id }})</div>
+    </div>
+</div>
+<div class="divider"></div>
+<div class="row"><span class="muted">No. PO</span><span class="font-bold mono">{{ po.nomor_po }}</span></div>
+
+{# ===== Tabel barang ===== #}
+<table style="margin-top:6px">
+    <thead>
+        <tr>
+            <th>Item</th>
+            <th>Batch</th>
+            <th>ED</th>
+            <th class="text-right">Qty</th>
+            <th class="text-right">H.Order</th>
+            <th class="text-right">H.Terima</th>
+            <th class="text-right">Selisih</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for b in baris %}
+        <tr>
+            <td>{{ b.nama_item }}</td>
+            <td>{{ b.batch_no }}</td>
+            <td>{{ b.tgl_ed.strftime('%d/%m/%y') if b.tgl_ed else '-' }}</td>
+            <td class="text-right">{{ b.qty|int if b.qty == b.qty|int else b.qty }}</td>
+            <td class="text-right">{{ rp(b.harga_order) }}</td>
+            <td class="text-right">{{ rp(b.harga_terima) }}</td>
+            <td class="text-right">{% if b.selisih is not none and b.selisih != 0 %}<span style="color:{{ '#dc2626' if b.selisih > 0 else '#16a34a' }}">{{ '+' if b.selisih > 0 else '' }}{{ rp(b.selisih) }}</span>{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="divider"></div>
+<div class="muted" style="font-size:0.8em">H.Order = harga saat pemesanan · H.Terima = harga saat barang datang · Selisih = terima − order.</div>
+
+{# ===== Tanda tangan ===== #}
+<div class="row" style="margin-top:28px;">
+    <div class="text-center" style="width:45%">
+        <div class="muted">Pengirim / Distributor</div>
+        <div style="height:44px"></div>
+        <div class="divider-solid" style="margin:0"></div>
+    </div>
+    <div class="text-center" style="width:45%">
+        <div class="muted">Penerima</div>
+        <div style="height:44px"></div>
+        <div class="divider-solid" style="margin:0"></div>
+        <div>{{ penerima_nama }}</div>
+    </div>
+</div>
+<div class="divider"></div>
+<div class="muted text-center" style="font-size:0.8em">{{ klinik.nama_klinik }} — Faktur {{ po.nomor_po }}</div>
+{% endblock %}

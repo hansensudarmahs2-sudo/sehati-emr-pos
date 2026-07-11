@@ -1,0 +1,379 @@
+{% extends "_app.html" %}
+{% block title %}{% if is_edit %}Edit{% else %}Tambah{% endif %} Treatment{% endblock %}
+{% block page_title %}{% if is_edit %}Edit Treatment{% else %}Tambah Treatment Baru{% endif %}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/master/treatment" class="hover:text-blue-600">Master Treatment</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{% if is_edit %}{{ form.nama_treatment }}{% else %}Tambah{% endif %}</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    <form method="POST" action="{% if is_edit %}/web/master/treatment/{{ form.id_treatment }}{% else %}/web/master/treatment/tambah{% endif %}"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+        {{ csrf_input(request) }}
+
+        <div>
+            <label for="nama_treatment" class="block text-sm font-medium text-slate-700 mb-1">Nama Treatment</label>
+            <input type="text" id="nama_treatment" name="nama_treatment" required minlength="1" maxlength="100"
+                   value="{{ form.nama_treatment or '' }}"
+                   class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label for="role_pelaksana" class="block text-sm font-medium text-slate-700 mb-1">Role Pelaksana</label>
+                <select id="role_pelaksana" name="role_pelaksana" required
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">— pilih role —</option>
+                    {% for r in roles %}
+                    <option value="{{ r }}" {% if form.role_pelaksana == r %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-slate-500 mt-1">Siapa yang biasa melaksanakan treatment ini.</p>
+            </div>
+            <div>
+                <label for="durasi_menit" class="block text-sm font-medium text-slate-700 mb-1">Durasi (menit)</label>
+                <input type="number" id="durasi_menit" name="durasi_menit" required min="1" step="1"
+                       value="{{ form.durasi_menit or '' }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label for="harga" class="block text-sm font-medium text-slate-700 mb-1">Harga Normal (Rp)</label>
+                <input type="number" id="harga" name="harga" required min="0" step="1000"
+                       value="{{ form.harga or 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Tindakan single (1 sesi, bukan paket).</p>
+            </div>
+            <div>
+                <label for="harga_paket" class="block text-sm font-medium text-slate-700 mb-1">
+                    Harga Paket Series (Rp / sesi)
+                    <span class="text-xs text-slate-400">opsional</span>
+                </label>
+                <input type="number" id="harga_paket" name="harga_paket" min="0" step="1000"
+                       value="{{ form.harga_paket or 0 }}"
+                       placeholder="0 = tidak ada paket"
+                       class="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500">
+                <p class="text-xs text-slate-500 mt-1">
+                    Per-sesi pada paket series. Total tagihan = jumlah sesi × harga_paket di sesi 1.
+                    Isi 0 untuk tindakan yang tidak ada harga paket.
+                </p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label for="default_rentang_mulai_minggu" class="block text-sm font-medium text-slate-700 mb-1">Rentang Mulai (minggu)</label>
+                <input type="number" id="default_rentang_mulai_minggu" name="default_rentang_mulai_minggu" min="0" step="1"
+                       value="{{ form.default_rentang_mulai_minggu if form.default_rentang_mulai_minggu is not none else 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Min minggu antar sesi (untuk series).</p>
+            </div>
+            <div>
+                <label for="default_rentang_akhir_minggu" class="block text-sm font-medium text-slate-700 mb-1">Rentang Akhir (minggu)</label>
+                <input type="number" id="default_rentang_akhir_minggu" name="default_rentang_akhir_minggu" min="0" step="1"
+                       value="{{ form.default_rentang_akhir_minggu if form.default_rentang_akhir_minggu is not none else 12 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Max minggu antar sesi.</p>
+            </div>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" name="butuh_otorisasi" value="1" {% if form.butuh_otorisasi %}checked{% endif %} class="mt-1 rounded">
+                <div>
+                    <div class="text-sm font-semibold text-amber-900">🔒 Butuh Otorisasi Dokter</div>
+                    <p class="text-xs text-amber-700 mt-1">
+                        Kalau checked, treatment ini hanya bisa di-upsell perawat dengan PIN dokter.
+                        Centang untuk treatment medis sensitif (mis. suntik filler, vitamin, peeling).
+                    </p>
+                </div>
+            </label>
+        </div>
+
+        {# ============================================================
+           SECTION KOMISI + HPP + PAJAK (DEC-060 Hybrid)
+           ============================================================ #}
+        <div class="border-t border-slate-200 pt-4">
+            <h3 class="text-base font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                <span>💰</span> Biaya, Pajak & Komisi
+            </h3>
+            <p class="text-xs text-slate-500 mb-3">
+                Komisi MASUK HPP/COGS (akuntansi standar). Laba bersih = harga - HPP - pajak.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                <div>
+                    <label for="bhp_per_pakai_nominal" class="block text-sm font-medium text-slate-700 mb-1">
+                        BHP per Pakai (Rp)
+                    </label>
+                    <input type="number" id="bhp_per_pakai_nominal" name="bhp_per_pakai_nominal"
+                           min="0" step="500" value="{{ form.bhp_per_pakai_nominal or 0 }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 komisi-input">
+                    <p class="text-xs text-slate-500 mt-1">Biaya bahan habis pakai per 1× treatment.</p>
+                </div>
+                <div>
+                    <label for="pajak_persen" class="block text-sm font-medium text-slate-700 mb-1">Pajak (%)</label>
+                    <input type="number" id="pajak_persen" name="pajak_persen"
+                           min="0" max="100" step="0.5" value="{{ form.pajak_persen or 0 }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 komisi-input">
+                    <p class="text-xs text-slate-500 mt-1">% × harga. Diabaikan kalau pajak nominal diisi.</p>
+                </div>
+                <div>
+                    <label for="pajak_nominal" class="block text-sm font-medium text-slate-700 mb-1">Pajak Nominal (Rp)</label>
+                    <input type="number" id="pajak_nominal" name="pajak_nominal"
+                           min="0" step="500" value="{{ form.pajak_nominal or 0 }}"
+                           placeholder="0 = pakai %"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 komisi-input">
+                    <p class="text-xs text-slate-500 mt-1">Override % kalau {{ '>' }} 0.</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                <div class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <div class="text-sm font-semibold text-slate-700 mb-2">👨‍⚕️ Komisi Dokter</div>
+                    <div class="space-y-2">
+                        <div>
+                            <label for="komisi_dokter_tipe" class="block text-xs text-slate-600 mb-1">Tipe</label>
+                            <select id="komisi_dokter_tipe" name="komisi_dokter_tipe"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 komisi-input">
+                                <option value="" {% if not form.komisi_dokter_tipe %}selected{% endif %}>— tanpa komisi —</option>
+                                <option value="PERSEN_HARGA" {% if form.komisi_dokter_tipe == 'PERSEN_HARGA' %}selected{% endif %}>% dari Harga Jual</option>
+                                <option value="PERSEN_MARGIN" {% if form.komisi_dokter_tipe == 'PERSEN_MARGIN' %}selected{% endif %}>% dari Margin (harga - BHP)</option>
+                                <option value="NOMINAL" {% if form.komisi_dokter_tipe == 'NOMINAL' %}selected{% endif %}>Nominal (Rp flat)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="komisi_dokter_value" class="block text-xs text-slate-600 mb-1">Nilai (% atau Rp)</label>
+                            <input type="number" id="komisi_dokter_value" name="komisi_dokter_value"
+                                   min="0" step="0.5" value="{{ form.komisi_dokter_value or 0 }}"
+                                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 komisi-input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <div class="text-sm font-semibold text-slate-700 mb-2">👩‍⚕️ Komisi Perawat</div>
+                    <div class="space-y-2">
+                        <div>
+                            <label for="komisi_perawat_tipe" class="block text-xs text-slate-600 mb-1">Tipe</label>
+                            <select id="komisi_perawat_tipe" name="komisi_perawat_tipe"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 komisi-input">
+                                <option value="" {% if not form.komisi_perawat_tipe %}selected{% endif %}>— tanpa komisi —</option>
+                                <option value="PERSEN_HARGA" {% if form.komisi_perawat_tipe == 'PERSEN_HARGA' %}selected{% endif %}>% dari Harga Jual</option>
+                                <option value="PERSEN_MARGIN" {% if form.komisi_perawat_tipe == 'PERSEN_MARGIN' %}selected{% endif %}>% dari Margin (harga - BHP)</option>
+                                <option value="NOMINAL" {% if form.komisi_perawat_tipe == 'NOMINAL' %}selected{% endif %}>Nominal (Rp flat)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="komisi_perawat_value" class="block text-xs text-slate-600 mb-1">Nilai (% atau Rp)</label>
+                            <input type="number" id="komisi_perawat_value" name="komisi_perawat_value"
+                                   min="0" step="0.5" value="{{ form.komisi_perawat_value or 0 }}"
+                                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 komisi-input">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Preview reaktif #}
+            <div id="komisi-preview" class="border border-blue-200 bg-blue-50 rounded-lg p-3 text-sm">
+                <div class="text-xs font-semibold text-blue-800 mb-2">📊 Preview Kalkulasi (berubah otomatis):</div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div><span class="text-slate-600">Komisi Dokter:</span> <span id="prev-kd" class="font-semibold text-slate-900">Rp 0</span></div>
+                    <div><span class="text-slate-600">Komisi Perawat:</span> <span id="prev-kp" class="font-semibold text-slate-900">Rp 0</span></div>
+                    <div><span class="text-slate-600">HPP (COGS):</span> <span id="prev-hpp" class="font-semibold text-slate-900">Rp 0</span></div>
+                    <div><span class="text-slate-600">Pajak:</span> <span id="prev-pajak" class="font-semibold text-slate-900">Rp 0</span></div>
+                    <div><span class="text-slate-600">Laba Kotor:</span> <span id="prev-lk" class="font-semibold text-emerald-700">Rp 0</span></div>
+                    <div><span class="text-slate-600">Laba Bersih:</span> <span id="prev-lb" class="font-semibold text-emerald-800">Rp 0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+            <a href="/web/master/treatment"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">Batal</a>
+            <button type="submit"
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                {% if is_edit %}Simpan Perubahan{% else %}Tambah Treatment{% endif %}
+            </button>
+        </div>
+    </form>
+
+    {% if is_edit %}
+
+    {# ============================================================
+       STATUS TREATMENT (toggle aktif/nonaktif)
+       ============================================================ #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+            <span>⚙️</span> Status Treatment
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">
+            Status saat ini:
+            {% if form.is_active %}<span class="text-emerald-700 font-semibold">● Aktif</span>
+            {% else %}<span class="text-slate-500">Nonaktif</span>{% endif %}.
+            Treatment nonaktif tidak muncul di dropdown SOAP / upsell.
+        </p>
+        <form method="POST" action="/web/master/treatment/{{ form.id_treatment }}/toggle-active"
+              data-confirm="{% if form.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %} treatment ini?">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="is_active" value="{{ '0' if form.is_active else '1' }}">
+            <button type="submit"
+                    class="px-4 py-2 text-sm {% if form.is_active %}bg-red-600 hover:bg-red-700{% else %}bg-emerald-600 hover:bg-emerald-700{% endif %} text-white rounded-lg font-medium">
+                {% if form.is_active %}Nonaktifkan{% else %}Aktifkan Kembali{% endif %}
+            </button>
+        </form>
+    </div>
+
+    {# ============================================================
+       BAHAN & ALAT TREATMENT (komponen)
+       ============================================================ #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+            <span>🧪</span> Bahan & Alat Treatment
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">
+            Daftar bahan habis pakai (BHP) dan alat yang dipakai per tindakan.
+            BHP otomatis dideduksi dari stok saat treatment dijalankan di Ruang Tindakan.
+        </p>
+
+        {% if komponen_list %}
+        <div class="overflow-x-auto mb-4">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-600 text-xs uppercase">
+                    <tr>
+                        <th class="px-3 py-2 text-left">Kategori</th>
+                        <th class="px-3 py-2 text-left">Nama Bahan</th>
+                        <th class="px-3 py-2 text-right">Qty</th>
+                        <th class="px-3 py-2 text-left">Satuan</th>
+                        <th class="px-3 py-2 text-right">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                    {% for k in komponen_list %}
+                    <tr>
+                        <td class="px-3 py-2">
+                            <span class="inline-block px-2 py-0.5 text-xs font-medium rounded {% if k.kategori == 'BAHAN' %}bg-emerald-100 text-emerald-800{% else %}bg-indigo-100 text-indigo-800{% endif %}">
+                                {{ k.kategori }}
+                            </span>
+                        </td>
+                        <td class="px-3 py-2">{{ k.nama_bahan }}</td>
+                        <td class="px-3 py-2 text-right">{{ k.qty }}</td>
+                        <td class="px-3 py-2">{{ k.satuan }}</td>
+                        <td class="px-3 py-2 text-right">
+                            <form method="POST" action="/web/master/treatment/{{ form.id_treatment }}/komponen/{{ k.id_komponen }}/hapus"
+                                  data-confirm="Hapus komponen {{ k.nama_bahan }}?"
+                                  class="inline">
+                                {{ csrf_input(request) }}
+                                <button type="submit" class="text-xs text-red-600 hover:text-red-800">Hapus</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-500 italic mb-4">Belum ada komponen. Tambahkan di bawah.</p>
+        {% endif %}
+
+        <form method="POST" action="/web/master/treatment/{{ form.id_treatment }}/komponen/tambah" class="space-y-3">
+            {{ csrf_input(request) }}
+            <div class="text-sm font-semibold text-slate-700 mb-1">+ Tambah Komponen</div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Kategori</label>
+                    <select name="kategori" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        <option value="BAHAN">BAHAN (BHP)</option>
+                        <option value="ALAT">ALAT</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Bahan</label>
+                    <select name="id_bahan" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        <option value="">— pilih bahan —</option>
+                        {% for b in master_bahan %}
+                        <option value="{{ b.id_bahan }}" data-satuan="{{ b.satuan }}">{{ b.nama_bahan }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Qty</label>
+                    <input type="number" name="qty" required min="0.01" step="0.01"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Satuan</label>
+                    <input type="text" name="satuan" required maxlength="20"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                           placeholder="ml / pcs / gram">
+                </div>
+            </div>
+            <div class="text-right">
+                <button type="submit"
+                        class="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">
+                    + Tambah Komponen
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {% endif %}
+</div>
+
+{# ============================================================
+   JS REACTIVE PREVIEW (DEC-060 hybrid komisi kalkulasi)
+   ============================================================ #}
+<script>
+(function() {
+    const fmtRp = (n) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+    function hitungKomisiSatu(tipe, value, harga, bhp) {
+        if (!tipe || value <= 0) return 0;
+        if (tipe === 'PERSEN_HARGA') return harga * value / 100;
+        if (tipe === 'PERSEN_MARGIN') return Math.max(0, harga - bhp) * value / 100;
+        if (tipe === 'NOMINAL') return value;
+        return 0;
+    }
+    function recalc() {
+        const harga = parseFloat(document.getElementById('harga').value) || 0;
+        const bhp = parseFloat(document.getElementById('bhp_per_pakai_nominal').value) || 0;
+        const pajakP = parseFloat(document.getElementById('pajak_persen').value) || 0;
+        const pajakN = parseFloat(document.getElementById('pajak_nominal').value) || 0;
+        const kdTipe = document.getElementById('komisi_dokter_tipe').value;
+        const kdVal = parseFloat(document.getElementById('komisi_dokter_value').value) || 0;
+        const kpTipe = document.getElementById('komisi_perawat_tipe').value;
+        const kpVal = parseFloat(document.getElementById('komisi_perawat_value').value) || 0;
+        const pajak = (pajakN > 0) ? pajakN : (harga * pajakP / 100);
+        const kd = hitungKomisiSatu(kdTipe, kdVal, harga, bhp);
+        const kp = hitungKomisiSatu(kpTipe, kpVal, harga, bhp);
+        const hpp = bhp + kd + kp;
+        const lk = harga - hpp;
+        const lb = lk - pajak;
+        document.getElementById('prev-kd').textContent = fmtRp(kd);
+        document.getElementById('prev-kp').textContent = fmtRp(kp);
+        document.getElementById('prev-hpp').textContent = fmtRp(hpp);
+        document.getElementById('prev-pajak').textContent = fmtRp(pajak);
+        document.getElementById('prev-lk').textContent = fmtRp(lk);
+        document.getElementById('prev-lb').textContent = fmtRp(lb);
+    }
+    document.querySelectorAll('.komisi-input, #harga').forEach(el => {
+        el.addEventListener('input', recalc);
+        el.addEventListener('change', recalc);
+    });
+    recalc();
+})();
+</script>
+
+{% endblock %}

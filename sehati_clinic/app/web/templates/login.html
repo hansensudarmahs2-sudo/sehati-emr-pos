@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Login — {{ klinik_nama }}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">{{ klinik_nama }}</h1>
+            <p class="text-slate-500 mt-2">eMR + POS System</p>
+        </div>
+
+        <!-- Login Card -->
+        <div class="bg-white rounded-2xl shadow-md p-8">
+            <h2 class="text-xl font-semibold mb-6">Masuk ke Akun Anda</h2>
+
+            {% if error %}
+            <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="/web/login">
+                    {{ csrf_input(request) }}
+                <div>
+                    <!-- Username -->
+                    <div class="mb-4">
+                        <label for="username" class="block text-sm font-medium text-slate-700 mb-1">
+                            Username
+                        </label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            required
+                            autofocus
+                            value="{{ username or '' }}"
+                            class="w-full px-4 py-2 border border-slate-300 rounded-lg
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                   transition"
+                            placeholder="mis. dokter_andi"
+                        >
+                    </div>
+
+                    <!-- Password -->
+                    <div class="mb-6">
+                        <label for="password" class="block text-sm font-medium text-slate-700 mb-1">
+                            Password
+                        </label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            required
+                            class="w-full px-4 py-2 border border-slate-300 rounded-lg
+                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                                   transition"
+                            placeholder="••••••••"
+                        >
+                    </div>
+
+                    <!-- Submit -->
+                    <button
+                        type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5
+                               rounded-lg transition shadow-sm hover:shadow"
+                    >
+                        Masuk
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <p class="text-center text-slate-400 text-xs mt-6">
+            © 2026 {{ klinik_nama }} · Internal use only
+        </p>
+    </div>
+</div>
+{% endblock %}

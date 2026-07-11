@@ -1,0 +1,77 @@
+{# Panel Penyakit Kronis — checkbox dari master_penyakit_kronis + "Lain-lain" (kode 99).
+   Kosakata bersama Sehati + modul AI. Ref CONTRACT_SEHATI_ANTROPOMETRI_v0.1.md §5.
+
+   Caller MUST set: pk_action_base, pk_panel_uid, pk_next
+   Context: master_penyakit_list, pasien.penyakit_kronis (aktif), pasien.id_pasien
+   Route: POST {pk_action_base}/set  (kode[], lain_lain[], id_pasien, next)
+
+   Pre-check: penyakit tersimpan otomatis tercentang. Konfirmasi saat simpan kalau
+   ada yang di-uncheck (cegah hilang tak sengaja).
+#}
+{% set active_codes = pasien.penyakit_kronis | selectattr('is_active') | map(attribute='kode_penyakit') | list %}
+<div class="mt-2 bg-white border border-slate-200 rounded-lg p-3" id="pk-panel-{{ pk_panel_uid }}">
+    <div class="text-xs font-semibold text-slate-700 mb-2">🩺 Penyakit Kronis</div>
+    <form method="POST" action="{{ pk_action_base }}/set" class="space-y-2"
+          onsubmit="return window.pkConfirmRemove(this)">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="id_pasien" value="{{ pasien.id_pasien }}">
+        <input type="hidden" name="next" value="{{ pk_next }}">
+
+        {# Checkbox dari master — yang tersimpan ditandai data-saved #}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
+            {% for m in master_penyakit_list if m.kode != 99 %}
+            <label class="flex items-center gap-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1.5 cursor-pointer hover:bg-slate-100">
+                <input type="checkbox" name="kode" value="{{ m.kode }}" class="rounded"
+                       data-nama="{{ m.nama }}"
+                       {% if m.kode in active_codes %}checked data-saved="1"{% endif %}>
+                {{ m.nama }}
+            </label>
+            {% endfor %}
+        </div>
+
+        {# Lain-lain (kode 99 / belum dikodekan) — pre-filled ditandai data-saved #}
+        <div class="mt-2">
+            <div class="text-[10px] font-medium text-slate-500 mb-1">Lain-lain (ketik bebas)</div>
+            <div id="ll-{{ pk_panel_uid }}" class="space-y-1">
+                {% for pk in pasien.penyakit_kronis if pk.is_active and (pk.kode_penyakit == 99 or pk.kode_penyakit is none) %}
+                <input type="text" name="lain_lain" value="{{ pk.nama_penyakit }}" maxlength="100"
+                       data-saved="{{ pk.nama_penyakit }}" placeholder="Nama penyakit lain"
+                       class="w-full px-2 py-1 text-xs border border-slate-300 rounded">
+                {% endfor %}
+                <input type="text" name="lain_lain" value="" maxlength="100"
+                       placeholder="+ penyakit lain (opsional)"
+                       class="w-full px-2 py-1 text-xs border border-slate-300 rounded">
+            </div>
+            <button type="button"
+                    onclick="(function(){var c=document.getElementById('ll-{{ pk_panel_uid }}');var i=document.createElement('input');i.type='text';i.name='lain_lain';i.maxLength=100;i.placeholder='+ penyakit lain';i.className='w-full px-2 py-1 text-xs border border-slate-300 rounded';c.appendChild(i);})()"
+                    class="text-[10px] text-emerald-700 mt-1 hover:underline">+ baris lain-lain</button>
+        </div>
+
+        <button type="submit"
+                class="w-full text-xs px-2 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 mt-1">
+            Simpan Penyakit Kronis
+        </button>
+        <p class="text-[10px] text-slate-400">Yang sudah tersimpan otomatis tercentang. Menambah aman — penyakit lain tetap tercentang. Menghilangkan = uncheck lalu simpan (akan diminta konfirmasi).</p>
+    </form>
+</div>
+
+<script>
+// Konfirmasi kalau ada penyakit tersimpan yang di-uncheck / lain-lain dikosongkan.
+window.pkConfirmRemove = function (form) {
+    var removed = [];
+    form.querySelectorAll('input[type=checkbox][data-saved="1"]').forEach(function (cb) {
+        if (!cb.checked) removed.push(cb.getAttribute('data-nama'));
+    });
+    form.querySelectorAll('input[name="lain_lain"][data-saved]').forEach(function (inp) {
+        if (!inp.value.trim()) removed.push(inp.getAttribute('data-saved'));
+    });
+    if (removed.length) {
+        window.appConfirm('Penyakit kronis berikut akan DIHILANGKAN dari pasien:\n\n- ' +
+                       removed.join('\n- ') + '\n\nLanjut simpan?').then(function(ok){
+            if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
+        });
+        return false;
+    }
+    return true;
+};
+</script>

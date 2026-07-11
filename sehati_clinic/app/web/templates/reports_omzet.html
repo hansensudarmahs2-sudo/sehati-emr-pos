@@ -1,0 +1,250 @@
+{% extends "_app.html" %}
+{% block title %}Omzet Bulanan — Reports{% endblock %}
+{% block page_title %}Reports — Omzet Bulanan{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/reports" class="hover:text-blue-600">Reports</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Omzet Bulanan</span>
+    </div>
+
+    {# ============================================================== #}
+    {# Filter card: pilih tahun + rentang bulan                       #}
+    {# ============================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" action="/web/reports/omzet" class="flex flex-wrap items-end gap-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Tahun</label>
+                <select name="tahun" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    {% for t in tahun_options %}
+                    <option value="{{ t }}" {% if t == tahun_selected %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Dari Bulan</label>
+                <select name="bulan_dari" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    {% for b in range(1, 13) %}
+                    <option value="{{ b }}" {% if b == bulan_dari_selected %}selected{% endif %}>{{ ["", "Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"][b] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Sampai Bulan</label>
+                <select name="bulan_sampai" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    {% for b in range(1, 13) %}
+                    <option value="{{ b }}" {% if b == bulan_sampai_selected %}selected{% endif %}>{{ ["", "Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"][b] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">
+                🔍 Tampilkan
+            </button>
+        </form>
+    </div>
+
+    {# ============================================================== #}
+    {# KPI Cards — total rentang                                      #}
+    {# ============================================================== #}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Total Omzet</div>
+            <div class="text-2xl font-bold text-emerald-700 mt-1">
+                Rp {{ "{:,.0f}".format(data.total_omzet|float).replace(",", ".") }}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">{{ data.total_transaksi }} transaksi</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Rata-rata / Bulan</div>
+            <div class="text-2xl font-bold text-blue-700 mt-1">
+                Rp {{ "{:,.0f}".format(data.rata_per_bulan|float).replace(",", ".") }}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">{{ data.bulan_sampai - data.bulan_dari + 1 }} bulan rentang</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Total Diskon</div>
+            <div class="text-2xl font-bold text-amber-700 mt-1">
+                Rp {{ "{:,.0f}".format(data.total_diskon|float).replace(",", ".") }}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">akumulasi</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Bulan Tertinggi</div>
+            <div class="text-xl font-bold text-purple-700 mt-1">{{ data.peak_bulan_label or "—" }}</div>
+            <div class="text-xs text-slate-500 mt-1">
+                Rp {{ "{:,.0f}".format(data.peak_bulan_omzet|float).replace(",", ".") }}
+            </div>
+        </div>
+    </div>
+
+    {# ============================================================== #}
+    {# Chart bar — Omzet per bulan                                    #}
+    {# ============================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📊</span> Grafik Omzet per Bulan
+        </h3>
+        <div style="position: relative; height: 320px;">
+            <canvas id="omzetChart"></canvas>
+        </div>
+    </div>
+
+    {# ============================================================== #}
+    {# Breakdown per metode bayar                                     #}
+    {# ============================================================== #}
+    {% if data.per_metode %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>💳</span> Breakdown per Metode Pembayaran (akumulasi rentang)
+        </h3>
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 pr-4">Metode</th>
+                    <th class="text-right py-2 pr-4">Jumlah Pembayaran</th>
+                    <th class="text-right py-2">Total Nominal</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for m in data.per_metode %}
+                <tr class="hover:bg-slate-50/50">
+                    <td class="py-2 pr-4 font-medium text-slate-800">{{ m.metode_bayar }}</td>
+                    <td class="py-2 pr-4 text-right font-mono text-slate-700">{{ m.jumlah_pembayaran }}</td>
+                    <td class="py-2 text-right font-mono font-semibold text-emerald-700">
+                        Rp {{ "{:,.0f}".format(m.total_nominal|float).replace(",", ".") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# ============================================================== #}
+    {# Tabel detail per bulan                                         #}
+    {# ============================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span>📋</span> Detail per Bulan
+        </h3>
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 pr-4">Bulan</th>
+                    <th class="text-right py-2 pr-4">Transaksi</th>
+                    <th class="text-right py-2 pr-4">Total Omzet</th>
+                    <th class="text-right py-2 pr-4">Diskon</th>
+                    <th class="text-right py-2">Rata / Transaksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for b in data.per_bulan %}
+                <tr class="hover:bg-slate-50/50 {% if b.bulan_label == data.peak_bulan_label %}bg-purple-50/30{% endif %}">
+                    <td class="py-2 pr-4 font-medium text-slate-800">
+                        {{ b.bulan_label }}
+                        {% if b.bulan_label == data.peak_bulan_label %}<span class="text-xs text-purple-700">★ peak</span>{% endif %}
+                    </td>
+                    <td class="py-2 pr-4 text-right font-mono text-slate-700">{{ b.jumlah_transaksi }}</td>
+                    <td class="py-2 pr-4 text-right font-mono font-semibold text-emerald-700">
+                        Rp {{ "{:,.0f}".format(b.total_omzet|float).replace(",", ".") }}
+                    </td>
+                    <td class="py-2 pr-4 text-right font-mono text-amber-700">
+                        Rp {{ "{:,.0f}".format(b.total_diskon|float).replace(",", ".") }}
+                    </td>
+                    <td class="py-2 text-right font-mono text-slate-600">
+                        Rp {{ "{:,.0f}".format(b.rata_per_transaksi|float).replace(",", ".") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-xs text-slate-500 text-center mt-4">
+        Generated: {{ data.waktu_rekap }}
+    </div>
+
+</div>
+
+{# Chart.js via CDN — load + render setelah DOM ready #}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function() {
+    const ctx = document.getElementById('omzetChart');
+    if (!ctx) return;
+    const labels = {{ chart_labels | tojson }};
+    const omzet = {{ chart_omzet | tojson }};
+    const transaksi = {{ chart_transaksi | tojson }};
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Omzet (Rp)',
+                data: omzet,
+                backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                borderColor: 'rgba(16, 185, 129, 1)',
+                borderWidth: 1,
+                yAxisID: 'y',
+            }, {
+                label: 'Jumlah Transaksi',
+                data: transaksi,
+                type: 'line',
+                borderColor: 'rgba(59, 130, 246, 1)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 2,
+                yAxisID: 'y1',
+                tension: 0.3,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: { display: true, text: 'Omzet (Rp)' },
+                    ticks: {
+                        callback: function(v) {
+                            if (v >= 1000000) return 'Rp ' + (v/1000000).toFixed(1) + 'M';
+                            if (v >= 1000) return 'Rp ' + (v/1000).toFixed(0) + 'K';
+                            return 'Rp ' + v;
+                        }
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: { display: true, text: 'Jumlah Transaksi' },
+                    grid: { drawOnChartArea: false },
+                    ticks: { stepSize: 1 }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            const lbl = ctx.dataset.label;
+                            const val = ctx.parsed.y;
+                            if (lbl.includes('Omzet')) {
+                                return lbl + ': Rp ' + val.toLocaleString('id-ID');
+                            }
+                            return lbl + ': ' + val;
+                        }
+                    }
+                }
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

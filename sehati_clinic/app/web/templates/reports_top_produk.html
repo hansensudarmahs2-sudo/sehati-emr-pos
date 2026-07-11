@@ -1,0 +1,153 @@
+{% extends "_app.html" %}
+{% block title %}Reports — Top Dispensed Products{% endblock %}
+{% block page_title %}Top Dispensed Products{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/reports" class="hover:text-blue-600">Reports</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Top Dispensed Products</span>
+    </div>
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Dari Tanggal</label>
+                <input type="date" name="tgl_dari" value="{{ tgl_dari_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Sampai Tanggal</label>
+                <input type="date" name="tgl_sampai" value="{{ tgl_sampai_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Sort by</label>
+                <select name="sort_by" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    <option value="qty" {% if sort_by_selected == "qty" %}selected{% endif %}>Qty (banyaknya unit)</option>
+                    <option value="count" {% if sort_by_selected == "count" %}selected{% endif %}>Jumlah Event Resep</option>
+                    <option value="nominal" {% if sort_by_selected == "nominal" %}selected{% endif %}>Nominal Rupiah</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Top N</label>
+                <select name="limit" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    {% for n in [20, 50, 100, 200, 500] %}
+                    <option value="{{ n }}" {% if limit_selected == n %}selected{% endif %}>Top {{ n }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/reports/top-produk"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Summary stats #}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="text-xs text-blue-700 uppercase font-medium">Produk Unik Dispensed</div>
+            <div class="text-2xl font-bold text-blue-800 mt-1">{{ data.total_unique_produk }}</div>
+        </div>
+        <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <div class="text-xs text-purple-700 uppercase font-medium">Total Event Resep</div>
+            <div class="text-2xl font-bold text-purple-800 mt-1">{{ data.total_dispensing_events }}</div>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div class="text-xs text-amber-700 uppercase font-medium">Total Nominal</div>
+            <div class="text-xl font-bold text-amber-800 mt-1">
+                Rp {{ "{:,.0f}".format(data.total_nominal).replace(",", ".") }}
+            </div>
+        </div>
+    </div>
+
+    {# Export + header #}
+    <div class="flex items-center justify-between mb-3">
+        <div class="text-sm text-slate-600">
+            Menampilkan top <strong>{{ data["items"]|length }}</strong> produk
+            (sorted by <strong>{{ sort_by_selected }}</strong>)
+        </div>
+        <a href="{{ csv_url }}"
+           class="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+            ⬇ Export CSV
+        </a>
+    </div>
+
+    {# Tabel ranking #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-center py-2 px-3">Rank</th>
+                    <th class="text-left py-2 px-3">Produk</th>
+                    <th class="text-left py-2 px-3">Tipe</th>
+                    <th class="text-right py-2 px-3">Total Qty</th>
+                    <th class="text-right py-2 px-3">Event</th>
+                    <th class="text-right py-2 px-3">Unique Kunj.</th>
+                    <th class="text-right py-2 px-3">Avg Qty/Kunj.</th>
+                    <th class="text-right py-2 px-3">Harga/Unit</th>
+                    <th class="text-right py-2 px-3">Nominal</th>
+                    <th class="text-right py-2 px-3">Stok Now</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in data["items"] %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3 text-center">
+                        {% if it.rank <= 3 %}
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full
+                            {% if it.rank == 1 %}bg-amber-100 text-amber-700
+                            {% elif it.rank == 2 %}bg-slate-200 text-slate-700
+                            {% else %}bg-orange-100 text-orange-700{% endif %} font-bold text-sm">
+                            {{ it.rank }}
+                        </span>
+                        {% else %}
+                        <span class="text-slate-500 font-mono text-sm">#{{ it.rank }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_produk }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ it.kode_produk }}</div>
+                    </td>
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ it.tipe_produk or "—" }}</span>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono font-semibold">{{ "%g"|format(it.total_qty) }} {{ it.satuan }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ it.total_dispensed_count }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ it.total_unique_kunjungan }}</td>
+                    <td class="py-2 px-3 text-right font-mono text-xs">{{ "%.2f"|format(it.avg_qty_per_kunjungan) }}</td>
+                    <td class="py-2 px-3 text-right font-mono text-xs text-slate-600">Rp {{ "{:,.0f}".format(it.harga_satuan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right font-mono font-bold text-emerald-700">Rp {{ "{:,.0f}".format(it.total_nominal).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right text-xs font-mono
+                        {% if it.stok_terkini <= 0 %}text-red-700 font-bold
+                        {% elif it.stok_terkini < (it.total_qty / 30) %}text-amber-700 font-semibold
+                        {% else %}text-slate-600{% endif %}">{{ "%g"|format(it.stok_terkini) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" class="py-12 text-center text-slate-400">
+                        <div class="text-3xl mb-2">💊</div>
+                        <p class="text-sm">Tidak ada produk dispensed dalam rentang ini.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-4 text-xs text-slate-500 italic">
+        💡 Kolom "Stok Now" merah = habis, kuning = di bawah avg harian. Pakai laporan ini untuk planning restock.
+    </div>
+</div>
+{% endblock %}

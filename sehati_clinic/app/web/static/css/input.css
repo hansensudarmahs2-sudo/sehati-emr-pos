@@ -1,0 +1,5 @@
+/* B3.1 — input CSS untuk build Tailwind statis.
+   Output: app/web/static/css/app.css (via deployment/setup_self_host.sh). */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

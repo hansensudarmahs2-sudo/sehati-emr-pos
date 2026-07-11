@@ -1,0 +1,47 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Form Retur {{ r.nomor_retur }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+{% block doc_content %}
+<div class="klinik-header">
+    {% if klinik.logo_path %}<img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo">{% endif %}
+    <div class="klinik-name">{{ klinik.nama_klinik }}</div>
+    <div class="klinik-addr">
+        {% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}
+        {% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}{% if klinik.no_sia %} · SIA: {{ klinik.no_sia }}{% endif %}
+    </div>
+</div>
+<div class="divider-solid"></div>
+<div class="text-center font-bold" style="font-size:1.1em; letter-spacing:1px;">FORM PERMINTAAN RETUR</div>
+<div class="divider"></div>
+
+<div class="row"><span class="muted">No. Retur</span><span class="font-bold mono">{{ r.nomor_retur }}</span></div>
+<div class="row"><span class="muted">Tanggal</span><span>{{ r.tgl_retur.strftime('%d/%m/%Y') if r.tgl_retur else '-' }}</span></div>
+<div class="row"><span class="muted">Pemohon</span><span>{{ pembuat }}</span></div>
+{% if r.apoteker_nama %}<div class="row"><span class="muted">Apoteker PJ</span><span>{{ r.apoteker_nama }}{% if r.apoteker_sipa %} — SIPA {{ r.apoteker_sipa }}{% endif %}</span></div>{% endif %}
+<div class="row"><span class="muted">Kirim ke (distributor)</span><span class="font-bold">{{ distributor.nama if distributor else '-' }}</span></div>
+{% if distributor and distributor.alamat %}<div class="row"><span class="muted"></span><span style="font-size:0.85em">{{ distributor.alamat }}</span></div>{% endif %}
+{% if r.alasan %}<div class="row"><span class="muted">Alasan</span><span>{{ r.alasan }}</span></div>{% endif %}
+<div class="divider"></div>
+
+<table>
+    <thead><tr><th>#</th><th>Nama Produk</th><th>Batch</th><th>ED</th><th class="text-right">Qty</th></tr></thead>
+    <tbody>
+        {% for it in items %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ it.nama_snapshot }}</td>
+            <td>{{ it.batch_no or '-' }}</td>
+            <td>{{ it.tgl_ed.strftime('%d/%m/%y') if it.tgl_ed else '-' }}</td>
+            <td class="text-right">{{ it.qty|int if it.qty == it.qty|int else it.qty }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="row" style="margin-top:28px;">
+    <div class="text-center" style="width:45%"><div class="muted">Apoteker PJ</div><div style="height:44px"></div><div class="divider-solid" style="margin:0"></div><div>{{ r.apoteker_nama or pembuat }}</div>{% if r.apoteker_sipa %}<div class="muted" style="font-size:0.75em">SIPA {{ r.apoteker_sipa }}</div>{% endif %}</div>
+    <div class="text-center" style="width:45%"><div class="muted">Distributor (Menyetujui)</div><div style="height:44px"></div><div class="divider-solid" style="margin:0"></div></div>
+</div>
+<div class="divider"></div>
+<div class="muted text-center" style="font-size:0.8em">{{ klinik.nama_klinik }} — Form Retur {{ r.nomor_retur }}</div>
+{% endblock %}

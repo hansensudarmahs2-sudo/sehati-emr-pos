@@ -1,0 +1,150 @@
+{% extends "_app.html" %}
+{% block title %}Export ke Finance{% endblock %}
+{% block page_title %}📤 Export ke Finance{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+  <div class="text-sm text-slate-500 mb-4">
+    Tombol manual / kontingensi. Jalur normal tetap otomatis tiap hari
+    <span class="font-medium">05:00 WIB</span>. Gunakan halaman ini untuk uji coba
+    atau bila otomasi gagal. Hasil ditulis ke folder file-drop; modul Finance akan
+    memungutnya (auto-feed / tombol Import).
+  </div>
+
+  {# ---- Notice / hasil ---- #}
+  {% if notice %}
+    {% if notice.level == 'error' %}
+      <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+        ⚠ {{ notice.text }}
+      </div>
+    {% elif notice.level == 'ok' %}
+      <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-sm text-emerald-800">
+        ✓ {{ notice.text }}
+        {% if result %}
+          <div class="mt-1 font-mono text-xs text-emerald-700">
+            {{ result.zip }} — {{ result.total_rows }} baris — batch {{ result.batch_id }}
+          </div>
+          {% if result.changed %}
+            <div class="mt-2 text-xs">
+              <div class="font-medium text-slate-700">Perubahan terdeteksi:</div>
+              <ul class="list-disc ml-5">
+                {% for c in result.changed %}
+                  <li>{{ c.name }} — {{ c.status }} ({{ '%+d'|format(c.delta_rows) }} baris)</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% elif notice.level == 'confirm' %}
+      {# ---- Soft warning: data identik, konfirmasi tetap export ---- #}
+      <div class="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-4 text-sm text-amber-900">
+        <div class="font-semibold mb-1">🟡 {{ notice.text }}</div>
+        {% if result and result.last %}
+          <div class="text-xs text-amber-800 font-mono mb-2">
+            Batch terakhir: {{ result.last.batch_id }} @ {{ result.last.exported_at }}
+            ({{ result.last.total_rows }} baris) — fingerprint {{ result.content_fingerprint[:16] }}…
+          </div>
+        {% endif %}
+        <div class="text-xs text-amber-800 mb-3">
+          Periode <span class="font-mono">{{ period_from }} → {{ period_to }}</span>
+          menghasilkan data yang <strong>sama persis</strong> dengan batch terakhir.
+          Biasanya tidak perlu export ulang. Tetap export?
+        </div>
+        <form method="post" action="/web/finance-export/run" class="inline">
+          {{ csrf_input(request) }}
+          <input type="hidden" name="tgl_dari" value="{{ period_from }}">
+          <input type="hidden" name="tgl_sampai" value="{{ period_to }}">
+          <input type="hidden" name="force" value="1">
+          <button type="submit"
+                  class="px-3 py-2 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 font-medium">
+            Ya, tetap export
+          </button>
+          <a href="/web/finance-export"
+             class="ml-2 px-3 py-2 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200">
+            Batal
+          </a>
+        </form>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  {# ---- Info batch terakhir untuk periode ini ---- #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    <h3 class="text-sm font-semibold text-slate-700 mb-2">Status periode terpilih</h3>
+    {% if last %}
+      <div class="text-sm text-slate-600">
+        Export terakhir untuk <span class="font-mono">{{ period_from }} → {{ period_to }}</span>:
+      </div>
+      <div class="text-xs text-slate-500 font-mono mt-1">
+        {{ last.batch_id }} @ {{ last.exported_at }} · {{ last.total_rows }} baris ·
+        oleh {{ last.triggered_by }} ({{ last.mode }})
+      </div>
+    {% else %}
+      <div class="text-sm text-slate-500">
+        Belum ada export tercatat untuk periode ini. Export pertama akan langsung dibuat.
+      </div>
+    {% endif %}
+    <div class="text-xs text-slate-400 mt-2">Folder: <span class="font-mono">{{ drop_dir }}</span></div>
+  </div>
+
+  {# ---- Form export ---- #}
+  <form method="post" action="/web/finance-export/run"
+        class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    {{ csrf_input(request) }}
+    <h3 class="text-sm font-semibold text-slate-700 mb-3">Export sekarang</h3>
+    <div class="flex flex-wrap items-end gap-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Dari</label>
+        <input type="date" name="tgl_dari" value="{{ period_from }}"
+               class="px-2 py-1.5 text-sm border border-slate-300 rounded">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Sampai</label>
+        <input type="date" name="tgl_sampai" value="{{ period_to }}"
+               class="px-2 py-1.5 text-sm border border-slate-300 rounded">
+      </div>
+      <input type="hidden" name="force" value="0">
+      <button type="submit"
+              class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">
+        🔍 Cek &amp; Export
+      </button>
+    </div>
+    <div class="text-xs text-slate-500 mt-2">
+      Sistem memeriksa dulu apakah data sama dengan export terakhir. Bila sama, akan
+      diminta konfirmasi sebelum menulis ulang.
+    </div>
+  </form>
+
+  {# ---- Riwayat export ---- #}
+  {% if recent %}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h3 class="text-sm font-semibold text-slate-700 mb-3">Riwayat export terbaru</h3>
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-left text-slate-500 border-b border-slate-200">
+          <th class="py-1.5 pr-2">Waktu</th>
+          <th class="py-1.5 pr-2">Periode</th>
+          <th class="py-1.5 pr-2 text-right">Baris</th>
+          <th class="py-1.5 pr-2">Oleh</th>
+          <th class="py-1.5 pr-2">Mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in recent %}
+        <tr class="border-b border-slate-100">
+          <td class="py-1.5 pr-2 font-mono">{{ e.exported_at }}</td>
+          <td class="py-1.5 pr-2 font-mono">{{ e.period_from }} → {{ e.period_to }}</td>
+          <td class="py-1.5 pr-2 text-right">{{ e.total_rows }}</td>
+          <td class="py-1.5 pr-2">{{ e.triggered_by }}</td>
+          <td class="py-1.5 pr-2">{{ e.mode }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

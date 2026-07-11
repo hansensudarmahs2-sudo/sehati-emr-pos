@@ -1,0 +1,166 @@
+{% extends "_app.html" %}
+{% block title %}Suggested Order - Apotek{% endblock %}
+{% block page_title %}Suggested Order — Analisa Stok{% endblock %}
+
+{% macro tabel_kategori(rows) %}
+<table class="w-full text-sm">
+    <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+        <tr>
+            <th class="text-left px-4 py-2 font-medium">Kode</th>
+            <th class="text-left px-4 py-2 font-medium">Nama Produk</th>
+            <th class="text-right px-4 py-2 font-medium">Stok Kini</th>
+            <th class="text-right px-4 py-2 font-medium">Stok Min</th>
+            <th class="text-right px-4 py-2 font-medium">Terjual 30hr</th>
+            <th class="text-right px-4 py-2 font-medium">Hari Habis</th>
+            <th class="text-right px-4 py-2 font-medium">Saran Order</th>
+            <th class="text-right px-4 py-2 font-medium">Aksi</th>
+        </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+        {% for item in rows %}
+        <tr class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ item.kode_produk }}</td>
+            <td class="px-4 py-3 font-medium text-slate-800">{{ item.nama_produk }}</td>
+            <td class="px-4 py-3 text-right font-mono {% if item.kategori == 'URGENT' %}text-red-600 font-semibold{% endif %}">
+                {{ item.stok_terkini }}
+            </td>
+            <td class="px-4 py-3 text-right font-mono text-slate-500">{{ item.stok_minimal }}</td>
+            <td class="px-4 py-3 text-right font-mono text-slate-700">{{ item.qty_terjual_30_hari }}</td>
+            <td class="px-4 py-3 text-right font-mono text-slate-700">
+                {% if item.estimasi_hari_habis is not none %}
+                    {% if item.estimasi_hari_habis < 7 %}
+                    <span class="text-red-600 font-semibold">{{ "%.0f"|format(item.estimasi_hari_habis) }}</span>
+                    {% else %}
+                    {{ "%.0f"|format(item.estimasi_hari_habis) }}
+                    {% endif %}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right font-mono font-semibold text-teal-700">{{ item.saran_order_qty }}</td>
+            <td class="px-4 py-3 text-right whitespace-nowrap">
+                {% if item.saran_order_qty and item.saran_order_qty > 0 %}
+                <a href="/web/pengadaan/pemesanan/baru?prefill_produk={{ item.id_produk }}&prefill_qty={{ item.saran_order_qty }}"
+                   class="inline-flex items-center px-2 py-1 text-xs border border-blue-300 text-blue-700 rounded hover:bg-blue-50 mr-1"
+                   title="Buat PO untuk produk ini (qty = saran)">
+                    📝 Buat PO
+                </a>
+                {% endif %}
+                <a href="/web/apotek/produk/{{ item.id_produk }}/write-off"
+                   class="inline-flex items-center px-2 py-1 text-xs border border-slate-300 text-slate-700 rounded hover:bg-slate-50">
+                    Write-off
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/apotek" class="hover:text-teal-600">Apotek</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Suggested Order</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    {# Counter cards #}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white rounded-lg border border-red-300 p-3 text-center">
+            <div class="text-xs text-red-600 uppercase">🚨 URGENT</div>
+            <div class="text-2xl font-bold text-red-700">{{ by_kategori['URGENT']|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-amber-300 p-3 text-center">
+            <div class="text-xs text-amber-600 uppercase">⚠ Rendah</div>
+            <div class="text-2xl font-bold text-amber-700">{{ by_kategori['RENDAH']|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-emerald-200 p-3 text-center">
+            <div class="text-xs text-emerald-600 uppercase">✓ Aman</div>
+            <div class="text-2xl font-bold text-emerald-700">{{ by_kategori['AMAN']|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-3 text-center">
+            <div class="text-xs text-slate-500 uppercase">Total Dianalisa</div>
+            <div class="text-2xl font-bold text-slate-700">{{ data.total_produk_dianalisa }}</div>
+        </div>
+    </div>
+
+    {# Hint kalau ada NO_DATA — produk yang tidak terjual 90 hari tapi mungkin stok tipis #}
+    {% if by_kategori['NO_DATA'] %}
+    <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-2 rounded-lg mb-4 text-xs">
+        💡 Ada <strong>{{ by_kategori['NO_DATA']|length }} produk</strong> yang tidak terjual 90 hari terakhir (kategori "No Data" di bawah). Kalau dashboard menampilkan jumlah "Stok ≤ Minimal" tapi tidak terlihat di URGENT/RENDAH, cek section "📭 No Data" di bawah — produk baru atau jarang jual yang stok-nya sudah menipis ada di sana.
+    </div>
+    {% endif %}
+
+    {% if by_kategori['URGENT'] %}
+    {# Build bulk query string: id1,id2,id3 + qty1,qty2,qty3 #}
+    {% set urgent_orderable = by_kategori['URGENT'] | selectattr('saran_order_qty', 'gt', 0) | list %}
+    <div class="bg-white rounded-xl shadow-sm border border-red-200 mb-4">
+        <div class="px-5 py-3 border-b border-red-200 bg-red-50 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-red-700">
+                🚨 URGENT — Segera Order ({{ by_kategori['URGENT']|length }})
+            </div>
+            {% if urgent_orderable %}
+            <a href="/web/pengadaan/pemesanan/baru?prefill_produk={{ urgent_orderable | map(attribute='id_produk') | join(',') }}&prefill_qty={{ urgent_orderable | map(attribute='saran_order_qty') | join(',') }}"
+               class="inline-flex items-center px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 font-medium"
+               title="Buat 1 PO yang berisi semua produk URGENT ini">
+                📝 Buat PO Semua URGENT ({{ urgent_orderable|length }})
+            </a>
+            {% endif %}
+        </div>
+        {{ tabel_kategori(by_kategori['URGENT']) }}
+    </div>
+    {% endif %}
+
+    {% if by_kategori['RENDAH'] %}
+    {% set rendah_orderable = by_kategori['RENDAH'] | selectattr('saran_order_qty', 'gt', 0) | list %}
+    <div class="bg-white rounded-xl shadow-sm border border-amber-200 mb-4">
+        <div class="px-5 py-3 border-b border-amber-200 bg-amber-50 flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-amber-700">
+                ⚠ Stok Rendah — Pertimbangkan Order ({{ by_kategori['RENDAH']|length }})
+            </div>
+            {% if rendah_orderable %}
+            <a href="/web/pengadaan/pemesanan/baru?prefill_produk={{ rendah_orderable | map(attribute='id_produk') | join(',') }}&prefill_qty={{ rendah_orderable | map(attribute='saran_order_qty') | join(',') }}"
+               class="inline-flex items-center px-3 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 font-medium"
+               title="Buat 1 PO yang berisi semua produk RENDAH ini">
+                📝 Buat PO Semua Rendah ({{ rendah_orderable|length }})
+            </a>
+            {% endif %}
+        </div>
+        {{ tabel_kategori(by_kategori['RENDAH']) }}
+    </div>
+    {% endif %}
+
+    {% if by_kategori['AMAN'] %}
+    <details class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <summary class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-600 cursor-pointer hover:bg-slate-100">
+            ✓ Stok Aman ({{ by_kategori['AMAN']|length }}) — klik untuk lihat
+        </summary>
+        {{ tabel_kategori(by_kategori['AMAN']) }}
+    </details>
+
+    {% endif %}
+
+    {% if by_kategori['NO_DATA'] %}
+    <details class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <summary class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-600 cursor-pointer hover:bg-slate-100">
+            📭 No Data — Tidak ada pemakaian 90 hari ({{ by_kategori['NO_DATA']|length }})
+        </summary>
+        {{ tabel_kategori(by_kategori['NO_DATA']) }}
+    </details>
+    {% endif %}
+
+    <div class="text-xs text-slate-500 text-center mt-4">
+        Analisa: {{ data.waktu_analisa }}
+    </div>
+
+</div>
+{% endblock %}

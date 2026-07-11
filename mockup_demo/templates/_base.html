@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ klinik.nama }}{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .demo-banner { background: linear-gradient(90deg, #fef3c7 0%, #fcd34d 100%); }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+{# Demo banner — beri konteks ke partner ini adalah demo #}
+<div class="demo-banner py-1.5 px-4 text-xs text-amber-900 text-center font-medium border-b border-amber-300">
+    🔵 DEMO MOCKUP — Klinik ABC | Data preset, tidak terhubung database
+</div>
+
+{% if not hide_topbar %}
+<div class="bg-white border-b border-slate-200 px-6 py-3">
+    <div class="flex items-center justify-between max-w-7xl mx-auto">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">
+                A
+            </div>
+            <div>
+                <div class="font-bold text-slate-800">{{ klinik.nama }}</div>
+                <div class="text-xs text-slate-500">{{ klinik.tagline }}</div>
+            </div>
+        </div>
+        <nav class="flex items-center gap-1 text-sm">
+            <a href="/dashboard" class="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100 {% if request.url.path == '/dashboard' %}bg-blue-100 text-blue-800 font-medium{% endif %}">📊 Dashboard</a>
+            <a href="/antrian" class="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100 {% if request.url.path.startswith('/antrian') or request.url.path.startswith('/pasien') %}bg-blue-100 text-blue-800 font-medium{% endif %}">📋 Antrian</a>
+            <a href="/kasir" class="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100 {% if request.url.path.startswith('/kasir') or request.url.path == '/nota' %}bg-blue-100 text-blue-800 font-medium{% endif %}">💵 Kasir</a>
+            <span class="mx-2 text-slate-300">|</span>
+            <span class="text-xs text-slate-500">👤 dr. Andi (Owner)</span>
+            <a href="/logout" class="text-xs text-red-600 hover:text-red-800 ml-2">Logout</a>
+        </nav>
+    </div>
+</div>
+{% endif %}
+
+<main class="{% if not hide_topbar %}max-w-7xl mx-auto px-6 py-6{% endif %}">
+    {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

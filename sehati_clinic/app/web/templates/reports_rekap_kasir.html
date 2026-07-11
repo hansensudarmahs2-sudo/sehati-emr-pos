@@ -1,0 +1,123 @@
+{% extends "_app.html" %}
+{% block title %}Rekap Kasir Shift{% endblock %}
+{% block page_title %}Rekap Kasir Shift{% endblock %}
+
+{% block page_content %}
+<nav class="text-sm text-slate-500 mb-3">
+    <a href="/web/reports" class="text-blue-600 hover:underline">Reports</a>
+    <span class="mx-1 text-slate-400">&rsaquo;</span>
+    <span class="text-slate-700">Rekap Kasir Shift</span>
+</nav>
+<div class="max-w-5xl">
+
+    {% if is_own_only %}
+    <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+        🔒 Mode: <strong>Rekap shift Saya</strong> (auto-filter ke transaksi yang Bapak proses).
+    </div>
+    {% endif %}
+
+    {# Filter tanggal #}
+    <form method="GET" action="/web/reports/rekap-kasir" class="mb-5 bg-white p-4 rounded-lg border border-slate-200">
+        <div class="flex items-end gap-3">
+            <div>
+                <label class="block text-xs text-slate-600 mb-1">Tanggal Shift</label>
+                <input type="date" name="tgl" value="{{ tgl_selected }}"
+                       class="px-3 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            </div>
+            <button type="submit" class="px-4 py-1.5 bg-amber-600 text-white text-sm rounded hover:bg-amber-700">Refresh</button>
+            <a href="/web/reports/rekap-kasir" class="text-xs text-slate-500 hover:text-slate-700">Reset → hari ini</a>
+        </div>
+    </form>
+
+    {# KPI summary #}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Total Transaksi</div>
+            <div class="text-3xl font-bold text-slate-800">{{ data.total_transaksi or 0 }}</div>
+            <div class="text-xs text-slate-500 mt-1">tanggal {{ data.tanggal }}</div>
+        </div>
+        <div class="bg-white p-5 rounded-xl border border-slate-200">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Total Omzet</div>
+            <div class="text-3xl font-bold text-emerald-600">
+                Rp {{ "{:,.0f}".format(data.total_omzet or 0).replace(",", ".") }}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">total dibayar pasien</div>
+        </div>
+    </div>
+
+    {# Chart per-kasir bar (hide kalau cuma 1 kasir / own only) #}
+    {% if not is_own_only and data.per_kasir and data.per_kasir|length > 1 %}
+    <div class="bg-white p-5 rounded-xl border border-slate-200 mb-6">
+        <h3 class="font-semibold text-slate-800 mb-3">Omzet per Kasir</h3>
+        <canvas id="chartKasir" height="100"></canvas>
+    </div>
+    {% endif %}
+
+    {# Tabel detail per-kasir #}
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-100">
+            <h3 class="font-semibold text-slate-800">Detail per Kasir</h3>
+        </div>
+        {% if data.per_kasir and data.per_kasir|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-5 py-2 font-medium">Kasir</th>
+                    <th class="text-right px-5 py-2 font-medium">Jumlah Transaksi</th>
+                    <th class="text-right px-5 py-2 font-medium">Total Omzet</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for k in data.per_kasir %}
+                <tr class="hover:bg-amber-50/30">
+                    <td class="px-5 py-3 font-medium text-slate-800">{{ k.nama_kasir }}</td>
+                    <td class="px-5 py-3 text-right text-slate-700">{{ k.jumlah_transaksi }}</td>
+                    <td class="px-5 py-3 text-right font-semibold text-emerald-600">
+                        Rp {{ "{:,.0f}".format(k.total_omzet or 0).replace(",", ".") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-8 text-center text-sm text-slate-500">
+            Tidak ada transaksi pada tanggal {{ data.tanggal }}.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mt-5">
+        <a href="/web/reports" class="text-xs text-slate-500 hover:text-slate-700">← Kembali ke daftar laporan</a>
+    </div>
+
+</div>
+
+{% if not is_own_only and data.per_kasir and data.per_kasir|length > 1 %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+const ctx = document.getElementById('chartKasir');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: {{ chart_labels | tojson }},
+        datasets: [{
+            label: 'Omzet (Rp)',
+            data: {{ chart_omzet | tojson }},
+            backgroundColor: 'rgba(245, 158, 11, 0.7)',
+            borderColor: 'rgba(245, 158, 11, 1)',
+            borderWidth: 1,
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: { callback: v => 'Rp ' + v.toLocaleString('id-ID') }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

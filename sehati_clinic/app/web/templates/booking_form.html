@@ -1,0 +1,98 @@
+{% extends "_app.html" %}
+{% block title %}{% if mode == "edit" %}Edit{% else %}Baru{% endif %} Booking — {{ klinik_nama }}{% endblock %}
+{% block page_title %}{% if mode == "edit" %}Edit Booking{% else %}Booking Baru{% endif %}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-2xl">
+
+    {% if flash_error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ flash_error }}</div>
+    {% endif %}
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <form method="POST"
+              action="{% if mode == 'edit' %}/web/booking/{{ booking.id_booking }}/edit{% else %}/web/booking/tambah{% endif %}">
+            {{ csrf_input(request) }}
+
+            {# ---------- Pasien ---------- #}
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Pasien (member) <span class="text-red-500">*</span></label>
+                {% if mode == "edit" %}
+                    {# pasien tidak diubah saat edit — batalkan lalu buat baru kalau perlu ganti pasien #}
+                    {% for m in members %}{% if m.id_pasien == booking.id_pasien %}
+                    <div class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+                        {{ m.nama }} <span class="text-slate-400 font-mono text-xs">({{ m.no_rm }})</span>
+                        <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] {% if m.tier == 'VVIP' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %}">{{ m.tier }}</span>
+                    </div>
+                    {% endif %}{% endfor %}
+                    <p class="text-xs text-slate-400 mt-1">Pasien tidak bisa diubah saat edit. Untuk ganti pasien, batalkan lalu buat booking baru.</p>
+                {% else %}
+                    <select name="id_pasien" required
+                            class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="">— Pilih pasien member —</option>
+                        {% for m in members %}
+                        <option value="{{ m.id_pasien }}">{{ m.nama }} ({{ m.no_rm }}) — {{ m.tier }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if members|length == 0 %}
+                    <p class="text-xs text-amber-600 mt-1">Belum ada pasien member (VIP/VVIP). Tetapkan membership pasien dulu.</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+
+            {# ---------- Tanggal + Jam ---------- #}
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Tanggal <span class="text-red-500">*</span></label>
+                    <input type="date" name="tgl_rencana" required value="{{ tgl_default }}"
+                           class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Jam <span class="text-red-500">*</span></label>
+                    <input type="time" name="jam_rencana" required
+                           value="{% if mode == 'edit' and booking.jam_rencana %}{{ booking.jam_rencana.strftime('%H:%M') }}{% endif %}"
+                           class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            {# ---------- Dokter dituju ---------- #}
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Dokter Dituju <span class="text-slate-400 text-xs">(opsional)</span></label>
+                <select name="id_staf_dokter_dituju"
+                        class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="">— Bebas (semua dokter) —</option>
+                    {% for d in dokter_list %}
+                    <option value="{{ d.id_staf }}" {% if mode == 'edit' and booking.id_staf_dokter_dituju == d.id_staf %}selected{% endif %}>
+                        {{ d.nama_staf }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {# ---------- Keluhan ---------- #}
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Keluhan / Tujuan <span class="text-slate-400 text-xs">(opsional)</span></label>
+                <textarea name="keluhan_utama" rows="2" maxlength="500"
+                          placeholder="Mis. kontrol rutin, konsultasi hasil, tindakan lanjutan…"
+                          class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">{% if mode == 'edit' %}{{ booking.keluhan_utama or '' }}{% endif %}</textarea>
+            </div>
+
+            {# ---------- Catatan ---------- #}
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Catatan Internal <span class="text-slate-400 text-xs">(opsional)</span></label>
+                <textarea name="catatan" rows="2" maxlength="500"
+                          class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">{% if mode == 'edit' %}{{ booking.catatan or '' }}{% endif %}</textarea>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button type="submit"
+                        class="inline-flex items-center px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium">
+                    {% if mode == "edit" %}💾 Simpan Perubahan{% else %}➕ Buat Booking{% endif %}
+                </button>
+                <a href="{% if mode == 'edit' %}/web/booking/hari/{{ tgl_default }}{% else %}/web/booking{% endif %}"
+                   class="inline-flex items-center px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800">Batal</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

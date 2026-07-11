@@ -1,0 +1,105 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}PO {{ po.nomor_po }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+
+{% macro rp(v) %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endmacro %}
+
+{% block doc_content %}
+{# ===== Header klinik ===== #}
+<div class="klinik-header">
+    {% if klinik.logo_path %}
+    <img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo">
+    {% endif %}
+    <div class="klinik-name">{{ klinik.nama_klinik }}</div>
+    <div class="klinik-addr">
+        {% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}
+        {% if klinik.alamat_baris2 %}{{ klinik.alamat_baris2 }}<br>{% endif %}
+        {% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}
+        {% if klinik.no_sia %}<br>SIA: {{ klinik.no_sia }}{% endif %}
+    </div>
+</div>
+
+<div class="divider-solid"></div>
+<div class="text-center font-bold" style="font-size:1.1em; letter-spacing:1px;">PURCHASE ORDER</div>
+<div class="divider"></div>
+
+{# ===== Info PO ===== #}
+<div class="row"><span class="muted">No. PO</span><span class="font-bold mono">{{ po.nomor_po }}</span></div>
+<div class="row"><span class="muted">Tanggal</span><span>{{ po.tgl_pemesanan.strftime('%d/%m/%Y %H:%M') if po.tgl_pemesanan else '-' }}</span></div>
+{% if po.tgl_perkiraan_datang %}<div class="row"><span class="muted">Perkiraan datang</span><span>{{ po.tgl_perkiraan_datang.strftime('%d/%m/%Y') }}</span></div>{% endif %}
+{% if po.termin_hari is not none %}<div class="row"><span class="muted">Termin bayar</span><span>{{ po.termin_hari }} hari setelah barang diterima</span></div>{% endif %}
+{% if po.validitas_hari is not none %}<div class="row"><span class="muted">Berlaku</span><span>{{ po.validitas_hari }} hari sejak tanggal PO</span></div>{% endif %}
+<div class="row"><span class="muted">Supplier</span><span class="font-bold">{{ po.supplier_nama or '-' }}</span></div>
+{% if po.apoteker_nama %}<div class="row"><span class="muted">Apoteker PJ</span><span>{{ po.apoteker_nama }}{% if po.apoteker_sipa %} — SIPA {{ po.apoteker_sipa }}{% endif %}</span></div>{% endif %}
+{% if po.kirim_ke_nama %}<div class="row"><span class="muted">Kirim ke</span><span class="font-bold">{{ po.kirim_ke_nama }}</span></div>{% endif %}
+{% if po.kirim_ke_alamat %}<div class="row"><span class="muted"></span><span style="font-size:0.85em">{{ po.kirim_ke_alamat }}</span></div>{% endif %}
+<div class="row"><span class="muted">Status</span><span>{{ po.status.value if po.status.value is defined else po.status }}</span></div>
+<div class="row"><span class="muted">Pemesan</span><span>{{ pemesan.nama_staf if pemesan else '-' }}</span></div>
+{% if approver %}<div class="row"><span class="muted">Disetujui</span><span>{{ approver.nama_staf }}</span></div>{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Tabel item ===== #}
+<table>
+    <thead>
+        <tr>
+            <th style="width:6%">#</th>
+            <th>Nama Item</th>
+            <th class="text-right" style="width:14%">Qty</th>
+            <th class="text-right" style="width:22%">Harga</th>
+            <th class="text-right" style="width:24%">Subtotal</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for it in items %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ it.nama_snapshot }}{% if it.satuan_snapshot %} <span class="muted">({{ it.satuan_snapshot }})</span>{% endif %}</td>
+            <td class="text-right">{{ it.qty_dipesan|int if it.qty_dipesan == it.qty_dipesan|int else it.qty_dipesan }}</td>
+            <td class="text-right">{{ rp(it.harga_satuan) if it.harga_satuan is not none else '-' }}</td>
+            <td class="text-right">{{ rp(it.subtotal) if it.subtotal is not none else '-' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td colspan="4" class="text-right font-bold">TOTAL</td>
+            <td class="text-right font-bold">Rp {{ rp(total) }}</td>
+        </tr>
+    </tfoot>
+</table>
+
+{% if po.catatan %}
+<div class="divider"></div>
+<div class="muted">Catatan:</div>
+<div>{{ po.catatan }}</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Tanda tangan ===== #}
+<div class="row" style="margin-top:24px;">
+    <div class="text-center" style="width:31%">
+        <div class="muted">Pemesan</div>
+        <div style="height:44px"></div>
+        <div class="divider-solid" style="margin:0"></div>
+        <div>{{ pemesan.nama_staf if pemesan else '' }}</div>
+    </div>
+    <div class="text-center" style="width:31%">
+        <div class="muted">Menyetujui</div>
+        <div style="height:44px"></div>
+        <div class="divider-solid" style="margin:0"></div>
+        <div>{{ approver.nama_staf if approver else '' }}</div>
+    </div>
+    <div class="text-center" style="width:31%">
+        <div class="muted">Apoteker PJ</div>
+        <div style="height:44px"></div>
+        <div class="divider-solid" style="margin:0"></div>
+        <div>{{ po.apoteker_nama or '' }}</div>
+        {% if po.apoteker_sipa %}<div class="muted" style="font-size:0.75em">SIPA {{ po.apoteker_sipa }}</div>{% endif %}
+    </div>
+</div>
+
+<div class="divider"></div>
+<div class="muted text-center" style="font-size:0.8em">Dicetak dari {{ klinik.nama_klinik }} — {{ po.nomor_po }}</div>
+{% endblock %}

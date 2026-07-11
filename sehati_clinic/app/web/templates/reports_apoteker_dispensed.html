@@ -1,0 +1,184 @@
+{% extends "_app.html" %}
+{% block title %}Reports — Resep Dispensed Apoteker{% endblock %}
+{% block page_title %}Reports — Resep Dispensed Apoteker{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/reports" class="hover:text-blue-600">Reports</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Rekap Resep Apoteker</span>
+    </div>
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Dari Tanggal</label>
+                <input type="date" name="tgl_dari" value="{{ tgl_dari_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Sampai Tanggal</label>
+                <input type="date" name="tgl_sampai" value="{{ tgl_sampai_selected }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Apoteker ID</label>
+                <input type="number" name="apoteker_id" value="{{ apoteker_id_selected or '' }}" min="1"
+                       placeholder="opsional"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Per Halaman</label>
+                <select name="page_size" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    {% for sz in [50, 100, 200, 500] %}
+                    <option value="{{ sz }}" {% if page_size_selected == sz %}selected{% endif %}>{{ sz }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/reports/apoteker-dispensed"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Summary stats #}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+            <div class="text-xs text-emerald-700 uppercase font-medium">Kunjungan Terlayani</div>
+            <div class="text-2xl font-bold text-emerald-800 mt-1">{{ data.total_kunjungan }}</div>
+        </div>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="text-xs text-blue-700 uppercase font-medium">Total Item Resep</div>
+            <div class="text-2xl font-bold text-blue-800 mt-1">{{ data.total_resep_item }}</div>
+        </div>
+        <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <div class="text-xs text-purple-700 uppercase font-medium">Total Qty</div>
+            <div class="text-2xl font-bold text-purple-800 mt-1">{{ "%g"|format(data.total_qty) }}</div>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div class="text-xs text-amber-700 uppercase font-medium">Total Nominal</div>
+            <div class="text-xl font-bold text-amber-800 mt-1">
+                Rp {{ "{:,.0f}".format(data.total_nominal).replace(",", ".") }}
+            </div>
+        </div>
+    </div>
+
+    {# Per-apoteker breakdown #}
+    {% if data.per_apoteker and data.per_apoteker|length > 0 %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4 overflow-x-auto">
+        <div class="px-4 py-2 border-b border-slate-200">
+            <h3 class="text-sm font-semibold text-slate-700">📊 Performance per Apoteker</h3>
+        </div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Apoteker</th>
+                    <th class="text-right py-2 px-3">Kunjungan</th>
+                    <th class="text-right py-2 px-3">Item Resep</th>
+                    <th class="text-right py-2 px-3">Total Qty</th>
+                    <th class="text-right py-2 px-3">Total Nominal</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for apt in data.per_apoteker %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3 font-medium text-slate-800">{{ apt.apoteker_nama }}
+                        <span class="text-xs text-slate-400 font-mono ml-1">#{{ apt.id_staf_apoteker }}</span>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono">{{ apt.total_kunjungan }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ apt.total_resep_item }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ "%g"|format(apt.total_qty) }}</td>
+                    <td class="py-2 px-3 text-right font-mono font-semibold">
+                        Rp {{ "{:,.0f}".format(apt.total_nominal).replace(",", ".") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Export + pagination header #}
+    <div class="flex items-center justify-between mb-3">
+        <div class="text-sm text-slate-600">
+            Halaman <strong>{{ data.page }}</strong> dari {{ data.total_pages }} ·
+            menampilkan {{ data["items"]|length }} item
+        </div>
+        <a href="{{ csv_url }}"
+           class="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+            ⬇ Export CSV
+        </a>
+    </div>
+
+    {# Tabel detail items #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Waktu Serah</th>
+                    <th class="text-left py-2 px-3">Pasien</th>
+                    <th class="text-left py-2 px-3">Produk</th>
+                    <th class="text-right py-2 px-3">Qty</th>
+                    <th class="text-right py-2 px-3">Harga</th>
+                    <th class="text-right py-2 px-3">Subtotal</th>
+                    <th class="text-left py-2 px-3">Aturan</th>
+                    <th class="text-left py-2 px-3">Apoteker</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in data["items"] %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3 text-xs text-slate-700 whitespace-nowrap">{{ it.waktu_serah or "-" }}</td>
+                    <td class="py-2 px-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_pasien }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ it.no_rm }}</div>
+                    </td>
+                    <td class="py-2 px-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_produk }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ it.kode_produk }}</div>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono">{{ "%g"|format(it.qty) }}</td>
+                    <td class="py-2 px-3 text-right font-mono text-xs">Rp {{ "{:,.0f}".format(it.harga_satuan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right font-mono font-semibold">Rp {{ "{:,.0f}".format(it.subtotal).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-xs text-slate-600 max-w-xs truncate" title="{{ it.aturan_pakai }}">{{ it.aturan_pakai or "—" }}</td>
+                    <td class="py-2 px-3 text-xs text-slate-700">{{ it.apoteker_nama }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="py-12 text-center text-slate-400">
+                        <div class="text-3xl mb-2">💊</div>
+                        <p class="text-sm">Tidak ada resep diserahkan dalam rentang ini.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# Pagination links #}
+    {% if data.total_pages > 1 %}
+    <div class="flex items-center justify-center gap-2 mt-4">
+        {% if data.page > 1 %}
+        <a href="?tgl_dari={{ tgl_dari_selected }}&tgl_sampai={{ tgl_sampai_selected }}{% if apoteker_id_selected %}&apoteker_id={{ apoteker_id_selected }}{% endif %}&page_size={{ page_size_selected }}&page={{ data.page - 1 }}"
+           class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">← Prev</a>
+        {% endif %}
+        <span class="px-3 py-1.5 text-sm text-slate-600">Halaman {{ data.page }} / {{ data.total_pages }}</span>
+        {% if data.page < data.total_pages %}
+        <a href="?tgl_dari={{ tgl_dari_selected }}&tgl_sampai={{ tgl_sampai_selected }}{% if apoteker_id_selected %}&apoteker_id={{ apoteker_id_selected }}{% endif %}&page_size={{ page_size_selected }}&page={{ data.page + 1 }}"
+           class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

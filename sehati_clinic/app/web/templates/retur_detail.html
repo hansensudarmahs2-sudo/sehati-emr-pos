@@ -1,0 +1,75 @@
+{% extends "_app.html" %}
+{% block title %}Retur {{ r.nomor_retur }}{% endblock %}
+{% block page_title %}Retur {{ r.nomor_retur }}{% endblock %}
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3"><a href="/web/pengadaan/retur" class="text-blue-600 hover:underline">‹ Kembali</a></nav>
+    {% if flash %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>{% endif %}
+    {% if error %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>{% endif %}
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-start justify-between mb-3">
+            <div>
+                <div class="font-mono text-lg font-bold text-blue-700">{{ r.nomor_retur }}</div>
+                <div class="text-xs text-slate-500 mt-1">{{ r.tgl_retur.strftime('%d/%m/%Y %H:%M') if r.tgl_retur else '-' }} · oleh {{ pembuat }}</div>
+            </div>
+            <div>
+                {% if r.status == "DRAFT" %}<span class="px-3 py-1 rounded-full text-sm bg-amber-50 text-amber-700 font-semibold">DRAFT</span>
+                {% elif r.status == "APPROVED" %}<span class="px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 font-semibold">APPROVED</span>
+                {% elif r.status == "SELESAI" %}<span class="px-3 py-1 rounded-full text-sm bg-emerald-50 text-emerald-700 font-semibold">SELESAI</span>
+                {% else %}<span class="px-3 py-1 rounded-full text-sm bg-red-50 text-red-700 font-semibold">{{ r.status }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm border-t border-slate-100 pt-3">
+            <div><div class="text-xs text-slate-500 uppercase">Distributor</div><div class="text-slate-700">{{ distributor }}</div></div>
+            <div><div class="text-xs text-slate-500 uppercase">Alasan</div><div class="text-slate-700">{{ r.alasan or "—" }}</div></div>
+            {% if approver %}<div><div class="text-xs text-slate-500 uppercase">Di-approve oleh</div><div class="text-slate-700">{{ approver }} · {{ r.tgl_approve.strftime('%d/%m/%Y %H:%M') if r.tgl_approve else '' }}</div></div>{% endif %}
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex items-center gap-2 flex-wrap">
+        <a href="/web/pengadaan/retur/{{ r.id_retur }}/cetak" target="_blank" class="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium">🖨 Cetak Form Retur</a>
+        {% if r.status == "APPROVED" %}
+        <a href="/web/pengadaan/retur/{{ r.id_retur }}/nota" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">🧾 Input Nota Retur</a>
+        {% endif %}
+        {% if r.status == "SELESAI" %}
+        <a href="/web/pengadaan/retur/{{ r.id_retur }}/nota/cetak" target="_blank" class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium">🧾 Cetak Nota Retur</a>
+        {% endif %}
+        {% if can_approve %}
+        <form method="POST" action="/web/pengadaan/retur/{{ r.id_retur }}/approve"
+              data-confirm="Approve retur {{ r.nomor_retur }}? Lot batch akan LANGSUNG dipotong sesuai qty. Tidak bisa dibatalkan." class="inline">
+            {{ csrf_input(request) }}
+            <button type="submit" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">✓ Approve (potong lot)</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">Item ({{ items|length }})</div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Produk</th>
+                    <th class="text-left px-4 py-2 font-medium">Batch</th>
+                    <th class="text-left px-4 py-2 font-medium">ED</th>
+                    <th class="text-right px-4 py-2 font-medium">Qty</th>
+                    <th class="text-right px-4 py-2 font-medium">Harga Terima</th>
+                    <th class="text-left px-4 py-2 font-medium">Alasan</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in items %}
+                <tr>
+                    <td class="px-4 py-2 text-slate-800">{{ it.nama_snapshot }}</td>
+                    <td class="px-4 py-2 font-mono text-xs text-slate-600">{{ it.batch_no or "-" }}</td>
+                    <td class="px-4 py-2 text-xs text-slate-600">{{ it.tgl_ed.strftime('%d/%m/%y') if it.tgl_ed else "-" }}</td>
+                    <td class="px-4 py-2 text-right">{{ it.qty|int if it.qty == it.qty|int else it.qty }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{% if it.harga_terima is not none %}{{ "{:,.0f}".format(it.harga_terima|float).replace(",", ".") }}{% else %}-{% endif %}</td>
+                    <td class="px-4 py-2 text-xs text-slate-500">{{ it.alasan_item or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

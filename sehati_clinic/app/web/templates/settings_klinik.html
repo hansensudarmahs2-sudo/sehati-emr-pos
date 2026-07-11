@@ -1,0 +1,393 @@
+{% extends "_app.html" %}
+{% block title %}Settings — Profil Klinik{% endblock %}
+{% block page_title %}⚙️ Profil Klinik{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <span>Settings</span>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Profil Klinik</span>
+    </div>
+
+    <p class="text-sm text-slate-600 mb-4">
+        Informasi ini muncul di header <strong>Nota Pembayaran</strong> (Kasir) dan
+        <strong>Resume Medis SOAP</strong> (Dokter) saat di-cetak.
+    </p>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    {# =========================================================== #}
+    {# Logo card — upload terpisah (multipart, beda form dari text) #}
+    {# =========================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3">🖼 Logo Klinik</h3>
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0">
+                {% if config.logo_path %}
+                <img src="/static/{{ config.logo_path }}" alt="Logo klinik"
+                     class="w-32 h-32 object-contain border border-slate-200 rounded-lg bg-slate-50">
+                {% else %}
+                <div class="w-32 h-32 border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center text-slate-400 text-xs text-center bg-slate-50">
+                    Belum ada<br>logo
+                </div>
+                {% endif %}
+            </div>
+            <div class="flex-1 space-y-2">
+                <form method="POST" action="/web/settings/klinik/logo"
+                      enctype="multipart/form-data" class="space-y-2">
+                    {{ csrf_input(request) }}
+                    <label class="block text-xs font-medium text-slate-600">Upload baru</label>
+                    <input type="file" name="file" accept="image/png,image/jpeg"
+                           class="block w-full text-xs text-slate-600
+                                  file:mr-3 file:py-1.5 file:px-3 file:rounded
+                                  file:border-0 file:text-xs file:font-medium
+                                  file:bg-slate-700 file:text-white
+                                  hover:file:bg-slate-800 file:cursor-pointer">
+                    <div class="text-xs text-slate-500">
+                        PNG / JPG max 500 KB. Rekomendasi: 200×200 px square dengan background transparan.
+                    </div>
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 font-medium">
+                        ↑ Upload Logo
+                    </button>
+                </form>
+
+                {% if config.logo_path %}
+                <form method="POST" action="/web/settings/klinik/logo/delete"
+                      data-confirm="Yakin hapus logo? Tidak bisa di-undo.">
+                    {{ csrf_input(request) }}
+                    <button type="submit"
+                            class="text-xs text-red-600 hover:underline mt-2">
+                        🗑 Hapus logo
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# =========================================================== #}
+    {# Mini-logo card — ikon kecil di topbar (opsional) #}
+    {# =========================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-1">🔳 Mini-logo (ikon topbar)</h3>
+        <p class="text-xs text-slate-500 mb-3">Ikon kecil di kiri-atas aplikasi. Kalau kosong, otomatis pakai huruf pertama nama klinik.</p>
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0">
+                {% if config.mini_logo_path %}
+                <img src="/static/{{ config.mini_logo_path }}" alt="Mini-logo"
+                     class="w-16 h-16 object-cover border border-slate-200 rounded-lg bg-slate-50">
+                {% else %}
+                <div class="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-2xl">
+                    {{ (config.nama_klinik or "K")[0]|upper }}
+                </div>
+                {% endif %}
+            </div>
+            <div class="flex-1 space-y-2">
+                <form method="POST" action="/web/settings/klinik/mini-logo"
+                      enctype="multipart/form-data" class="space-y-2">
+                    {{ csrf_input(request) }}
+                    <label class="block text-xs font-medium text-slate-600">Upload mini-logo</label>
+                    <input type="file" name="file" accept="image/png,image/jpeg"
+                           class="block w-full text-xs text-slate-600
+                                  file:mr-3 file:py-1.5 file:px-3 file:rounded
+                                  file:border-0 file:text-xs file:font-medium
+                                  file:bg-slate-700 file:text-white
+                                  hover:file:bg-slate-800 file:cursor-pointer">
+                    <div class="text-xs text-slate-500">
+                        PNG / JPG max 500 KB. Rekomendasi: 64×64 px square (ikon saja, tanpa teks).
+                    </div>
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 font-medium">
+                        ↑ Upload Mini-logo
+                    </button>
+                </form>
+
+                {% if config.mini_logo_path %}
+                <form method="POST" action="/web/settings/klinik/mini-logo/delete"
+                      data-confirm="Yakin hapus mini-logo? Topbar kembali ke huruf pertama nama klinik.">
+                    {{ csrf_input(request) }}
+                    <button type="submit"
+                            class="text-xs text-red-600 hover:underline mt-2">
+                        🗑 Hapus mini-logo
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# =========================================================== #}
+    {# Main form — text fields + paper size                        #}
+    {# =========================================================== #}
+    <form method="POST" action="/web/settings/klinik" class="space-y-4">
+        {{ csrf_input(request) }}
+
+        {# Identity card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">🏥 Identitas Klinik</h3>
+            <div class="grid grid-cols-1 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nama Klinik *</label>
+                    <input type="text" name="nama_klinik" required maxlength="100"
+                           value="{{ config.nama_klinik }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Alamat Baris 1</label>
+                    <input type="text" name="alamat_baris1" maxlength="150"
+                           value="{{ config.alamat_baris1 }}"
+                           placeholder="Jl. Sudirman No. 123"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Alamat Baris 2</label>
+                    <input type="text" name="alamat_baris2" maxlength="150"
+                           value="{{ config.alamat_baris2 }}"
+                           placeholder="Kel. Senayan, RT 5/RW 8"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Alamat Baris 3</label>
+                    <input type="text" name="alamat_baris3" maxlength="150"
+                           value="{{ config.alamat_baris3 }}"
+                           placeholder="Jakarta Selatan 12190"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+        </div>
+
+        {# Contact card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">📞 Kontak</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Telepon</label>
+                    <input type="text" name="no_telepon" maxlength="50"
+                           value="{{ config.no_telepon }}"
+                           placeholder="021-1234567"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">WhatsApp</label>
+                    <input type="text" name="no_whatsapp" maxlength="50"
+                           value="{{ config.no_whatsapp }}"
+                           placeholder="0812-3456-7890"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" name="email" maxlength="100"
+                           value="{{ config.email }}"
+                           placeholder="info@sehaticlinic.com"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Website</label>
+                    <input type="text" name="website" maxlength="200"
+                           value="{{ config.website }}"
+                           placeholder="https://sehaticlinic.com"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+        </div>
+
+        {# Perizinan card (untuk PO / RM) — MK-L2 #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-1">📋 Perizinan & Kode (untuk PO / RM)</h3>
+            <p class="text-xs text-slate-500 mb-3">No. SIA muncul di cetakan PO. Prefix RM dipakai untuk nomor rekam medis pasien BARU.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">No. SIA (Surat Izin Apotek)</label>
+                    <input type="text" name="no_sia" maxlength="60" value="{{ config.no_sia }}"
+                           placeholder="mis. 449/SIA/2026"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Prefix No. RM</label>
+                    <input type="text" name="rm_prefix" maxlength="5" value="{{ config.rm_prefix }}"
+                           placeholder="mis. A"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    <div class="text-xs text-slate-500 mt-1">Berlaku untuk pasien baru. Kosong = pakai default sistem.</div>
+                </div>
+            </div>
+        </div>
+
+        {# Reorder point dinamis (DYN-L1) #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-1">📉 Stok Minimal Dinamis (Reorder Point)</h3>
+            <p class="text-xs text-slate-500 mb-3">Ambang alert stok = <strong>MAX(stok minimal manual, pemakaian rata-rata × (lead time + cadangan))</strong>. Melindungi produk laris dari kehabisan sebelum barang datang.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Lead Time (hari)</label>
+                    <input type="number" name="lead_time_hari" min="0" max="365" value="{{ config.lead_time_hari }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    <div class="text-xs text-slate-500 mt-1">Perkiraan waktu tunggu barang datang dari distributor.</div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Hari Cadangan (buffer)</label>
+                    <input type="number" name="safety_hari" min="0" max="365" value="{{ config.safety_hari }}"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    <div class="text-xs text-slate-500 mt-1">Cadangan di atas lead time supaya tak mepet.</div>
+                </div>
+            </div>
+        </div>
+
+        {# Print setup card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">🖨 Pengaturan Cetak</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Default Paper untuk Nota</label>
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center text-sm">
+                            <input type="radio" name="default_paper_nota" value="a5"
+                                   {% if config.default_paper_nota == "a5" %}checked{% endif %}
+                                   class="form-radio text-blue-600">
+                            <span class="ml-1.5">A5 (kertas reguler)</span>
+                        </label>
+                        <label class="inline-flex items-center text-sm">
+                            <input type="radio" name="default_paper_nota" value="thermal"
+                                   {% if config.default_paper_nota == "thermal" %}checked{% endif %}
+                                   class="form-radio text-blue-600">
+                            <span class="ml-1.5">Thermal 80mm (struk)</span>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Default Paper untuk SOAP</label>
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center text-sm">
+                            <input type="radio" name="default_paper_soap" value="a5"
+                                   {% if config.default_paper_soap == "a5" %}checked{% endif %}
+                                   class="form-radio text-blue-600">
+                            <span class="ml-1.5">A5 (kertas reguler)</span>
+                        </label>
+                        <label class="inline-flex items-center text-sm">
+                            <input type="radio" name="default_paper_soap" value="thermal"
+                                   {% if config.default_paper_soap == "thermal" %}checked{% endif %}
+                                   class="form-radio text-blue-600">
+                            <span class="ml-1.5">Thermal 80mm</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Footer Nota</label>
+                <textarea name="footer_text" rows="2" maxlength="500"
+                          placeholder="Terima kasih atas kunjungan Bapak/Ibu. Semoga lekas sembuh."
+                          class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">{{ config.footer_text }}</textarea>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Sign-off SOAP (opsional)</label>
+                <input type="text" name="ttd_dokter_text" maxlength="100"
+                       value="{{ config.ttd_dokter_text }}"
+                       placeholder="Dokter Pemeriksa,"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                <div class="text-xs text-slate-500 mt-1">
+                    Muncul sebelum nama dokter di footer SOAP. Default kosong = tidak tampil.
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 pt-2">
+            <a href="/web/dashboard" class="text-sm text-slate-500 hover:text-slate-700">← Kembali ke Dashboard</a>
+            <button type="submit"
+                    class="px-5 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">
+                💾 Simpan Perubahan
+            </button>
+        </div>
+    </form>
+
+    {# =========================================================== #}
+    {# Apoteker card (MK-L2) — daftar apoteker + SIPA untuk PO      #}
+    {# =========================================================== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-1">💊 Apoteker & SIPA</h3>
+        <p class="text-xs text-slate-500 mb-3">Daftar apoteker penanggung jawab. Saat buat PO, pilih apoteker aktif — nama &amp; SIPA ikut yang dipilih. Nonaktifkan (bukan hapus) bila SIPA berakhir agar jejak tetap ada.</p>
+
+        {% if apotekers %}
+        <table class="w-full text-sm mb-4">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2">Nama</th>
+                    <th class="text-left py-2">No. SIPA</th>
+                    <th class="text-left py-2">Masa Berlaku</th>
+                    <th class="text-center py-2">Status</th>
+                    <th class="text-right py-2">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for ap in apotekers %}
+                <tr>
+                    <td class="py-2 font-medium text-slate-800">{{ ap.nama_apoteker }}</td>
+                    <td class="py-2 font-mono text-xs text-slate-600">{{ ap.no_sipa or "—" }}</td>
+                    <td class="py-2 text-xs text-slate-600">{{ ap.masa_berlaku or "—" }}</td>
+                    <td class="py-2 text-center">
+                        {% if ap.is_active %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Aktif</span>
+                        {% else %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500">Nonaktif</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 text-right">
+                        <form method="POST" action="/web/settings/klinik/apoteker/{{ ap.id_apoteker }}/toggle" class="inline">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="active" value="{{ '0' if ap.is_active else '1' }}">
+                            <button type="submit" class="text-xs {{ 'text-red-600' if ap.is_active else 'text-emerald-600' }} hover:underline">
+                                {{ 'Nonaktifkan' if ap.is_active else 'Aktifkan' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-sm text-slate-400 mb-4">Belum ada apoteker. Tambahkan di bawah.</div>
+        {% endif %}
+
+        <form method="POST" action="/web/settings/klinik/apoteker" class="border-t border-slate-100 pt-3">
+            {{ csrf_input(request) }}
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Nama Apoteker *</label>
+                    <input type="text" name="nama_apoteker" required maxlength="100"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">No. SIPA</label>
+                    <input type="text" name="no_sipa" maxlength="60"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Masa Berlaku SIPA</label>
+                    <input type="date" name="masa_berlaku"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" class="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 font-medium">
+                    + Tambah Apoteker
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="text-xs text-slate-500 mt-5">
+        💡 Setelah simpan, konfigurasi akan langsung berlaku untuk semua cetakan berikutnya
+        (nota & SOAP). Tidak perlu restart aplikasi.
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% extends "_app.html" %}
+{% block title %}Manajemen Stok — Apotek{% endblock %}
+{% block page_title %}Manajemen Stok Apotek{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/apotek" class="hover:text-blue-600">Apotek</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Manajemen Stok</span>
+    </div>
+
+    {# Laporan inventory (P-L8) #}
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+        <a href="/web/apotek/laporan/ed" class="inline-flex items-center px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">📅 Laporan ED</a>
+        <a href="/web/apotek/laporan/slow-moving" class="inline-flex items-center px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">🐢 Slow-Moving</a>
+        <a href="/web/apotek/laporan/harga" class="inline-flex items-center px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">💹 Tren Harga Beli</a>
+    </div>
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {# Summary stat cards #}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div class="bg-white border border-slate-200 rounded-lg p-4">
+            <div class="text-xs text-slate-500 uppercase font-medium">Total Produk Aktif</div>
+            <div class="text-2xl font-bold text-slate-800 mt-1">{{ count_total }}</div>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div class="text-xs text-amber-700 uppercase font-medium">⚠ Stok Rendah</div>
+            <div class="text-2xl font-bold text-amber-800 mt-1">{{ count_low }}</div>
+            <div class="text-xs text-amber-700">stok ≤ minimal</div>
+        </div>
+        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div class="text-xs text-red-700 uppercase font-medium">❌ Stok Habis</div>
+            <div class="text-2xl font-bold text-red-800 mt-1">{{ count_out }}</div>
+            <div class="text-xs text-red-700">tidak bisa dispensing</div>
+        </div>
+    </div>
+
+    {# Filter bar #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-6">
+                <label class="block text-xs text-slate-500 mb-1">Cari produk</label>
+                <input type="text" name="keyword" value="{{ keyword }}"
+                       placeholder="Nama produk / kode (mis. AUTO-0068, candesartan)"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div class="md:col-span-3">
+                <label class="block text-xs text-slate-500 mb-1">Filter Stok</label>
+                <select name="filter_stok" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    <option value="" {% if filter_stok == "" %}selected{% endif %}>— Semua —</option>
+                    <option value="low" {% if filter_stok == "low" %}selected{% endif %}>⚠ Stok Rendah</option>
+                    <option value="out" {% if filter_stok == "out" %}selected{% endif %}>❌ Stok Habis</option>
+                </select>
+            </div>
+            <div class="md:col-span-3 flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/apotek/stok"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Tabel produk #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <div class="px-4 py-2 border-b border-slate-200 text-sm text-slate-600">
+            Menampilkan <strong>{{ rows|length }}</strong> produk
+        </div>
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Kode</th>
+                    <th class="text-left py-2 px-3">Nama Produk</th>
+                    <th class="text-left py-2 px-3">Tipe</th>
+                    <th class="text-right py-2 px-3">Stok</th>
+                    <th class="text-right py-2 px-3">Min</th>
+                    <th class="text-center py-2 px-3">ED Terdekat</th>
+                    <th class="text-center py-2 px-3">Batch</th>
+                    <th class="text-right py-2 px-3">HPP / Unit</th>
+                    <th class="text-right py-2 px-3">Harga Jual</th>
+                    <th class="text-center py-2 px-3">Status</th>
+                    <th class="text-center py-2 px-3">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                <tr class="hover:bg-slate-50
+                    {% if r.is_out %}bg-red-50/30{% elif r.is_low %}bg-amber-50/30{% endif %}">
+                    <td class="py-2 px-3 font-mono text-xs text-slate-700">{{ r.kode_produk }}</td>
+                    <td class="py-2 px-3 font-medium text-slate-800">{{ r.nama_produk }}</td>
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ r.tipe_produk }}</span>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono
+                        {% if r.is_out %}text-red-700 font-bold{% elif r.is_low %}text-amber-700 font-semibold{% else %}text-slate-700{% endif %}">
+                        {{ "%g"|format(r.stok_terkini) }} {{ r.satuan }}
+                    </td>
+                    <td class="py-2 px-3 text-right text-xs text-slate-500">{{ "%g"|format(r.stok_minimal) }}</td>
+                    <td class="py-2 px-3 text-center text-xs">
+                        {% if r.nearest_ed %}
+                        <span class="px-1.5 py-0.5 rounded {% if r.ed_level == 'danger' %}bg-red-100 text-red-700 font-semibold{% elif r.ed_level == 'warn' %}bg-amber-100 text-amber-800{% else %}bg-slate-100 text-slate-600{% endif %}">{{ r.nearest_ed.strftime('%d/%m/%y') }}</span>
+                        {% else %}<span class="text-slate-300">–</span>{% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-center text-xs text-slate-600">{{ r.batch_count }}</td>
+                    <td class="py-2 px-3 text-right text-xs font-mono text-slate-600">Rp {{ "{:,.0f}".format(r.hpp_per_unit).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right text-xs font-mono text-slate-700">Rp {{ "{:,.0f}".format(r.harga_jual).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-center">
+                        {% if r.is_out %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-red-100 text-red-700 font-bold">HABIS</span>
+                        {% elif r.is_low %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 font-bold">RENDAH</span>
+                        {% else %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 font-medium">OK</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                        {% set _po_qty = (r.stok_minimal * 2 - r.stok_terkini)|round(0, 'ceil')|int %}
+                        {% if _po_qty < 1 %}{% set _po_qty = (r.stok_minimal|int) or 1 %}{% endif %}
+                        <div class="inline-flex items-center gap-1">
+                            <a href="/web/apotek/stok/{{ r.id_produk }}"
+                               class="inline-flex items-center px-2 py-1 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 font-medium"
+                               title="Detail batch/ED">🔍 Detail</a>
+                            <a href="/web/pengadaan/pemesanan/baru?prefill_produk={{ r.id_produk }}&prefill_qty={{ _po_qty }}"
+                               class="inline-flex items-center px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 font-medium"
+                               title="Buat PO untuk produk ini (saran qty: {{ _po_qty }})">
+                                🛒 PO
+                            </a>
+                            <a href="/web/apotek/produk/{{ r.id_produk }}/write-off"
+                               class="inline-flex items-center px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 font-medium"
+                               title="Write-off (kadaluarsa/rusak/kesalahan)">
+                                🗑 Write-off
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="py-12 text-center text-slate-400">
+                        <div class="text-3xl mb-2">📦</div>
+                        <p class="text-sm">Tidak ada produk yang cocok dengan filter.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# Hint #}
+    <div class="mt-4 text-xs text-slate-500 italic">
+        💡 <strong>🛒 PO</strong> — buat pemesanan ke supplier dengan qty saran (refill ke 2× stok minimal). Bisa diedit di form PO.
+        <br><strong>🗑 Write-off</strong> — untuk produk yang kadaluarsa, rusak, kesalahan input, atau sample dokter.
+        Setiap write-off ter-audit ke `audit_log` dengan aksi `WRITEOFF_PRODUK_*` dan akan muncul di laporan write-off.
+    </div>
+</div>
+{% endblock %}

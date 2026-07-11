@@ -1,0 +1,44 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Nota Retur {{ r.nomor_retur }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+{% macro rp(v) %}{% if v is none %}-{% else %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endif %}{% endmacro %}
+{% block doc_content %}
+<div class="klinik-header">
+    {% if klinik.logo_path %}<img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo">{% endif %}
+    <div class="klinik-name">{{ klinik.nama_klinik }}</div>
+    <div class="klinik-addr">{% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}{% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}</div>
+</div>
+<div class="divider-solid"></div>
+<div class="text-center font-bold" style="font-size:1.1em; letter-spacing:1px;">NOTA RETUR</div>
+<div class="divider"></div>
+
+<div class="row"><span class="muted">No. Retur</span><span class="font-bold mono">{{ r.nomor_retur }}</span></div>
+<div class="row"><span class="muted">No. Nota</span><span>{{ r.nomor_nota or '-' }}</span></div>
+<div class="row"><span class="muted">Tgl Nota</span><span>{{ r.tgl_nota.strftime('%d/%m/%Y') if r.tgl_nota else '-' }}</span></div>
+<div class="row"><span class="muted">Distributor</span><span class="font-bold">{{ distributor.nama if distributor else '-' }}</span></div>
+<div class="row"><span class="muted">Penyelesaian</span><span class="font-bold">{{ 'TUKAR BARANG' if r.jenis_penyelesaian == 'TUKAR_BARANG' else ('REFUND UANG' if r.jenis_penyelesaian == 'REFUND' else '-') }}</span></div>
+<div class="divider"></div>
+
+<table>
+    <thead><tr><th>#</th><th>Nama Produk</th><th>Batch</th><th>ED</th><th class="text-right">Qty</th><th class="text-right">Harga</th></tr></thead>
+    <tbody>
+        {% for it in items %}
+        <tr>
+            <td>{{ loop.index }}</td><td>{{ it.nama_snapshot }}</td>
+            <td>{{ it.batch_no or '-' }}</td><td>{{ it.tgl_ed.strftime('%d/%m/%y') if it.tgl_ed else '-' }}</td>
+            <td class="text-right">{{ it.qty|int if it.qty == it.qty|int else it.qty }}</td>
+            <td class="text-right">{{ rp(it.harga_terima) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<div class="divider"></div>
+<div class="row"><span class="font-bold">TOTAL NILAI</span><span class="font-bold">Rp {{ rp(r.total_nilai) }}</span></div>
+
+<div class="row" style="margin-top:28px;">
+    <div class="text-center" style="width:45%"><div class="muted">Penerima / Apoteker</div><div style="height:44px"></div><div class="divider-solid" style="margin:0"></div></div>
+    <div class="text-center" style="width:45%"><div class="muted">Finance / Owner</div><div style="height:44px"></div><div class="divider-solid" style="margin:0"></div></div>
+</div>
+<div class="divider"></div>
+<div class="muted text-center" style="font-size:0.8em">{{ klinik.nama_klinik }} — Nota Retur {{ r.nomor_retur }}</div>
+{% endblock %}

@@ -1,0 +1,128 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Nota #{{ transaksi.id_transaksi }}{% endblock %}
+{% block paper_class %}paper-thermal{% endblock %}
+{% block page_size %}80mm auto{% endblock %}
+
+{% block doc_content %}
+{# ===== VOID watermark + banner ===== #}
+{% if is_voided %}
+<div class="void-watermark">VOID</div>
+<div class="void-info-banner">
+    <div><strong>VOID</strong>{% if late_void %} (PAST-DAY){% endif %}</div>
+    {% if void_reason_code %}<div>{{ void_reason_code }}</div>{% endif %}
+    {% if void_reason_note %}<div>{{ void_reason_note }}</div>{% endif %}
+    {% if voided_by_nama %}<div>Oleh: {{ voided_by_nama }}</div>{% endif %}
+</div>
+{% endif %}
+
+{# ===== Header klinik (compact thermal) ===== #}
+<div class="text-center">
+    {% if klinik.logo_path %}
+    <img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo" style="max-height: 36px;">
+    {% endif %}
+    <div class="font-bold">{{ klinik.nama_klinik }}</div>
+    {% if klinik.alamat_baris1 %}<div>{{ klinik.alamat_baris1 }}</div>{% endif %}
+    {% if klinik.alamat_baris2 %}<div>{{ klinik.alamat_baris2 }}</div>{% endif %}
+    {% if klinik.alamat_baris3 %}<div>{{ klinik.alamat_baris3 }}</div>{% endif %}
+    {% if klinik.no_telepon %}<div>Telp: {{ klinik.no_telepon }}</div>{% endif %}
+    {% if klinik.no_whatsapp %}<div>WA: {{ klinik.no_whatsapp }}</div>{% endif %}
+</div>
+
+<div class="divider"></div>
+
+<div class="text-center font-bold">NOTA PEMBAYARAN</div>
+
+<div style="margin-top: 4px;">
+    <div>No  : #{{ transaksi.id_transaksi }}</div>
+    <div>Tgl : {{ transaksi.waktu_bayar.strftime('%d/%m/%Y %H:%M') if transaksi.waktu_bayar else tgl_cetak }}</div>
+    <div>RM  : {{ pasien.no_rm }}</div>
+    <div>Psn : {{ pasien.nama }}{% if pasien.tgl_lahir %} ({{ pasien.tgl_lahir.strftime('%d/%m/%y') }}){% endif %} - {{ pasien.jenis_kelamin }}</div>
+    <div>Medis: {{ tenaga_medis }}</div>
+    <div>Ksr : {{ kasir_nama }}</div>
+</div>
+
+<div class="divider"></div>
+
+{# ===== Items (thermal compact) ===== #}
+{% for it in items %}
+<div>{{ it.label[:32] }}</div>
+<div style="display: flex; justify-content: space-between;">
+    <span>  {{ "%g"|format(it.qty) }} x {{ "{:,.0f}".format(it.harga).replace(",", ".") }}</span>
+    <span>{{ "{:,.0f}".format(it.subtotal).replace(",", ".") }}</span>
+</div>
+{% else %}
+<div class="text-center">(tidak ada item)</div>
+{% endfor %}
+
+<div class="divider"></div>
+
+{# ===== Total ===== #}
+<div style="display: flex; justify-content: space-between;">
+    <span>Subtotal</span>
+    <span>{{ "{:,.0f}".format(subtotal).replace(",", ".") }}</span>
+</div>
+{% if diskon > 0 %}
+<div style="display: flex; justify-content: space-between;">
+    <span>Diskon</span>
+    <span>-{{ "{:,.0f}".format(diskon).replace(",", ".") }}</span>
+</div>
+{% endif %}
+{% if diskon_benefit and diskon_benefit > 0 %}
+<div style="display: flex; justify-content: space-between;">
+    <span>Benefit Member</span>
+    <span>-{{ "{:,.0f}".format(diskon_benefit).replace(",", ".") }}</span>
+</div>
+{% endif %}
+<div style="display: flex; justify-content: space-between;" class="font-bold">
+    <span>TOTAL</span>
+    <span>{{ "{:,.0f}".format(total).replace(",", ".") }}</span>
+</div>
+
+{% if benefit_items and benefit_items|length > 0 %}
+<div class="divider"></div>
+<div class="font-bold" style="text-align: center;">Benefit Terpakai</div>
+{% for b in benefit_items %}
+<div style="font-size: 0.85em;">
+    {{ b.nama_treatment }} ({{ b.tier }} {{ b.periode }})
+    — Rp {{ "{:,.0f}".format(b.nominal).replace(",", ".") }}
+</div>
+{% endfor %}
+<div style="font-size: 0.75em; text-align: center; margin-top: 2px;">
+    Dibayar dengan kuota member.
+</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Pembayaran ===== #}
+{% for p in pembayaran %}
+<div style="display: flex; justify-content: space-between;">
+    <span>{{ p.metode }}</span>
+    <span>{{ "{:,.0f}".format(p.nominal).replace(",", ".") }}</span>
+</div>
+{% endfor %}
+<div style="display: flex; justify-content: space-between;" class="font-bold">
+    <span>Diterima</span>
+    <span>{{ "{:,.0f}".format(total_bayar).replace(",", ".") }}</span>
+</div>
+{% if kembali > 0 %}
+<div style="display: flex; justify-content: space-between;">
+    <span>Kembali</span>
+    <span>{{ "{:,.0f}".format(kembali).replace(",", ".") }}</span>
+</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Footer ===== #}
+{% if klinik.footer_text %}
+<div class="text-center" style="margin-top: 4px;">{{ klinik.footer_text }}</div>
+{% endif %}
+
+<div class="text-center" style="margin-top: 8px;">
+    Cetak: {{ tgl_cetak }}
+</div>
+
+{# Whitespace tail untuk thermal feed paper #}
+<div style="height: 20mm;">&nbsp;</div>
+{% endblock %}

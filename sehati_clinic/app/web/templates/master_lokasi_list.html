@@ -1,0 +1,69 @@
+{% extends "_app.html" %}
+{% block title %}Master Lokasi Pengiriman{% endblock %}
+{% block page_title %}Master Lokasi Pengiriman{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+    {% if flash %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>{% endif %}
+    {% if error %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>{% endif %}
+
+    <p class="text-sm text-slate-600 mb-4">Alamat "kirim ke" untuk PO — bisa klinik, gudang, atau alamat purchasing. Yang bertanda <strong>Default</strong> terpilih otomatis saat buat PO.</p>
+
+    <div class="flex items-center justify-between mb-4 gap-3">
+        <form method="GET" action="/web/master/lokasi-pengiriman" class="flex-1 max-w-md">
+            <input type="text" name="q" value="{{ q }}" placeholder="Cari nama lokasi…"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        </form>
+        <a href="/web/master/lokasi-pengiriman/tambah"
+           class="inline-flex items-center px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 whitespace-nowrap">➕ Tambah Lokasi</a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">{{ total }} lokasi</div>
+        {% if data and data|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-5 py-2 font-medium">Nama</th>
+                    <th class="text-left px-5 py-2 font-medium">Alamat</th>
+                    <th class="text-left px-5 py-2 font-medium">Telepon</th>
+                    <th class="text-left px-5 py-2 font-medium">PIC</th>
+                    <th class="text-left px-5 py-2 font-medium">Status</th>
+                    <th class="text-right px-5 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in data %}
+                <tr class="hover:bg-blue-50/30 {% if not r.is_active %}opacity-60{% endif %}">
+                    <td class="px-5 py-2 font-medium text-slate-800">
+                        {{ r.nama }}
+                        {% if r.is_default %}<span class="ml-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs">Default</span>{% endif %}
+                    </td>
+                    <td class="px-5 py-2 text-slate-500 text-xs">{{ r.alamat|truncate(50) }}</td>
+                    <td class="px-5 py-2 text-slate-600 font-mono text-xs">{{ r.telepon }}</td>
+                    <td class="px-5 py-2 text-slate-600">{{ r.kontak_person }}</td>
+                    <td class="px-5 py-2">
+                        {% if r.is_active %}
+                        <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs">Aktif</span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">Nonaktif</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-5 py-2 text-right whitespace-nowrap">
+                        <a href="/web/master/lokasi-pengiriman/{{ r.id_lokasi }}" class="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Edit</a>
+                        <form method="POST" action="/web/master/lokasi-pengiriman/{{ r.id_lokasi }}/toggle" class="inline"
+                              data-confirm="{% if r.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %} lokasi {{ r.nama }}?">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="px-2.5 py-1 text-xs bg-white border border-slate-300 rounded hover:bg-slate-50 text-slate-600">{% if r.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %}</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-500">Belum ada lokasi. Klik "Tambah Lokasi".</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

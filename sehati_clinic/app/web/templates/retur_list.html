@@ -1,0 +1,48 @@
+{% extends "_app.html" %}
+{% block title %}Retur Produk{% endblock %}
+{% block page_title %}Retur Produk{% endblock %}
+{% block page_content %}
+<div class="max-w-6xl">
+    {% if flash %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>{% endif %}
+    {% if error %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>{% endif %}
+    <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-slate-600">Retur produk (mendekati ED) ke distributor. Approve = potong lot batch.</p>
+        <a href="/web/pengadaan/retur/baru" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium whitespace-nowrap">➕ Buat Retur</a>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {% if data %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">No. Retur</th>
+                    <th class="text-left px-4 py-2 font-medium">Tanggal</th>
+                    <th class="text-left px-4 py-2 font-medium">Distributor</th>
+                    <th class="text-right px-4 py-2 font-medium">Item</th>
+                    <th class="text-left px-4 py-2 font-medium">Jenis</th>
+                    <th class="text-left px-4 py-2 font-medium">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in data %}
+                <tr class="hover:bg-blue-50/30">
+                    <td class="px-4 py-2 font-mono text-xs"><a href="/web/pengadaan/retur/{{ r.id_retur }}" class="text-blue-600 hover:underline">{{ r.nomor_retur }}</a></td>
+                    <td class="px-4 py-2 text-slate-600">{{ r.tgl }}</td>
+                    <td class="px-4 py-2 text-slate-700">{{ r.distributor }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">{{ r.n_item }}</td>
+                    <td class="px-4 py-2 text-slate-600">{{ r.jenis }}</td>
+                    <td class="px-4 py-2">
+                        {% if r.status == "DRAFT" %}<span class="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">DRAFT</span>
+                        {% elif r.status == "APPROVED" %}<span class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">APPROVED</span>
+                        {% elif r.status == "SELESAI" %}<span class="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">SELESAI</span>
+                        {% else %}<span class="text-xs px-2 py-0.5 rounded bg-red-50 text-red-700">{{ r.status }}</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-400 text-sm">Belum ada retur. Klik "Buat Retur".</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

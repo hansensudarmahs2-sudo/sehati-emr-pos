@@ -1,0 +1,358 @@
+{% extends "_app.html" %}
+{% block title %}Riwayat {{ riwayat.info_pasien.nama }} — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Riwayat Pasien{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pasien" class="hover:text-blue-600">Cari Pasien</a>
+        <span class="mx-2">›</span>
+        <a href="/web/pasien/{{ riwayat.info_pasien.id_pasien }}" class="hover:text-blue-600">
+            {{ riwayat.info_pasien.nama }}
+        </a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Riwayat</span>
+    </div>
+
+    {# Header card — ringkas #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-xl">
+                {% if riwayat.info_pasien.jenis_kelamin == "L" %}👨{% elif riwayat.info_pasien.jenis_kelamin == "P" %}👩{% else %}👤{% endif %}
+            </div>
+            <div>
+                <div class="font-semibold text-slate-800">{{ riwayat.info_pasien.nama }}</div>
+                <div class="text-xs text-slate-500 font-mono">{{ riwayat.info_pasien.no_rm }}</div>
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-xs text-slate-500 uppercase">Total Kunjungan</div>
+            <div class="text-2xl font-bold text-blue-600">{{ riwayat.total_kunjungan }}</div>
+        </div>
+    </div>
+
+    {# Stat counts #}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-lg border border-slate-200 p-4 text-center">
+            <div class="text-2xl mb-1">📋</div>
+            <div class="text-xs text-slate-500 uppercase">Kunjungan</div>
+            <div class="text-xl font-bold text-slate-800">{{ riwayat.kunjungan|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-4 text-center">
+            <div class="text-2xl mb-1">💉</div>
+            <div class="text-xs text-slate-500 uppercase">Series Treatment</div>
+            <div class="text-xl font-bold text-slate-800">{{ riwayat.riwayat_treatment|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-4 text-center">
+            <div class="text-2xl mb-1">💊</div>
+            <div class="text-xs text-slate-500 uppercase">Produk Diresepkan</div>
+            <div class="text-xl font-bold text-slate-800">{{ riwayat.produk_diresepkan|length }}</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-4 text-center">
+            <div class="text-2xl mb-1">🛒</div>
+            <div class="text-xs text-slate-500 uppercase">Produk Dibeli</div>
+            <div class="text-xl font-bold text-slate-800">{{ riwayat.produk_terbayar|length }}</div>
+        </div>
+    </div>
+
+    {# Section 1: Kunjungan Timeline #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>📋</span> Kunjungan ({{ riwayat.kunjungan|length }} terbaru)
+        </h3>
+        {% if riwayat.kunjungan %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                    <tr>
+                        <th class="text-left py-2 pr-4 font-medium">Tanggal</th>
+                        <th class="text-left py-2 pr-4 font-medium">Status</th>
+                        <th class="text-left py-2 pr-4 font-medium">Antrean</th>
+                        <th class="text-left py-2 pr-4 font-medium">Dokter Pemeriksa</th>
+                        <th class="text-left py-2 font-medium">Keluhan Utama</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for k in riwayat.kunjungan %}
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="py-2 pr-4 font-mono text-xs text-slate-700">
+                            {% if k.tgl_kunjungan %}{{ k.tgl_kunjungan }}{% else %}-{% endif %}
+                        </td>
+                        <td class="py-2 pr-4">
+                            {% set st = k.status_antrian or "" %}
+                            {% if st == "COMPLETED" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">{{ st }}</span>
+                            {% elif st == "BATAL" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">{{ st }}</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 font-medium">{{ st }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 pr-4 text-slate-600">#{{ k.nomor_antrean or "-" }}</td>
+                        <td class="py-2 pr-4 text-slate-700 text-xs">
+                            {% if k.nama_dokter %}
+                            🩺 Dr. <strong>{{ k.nama_dokter }}</strong>
+                            {% else %}
+                            <span class="text-slate-400">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 text-slate-700">{{ k.keluhan_utama or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Belum ada riwayat kunjungan.</p>
+        {% endif %}
+    </div>
+
+    {# Section 1b: Riwayat SOAP — pemeriksaan dokter per kunjungan #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>📝</span> Riwayat SOAP ({{ soap_riwayat|length }} terbaru)
+            <span class="ml-auto text-xs font-normal text-slate-400">Per kunjungan, deduplicate per hari</span>
+        </h3>
+        {% if soap_riwayat %}
+        <div class="space-y-3">
+            {% for s in soap_riwayat %}
+            <div class="border border-slate-200 rounded-lg p-4 hover:bg-slate-50/30 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-3 text-xs text-slate-500">
+                        <span class="font-mono">{{ s.tanggal or "-" }}</span>
+                        {% if s.nama_dokter %}
+                        <span>• 🩺 Dr. <strong class="text-slate-700">{{ s.nama_dokter }}</strong></span>
+                        {% endif %}
+                        <span>• Kunjungan #{{ s.id_kunjungan }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="text-xs font-mono text-slate-400">SOAP #{{ s.id_pemeriksaan }}</div>
+                        <a href="/web/dokter/soap/{{ s.id_kunjungan }}/cetak?paper=a5"
+                           target="_blank"
+                           title="Cetak Resume Medis (A5)"
+                           class="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 font-medium">
+                            🖨 A5
+                        </a>
+                        <a href="/web/dokter/soap/{{ s.id_kunjungan }}/cetak?paper=thermal"
+                           target="_blank"
+                           title="Cetak Resume Medis (Thermal)"
+                           class="inline-flex items-center px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 font-medium">
+                            🖨 Thermal
+                        </a>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm mt-2">
+                    {% if s.anamnesa %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">Anamnesa</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ s.anamnesa }}</div>
+                    </div>
+                    {% endif %}
+                    {% if s.pemeriksaan_fisik %}
+                    <div>
+                        <div class="text-xs text-slate-500 uppercase font-medium">Pemeriksaan Fisik</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ s.pemeriksaan_fisik }}</div>
+                    </div>
+                    {% endif %}
+                    {% if s.diagnosa %}
+                    <div class="md:col-span-2">
+                        <div class="text-xs text-slate-500 uppercase font-medium">Diagnosa</div>
+                        <div class="text-slate-700 mt-0.5 whitespace-pre-wrap">{{ s.diagnosa }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Belum ada riwayat pemeriksaan SOAP.</p>
+        {% endif %}
+    </div>
+
+    {# Section 2a: Tindakan Diresepkan (single, dari kunjungan_tindakan) #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>💉</span> Tindakan Diresepkan ({{ riwayat.riwayat_tindakan_diresepkan|length }})
+        </h3>
+        {% if riwayat.riwayat_tindakan_diresepkan %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                    <tr>
+                        <th class="text-left py-2 pr-4 font-medium">Tanggal</th>
+                        <th class="text-left py-2 pr-4 font-medium">Nama Treatment</th>
+                        <th class="text-right py-2 pr-4 font-medium">Harga</th>
+                        <th class="text-left py-2 font-medium">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for t in riwayat.riwayat_tindakan_diresepkan %}
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="py-2 pr-4 font-mono text-xs text-slate-600">{{ t.tgl_diresepkan or "-" }}</td>
+                        <td class="py-2 pr-4 text-slate-700">{{ t.nama_treatment }}</td>
+                        <td class="py-2 pr-4 text-right text-slate-700">Rp {{ "{:,.0f}".format(t.harga|float).replace(",", ".") }}</td>
+                        <td class="py-2">
+                            {% if t.status_tindakan == "COMPLETED" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">✓ Selesai</span>
+                            {% elif t.status_tindakan == "IN_PROGRESS" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 font-medium">⏳ Dikerjakan</span>
+                            {% elif t.status_tindakan == "PENDING" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">⏸ Pending</span>
+                            {% elif t.status_tindakan == "BATAL" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">✗ Batal</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{{ t.status_tindakan or "-" }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Belum ada tindakan diresepkan.</p>
+        {% endif %}
+    </div>
+
+    {# Section 2b: Treatment Series (rencana untuk kemudian hari) #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>📅</span> Series Treatment / Rencana ({{ riwayat.riwayat_treatment|length }})
+            <span class="text-xs font-normal text-slate-500">— untuk kemudian hari</span>
+        </h3>
+        {% if riwayat.riwayat_treatment %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                    <tr>
+                        <th class="text-left py-2 pr-4 font-medium">Sesi</th>
+                        <th class="text-left py-2 pr-4 font-medium">Nama Tindakan</th>
+                        <th class="text-left py-2 pr-4 font-medium">Status</th>
+                        <th class="text-left py-2 pr-4 font-medium">Tgl Eksekusi</th>
+                        <th class="text-left py-2 font-medium">Catatan</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for t in riwayat.riwayat_treatment %}
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="py-2 pr-4 font-semibold text-slate-700">#{{ t.urutan_sesi }}</td>
+                        <td class="py-2 pr-4 text-slate-700">{{ t.nama_tindakan }}</td>
+                        <td class="py-2 pr-4">
+                            {% if t.status == "DONE" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">✓ DONE</span>
+                            {% elif t.status == "PENDING" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">⏳ PENDING</span>
+                            {% elif t.status == "SCHEDULED" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 font-medium">📅 SCHEDULED</span>
+                            {% elif t.status == "CANCELLED" %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">✗ CANCELLED</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{{ t.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 pr-4 font-mono text-xs text-slate-600">
+                            {% if t.tgl_eksekusi %}{{ t.tgl_eksekusi }}{% else %}-{% endif %}
+                        </td>
+                        <td class="py-2 text-slate-600 text-xs">{{ t.catatan_dokter or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Tidak ada series treatment terdaftar.</p>
+        {% endif %}
+    </div>
+
+    {# Section 3 & 4: 2-col Produk #}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+        {# Produk diresepkan #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span>💊</span> Produk Diresepkan ({{ riwayat.produk_diresepkan|length }})
+                <span class="ml-auto text-xs font-normal text-slate-400">Apa dokter resepkan</span>
+            </h3>
+            {% if riwayat.produk_diresepkan %}
+            <div class="space-y-2 max-h-96 overflow-y-auto pr-2">
+                {% for p in riwayat.produk_diresepkan %}
+                <div class="border border-slate-200 rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium text-slate-800 text-sm">{{ p.nama_produk }}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">
+                            Qty: <strong>{{ p.qty }}</strong>
+                            {% if p.aturan_pakai %} · {{ p.aturan_pakai }}{% endif %}
+                        </div>
+                        {% if p.tgl_resep %}
+                        <div class="text-xs text-slate-400 mt-0.5 font-mono">{{ p.tgl_resep }}</div>
+                        {% endif %}
+                    </div>
+                    {% if p.status_item %}
+                    {% if p.status_item == "DIBAYAR" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium whitespace-nowrap">✓ Dibayar</span>
+                    {% elif p.status_item == "PENDING" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium whitespace-nowrap">Pending</span>
+                    {% elif p.status_item == "BATAL" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium whitespace-nowrap">Batal</span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 font-medium whitespace-nowrap">{{ p.status_item }}</span>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-400 text-center py-6">Belum ada produk diresepkan.</p>
+            {% endif %}
+        </div>
+
+        {# Produk terbayar - sudah masuk transaksi #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span>💰</span> Produk Terbayar ({{ riwayat.produk_terbayar|length }})
+                <span class="ml-auto text-xs font-normal text-slate-400">Sudah dibayar pasien</span>
+            </h3>
+            {% if riwayat.produk_terbayar %}
+            <div class="space-y-2 max-h-96 overflow-y-auto pr-2">
+                {% for p in riwayat.produk_terbayar %}
+                <div class="border border-emerald-100 bg-emerald-50/30 rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium text-slate-800 text-sm">{{ p.nama_produk }}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">
+                            Qty: <strong>{{ p.qty }}</strong>
+                            {% if p.harga_satuan %} · @ Rp {{ "{:,.0f}".format(p.harga_satuan).replace(",", ".") }}{% endif %}
+                        </div>
+                        {% if p.tgl_bayar %}
+                        <div class="text-xs text-slate-400 mt-0.5 font-mono">{{ p.tgl_bayar }}</div>
+                        {% endif %}
+                    </div>
+                    {% if p.subtotal %}
+                    <div class="text-sm font-semibold text-emerald-700 whitespace-nowrap">
+                        Rp {{ "{:,.0f}".format(p.subtotal).replace(",", ".") }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-400 text-center py-6">Belum ada produk terbayar.</p>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <div class="flex items-center justify-between mt-6">
+        <a href="/web/pasien/{{ riwayat.info_pasien.id_pasien }}"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+            ← Kembali ke Detail Pasien
+        </a>
+        <a href="/web/pasien"
+           class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            Cari Pasien Lain →
+        </a>
+    </div>
+
+</div>
+{% endblock %}

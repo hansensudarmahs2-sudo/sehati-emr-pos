@@ -1,0 +1,70 @@
+{# Single row tindakan — di-append ke #tindakan-rows via HTMX #}
+<div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end tindakan-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+    <div class="md:col-span-5">
+        <label class="block text-xs text-slate-500 mb-1">Treatment</label>
+        <select name="id_treatment" required
+                onchange="window.showKuotaHint && window.showKuotaHint(this);"
+                class="searchable-dropdown treatment-select w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                data-placeholder="Cari treatment...">
+            <option value="">— Pilih treatment —</option>
+            {% for t in master_treatments %}
+            {% set _kuota = kuota_map.get(t.id_treatment) if kuota_map else None %}
+            <option value="{{ t.id_treatment }}"
+                    data-harga="{{ t.harga }}"
+                    {% if _kuota %}data-kuota-sisa="{{ _kuota.sisa }}" data-kuota-total="{{ _kuota.kuota_total }}" data-kuota-periode="{{ _kuota.periode }}"{% endif %}>
+                {{ t.nama_treatment }} (Rp {{ "{:,.0f}".format(t.harga|float).replace(",", ".") }} · {{ t.durasi_menit }}m){% if _kuota %} 🎁 {{ _kuota.sisa }}/{{ _kuota.kuota_total }} kuota{% endif %}
+            </option>
+            {% endfor %}
+        </select>
+        <div class="kuota-hint mt-1 text-xs hidden"></div>
+    </div>
+    <script>
+    (function() {
+        if (window.showKuotaHint) return;
+        window.showKuotaHint = function(selectEl) {
+            try {
+                var opt = selectEl.options[selectEl.selectedIndex];
+                if (!opt) return;
+                var row = selectEl.closest('.tindakan-row');
+                if (!row) return;
+                var hint = row.querySelector('.kuota-hint');
+                if (!hint) return;
+                var sisa = opt.getAttribute('data-kuota-sisa');
+                var total = opt.getAttribute('data-kuota-total');
+                var periode = opt.getAttribute('data-kuota-periode');
+                if (sisa && parseInt(sisa) > 0) {
+                    hint.className = 'kuota-hint mt-1 text-xs px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200';
+                    hint.innerHTML = '🎁 Kuota tersedia: <strong>' + sisa + '/' + total + '</strong> (' + periode + '). Auto-pakai kuota → gratis.';
+                } else {
+                    hint.className = 'kuota-hint mt-1 text-xs hidden';
+                    hint.innerHTML = '';
+                }
+            } catch (e) {
+                console.warn('[tindakan-row] showKuotaHint failed:', e);
+            }
+        };
+    })();
+    </script>
+    <div class="md:col-span-2">
+        <label class="block text-xs text-slate-500 mb-1">
+            <input type="checkbox" name="is_series" value="1" class="mr-1 align-middle">
+            Series?
+        </label>
+    </div>
+    <div class="md:col-span-1">
+        <label class="block text-xs text-slate-500 mb-1">Sesi</label>
+        <input type="number" name="jumlah_sesi" min="1" max="20" value="1"
+               class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    <div class="md:col-span-3">
+        <label class="block text-xs text-slate-500 mb-1">Catatan untuk Perawat</label>
+        <input type="text" name="catatan_dokter" maxlength="255"
+               class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+    </div>
+    <div class="md:col-span-1 text-right">
+        <button type="button" onclick="this.closest('.tindakan-row').remove()"
+                class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">
+            🗑️
+        </button>
+    </div>
+</div>

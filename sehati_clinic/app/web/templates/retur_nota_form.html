@@ -1,0 +1,77 @@
+{% extends "_app.html" %}
+{% block title %}Nota Retur {{ r.nomor_retur }}{% endblock %}
+{% block page_title %}Input Nota Retur — {{ r.nomor_retur }}{% endblock %}
+{% block page_content %}
+<div class="max-w-4xl">
+    <nav class="text-sm text-slate-500 mb-3"><a href="/web/pengadaan/retur/{{ r.id_retur }}" class="text-blue-600 hover:underline">‹ Kembali ke retur</a></nav>
+    {% if error %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>{% endif %}
+    <form method="POST" action="/web/pengadaan/retur/{{ r.id_retur }}/nota">
+        {{ csrf_input(request) }}
+
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+            <div class="text-sm font-medium text-slate-700 mb-2">Penyelesaian retur ini:</div>
+            <div class="flex gap-4 mb-4">
+                <label class="inline-flex items-center gap-2 text-sm"><input type="radio" name="jenis" value="tukar" checked class="jenis-radio"> 🔄 Tukar barang</label>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="radio" name="jenis" value="refund" class="jenis-radio"> 💰 Refund uang</label>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="block text-sm font-medium text-slate-700 mb-1">Nomor Nota</label>
+                    <input type="text" name="nomor_nota" maxlength="100" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg"></div>
+                <div><label class="block text-sm font-medium text-slate-700 mb-1">Tanggal Penerimaan</label>
+                    <input type="date" name="tgl_nota" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg"></div>
+            </div>
+        </div>
+
+        {# TUKAR — barang pengganti (produk sama, batch/ED baru) #}
+        <div id="sec-tukar" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+            <h3 class="text-base font-semibold text-slate-800 mb-1">Barang Pengganti → masuk lot</h3>
+            <p class="text-xs text-slate-500 mb-3">Isi batch &amp; ED barang fresh dari distributor. Qty boleh beda dari yang diretur.</p>
+            <table class="w-full text-sm">
+                <thead class="text-xs text-slate-500 uppercase"><tr>
+                    <th class="text-left py-1">Produk</th><th class="text-left py-1">Batch baru</th><th class="text-left py-1">ED baru</th>
+                    <th class="text-right py-1">Qty</th><th class="text-right py-1">Harga satuan</th>
+                </tr></thead>
+                <tbody>
+                    {% for it in items %}
+                    <tr>
+                        <td class="py-1 pr-2 text-slate-800">{{ it.nama_snapshot }}<input type="hidden" name="rep_id_produk" value="{{ it.id_produk or '' }}"></td>
+                        <td class="py-1 pr-2"><input type="text" name="rep_batch" maxlength="50" placeholder="batch" class="w-28 px-2 py-1 border border-slate-300 rounded"></td>
+                        <td class="py-1 pr-2"><input type="date" name="rep_ed" class="px-2 py-1 border border-slate-300 rounded"></td>
+                        <td class="py-1 pr-2 text-right"><input type="number" name="rep_qty" min="0" step="any" value="{{ it.qty|int if it.qty == it.qty|int else it.qty }}" class="w-20 px-2 py-1 border border-slate-300 rounded text-right"></td>
+                        <td class="py-1 text-right"><input type="number" name="rep_harga" min="0" step="any" value="{{ it.harga_terima|int if it.harga_terima is not none else '' }}" class="w-24 px-2 py-1 border border-slate-300 rounded text-right"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# REFUND — nota header saja #}
+        <div id="sec-refund" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4" style="display:none">
+            <h3 class="text-base font-semibold text-slate-800 mb-1">Refund Uang</h3>
+            <p class="text-xs text-slate-500 mb-3">Tidak ada perubahan stok. Dicatat untuk finance + menutup retur.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="block text-sm font-medium text-slate-700 mb-1">Total Nilai Refund</label>
+                    <input type="number" name="total_nilai" min="0" step="any" placeholder="mis. 500000" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg"></div>
+                <div><label class="block text-sm font-medium text-slate-700 mb-1">Catatan (opsional)</label>
+                    <input type="text" name="catatan_nota" maxlength="500" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg"></div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button type="submit" class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium">Simpan Nota &amp; Selesaikan Retur</button>
+            <a href="/web/pengadaan/retur/{{ r.id_retur }}" class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800">Batal</a>
+        </div>
+    </form>
+</div>
+<script>
+(function() {
+    function upd() {
+        var j = document.querySelector('.jenis-radio:checked').value;
+        document.getElementById('sec-tukar').style.display = (j === 'tukar') ? '' : 'none';
+        document.getElementById('sec-refund').style.display = (j === 'refund') ? '' : 'none';
+    }
+    document.querySelectorAll('.jenis-radio').forEach(function(el) { el.addEventListener('change', upd); });
+    upd();
+})();
+</script>
+{% endblock %}

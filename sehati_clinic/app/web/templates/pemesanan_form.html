@@ -1,0 +1,199 @@
+{% extends "_app.html" %}
+{% block title %}Tambah PO{% endblock %}
+{% block page_title %}Tambah Purchase Order{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pengadaan/pemesanan" class="hover:text-blue-600">Pemesanan</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Tambah Baru</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {% if is_apoteker %}
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-800">
+        ℹ️ Sebagai Apoteker, Bapak hanya boleh PO Produk Retail. Bahan klinik dan produk CABIN/ALAT khusus Owner/Purchasing.
+    </div>
+    {% endif %}
+
+    {% if prefill_rows %}
+    <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-xs text-emerald-800">
+        ✓ Form sudah terisi {{ prefill_rows|length }} item dari halaman Suggested Order. Silakan cek qty dan tambahkan harga satuan sebelum submit.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/web/pengadaan/pemesanan/baru" class="space-y-4">
+        {{ csrf_input(request) }}
+
+        {# Header card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 class="text-base font-semibold text-slate-800 mb-3">Header PO</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Distributor / Supplier</label>
+                    {% if distributors and distributors|length > 0 %}
+                    <select name="supplier_nama"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Pilih distributor —</option>
+                        {% for d in distributors %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1">Daftar dari Master Distributor. <a href="/web/master/distributor" class="text-blue-600 hover:underline">Kelola distributor</a></p>
+                    {% else %}
+                    <input type="text" name="supplier_nama" maxlength="100" placeholder="mis. PT Bahan Jaya"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-amber-600 mt-1">Belum ada distributor. <a href="/web/master/distributor/tambah" class="underline">Tambah di Master Distributor</a> untuk dropdown.</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Perkiraan Datang</label>
+                    <input type="date" name="tgl_perkiraan_datang"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Kirim ke (alamat penerima)</label>
+                    {% if lokasi_list and lokasi_list|length > 0 %}
+                    <select name="id_lokasi_pengiriman"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">— (tidak ditentukan) —</option>
+                        {% for l in lokasi_list %}<option value="{{ l.id }}" {% if l.id == lokasi_default %}selected{% endif %}>{{ l.nama }}</option>{% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1"><a href="/web/master/lokasi-pengiriman" class="text-blue-600 hover:underline">Kelola lokasi pengiriman</a></p>
+                    {% else %}
+                    <div class="text-xs text-slate-400">Belum ada lokasi. <a href="/web/master/lokasi-pengiriman/tambah" class="text-blue-600 underline">Tambah</a> untuk dropdown.</div>
+                    {% endif %}
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Apoteker Penanggung Jawab *</label>
+                    {% if apotekers and apotekers|length > 0 %}
+                    <select name="id_apoteker" required
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Pilih apoteker —</option>
+                        {% for ap in apotekers %}<option value="{{ ap.id_apoteker }}">{{ ap.nama_apoteker }}{% if ap.no_sipa %} — SIPA {{ ap.no_sipa }}{% endif %}</option>{% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-400 mt-1">Nama &amp; SIPA yang dipilih akan tercetak di PO. <a href="/web/settings/klinik" class="text-blue-600 hover:underline">Kelola apoteker</a></p>
+                    {% else %}
+                    <div class="text-xs text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2">
+                        Belum ada apoteker aktif. <a href="/web/settings/klinik" class="underline font-medium">Tambah apoteker di Profil Klinik</a> dulu — wajib untuk membuat PO.
+                    </div>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Termin Bayar (hari)</label>
+                    <input type="number" name="termin_hari" min="0" max="3650" placeholder="mis. 30"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-slate-400 mt-1">Jatuh tempo bayar setelah barang diterima. Kosong = tak diisi.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Validitas PO (hari)</label>
+                    <input type="number" name="validitas_hari" min="0" max="3650" placeholder="mis. 30"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-slate-400 mt-1">Masa berlaku sejak tgl PO. Kosong = tanpa batas.</p>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Catatan</label>
+                    <textarea name="catatan" rows="2" maxlength="2000" placeholder="Catatan tambahan untuk PO ini..."
+                              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+            </div>
+        </div>
+
+        {# Items card #}
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-base font-semibold text-slate-800">Items (minimal 1)</h3>
+                <button type="button"
+                        hx-get="/web/pengadaan/pemesanan/_item-row"
+                        hx-target="#items-container"
+                        hx-swap="beforeend"
+                        class="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                    + Tambah Item
+                </button>
+            </div>
+
+            <div id="items-container">
+                {% if prefill_rows %}
+                    {# Pre-filled rows dari Suggested Order #}
+                    {% for row in prefill_rows %}
+                        {% set prefill = row %}
+                        {% include "_pemesanan_item_row.html" %}
+                    {% endfor %}
+                    {% set prefill = none %}
+                {% else %}
+                    {# Default 1 row kosong #}
+                    {% include "_pemesanan_item_row.html" %}
+                {% endif %}
+            </div>
+
+            <div class="flex justify-end mt-3 pt-3 border-t border-slate-200">
+                <div class="text-sm text-slate-600">Total estimasi (qty × harga):
+                    <span id="po-total" class="font-semibold text-slate-800 ml-1">Rp 0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+            <a href="/web/pengadaan/pemesanan"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">Batal</a>
+            <button type="submit"
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                Submit PO (status SUBMITTED)
+            </button>
+        </div>
+    </form>
+
+    <p class="text-xs text-slate-500 mt-4">
+        💡 PO baru akan mulai di status <strong>SUBMITTED</strong>. Owner/Superadmin perlu approve ke status ORDERED sebelum barang bisa di-receive.
+    </p>
+
+</div>
+
+<script id="last-harga" type="application/json">{{ last_harga_json | default('{"produk":{},"bahan":{}}') | safe }}</script>
+<script>
+(function() {
+    var LAST_HARGA = { produk: {}, bahan: {} };
+    try { LAST_HARGA = JSON.parse(document.getElementById('last-harga').textContent) || LAST_HARGA; } catch (e) {}
+
+    function fmt(n) { return 'Rp ' + Math.round(n).toLocaleString('id-ID'); }
+    function recompute() {
+        var rows = document.querySelectorAll('#items-container .pemesanan-item-row');
+        var total = 0;
+        rows.forEach(function(r) {
+            var qEl = r.querySelector('[name="qty_dipesan"]');
+            var hEl = r.querySelector('[name="harga_satuan"]');
+            var q = qEl ? (parseFloat(qEl.value) || 0) : 0;
+            var h = hEl ? (parseFloat(hEl.value) || 0) : 0;
+            total += q * h;
+        });
+        var el = document.getElementById('po-total');
+        if (el) el.textContent = fmt(total);
+    }
+    var cont = document.getElementById('items-container');
+    if (cont) {
+        cont.addEventListener('input', recompute);
+        // Autofill harga dari PO lampau saat pilih produk/bahan (hanya kalau harga masih kosong)
+        cont.addEventListener('change', function(e) {
+            var t = e.target;
+            if (!t || !t.name) return;
+            var map = t.name === 'id_produk' ? LAST_HARGA.produk
+                    : t.name === 'id_bahan' ? LAST_HARGA.bahan : null;
+            if (!map || !t.value) return;
+            var row = t.closest('.pemesanan-item-row');
+            if (!row) return;
+            var hEl = row.querySelector('[name="harga_satuan"]');
+            if (hEl && !hEl.value && map[t.value] != null) {
+                hEl.value = map[t.value];
+                hEl.setAttribute('title', 'Terisi otomatis dari PO terakhir — bisa diubah');
+                recompute();
+            }
+        });
+        new MutationObserver(recompute).observe(cont, { childList: true, subtree: true });
+        recompute();
+    }
+})();
+</script>
+{% endblock %}

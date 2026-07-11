@@ -1,0 +1,28 @@
+# ============================================================================
+# systemd unit — Sehati Clinic eMR-POS (uvicorn)
+# Salin ke: /etc/systemd/system/sehati-clinic.service
+# Lalu: sudo systemctl daemon-reload && sudo systemctl enable --now sehati-clinic
+# ============================================================================
+[Unit]
+Description=Sehati Clinic eMR-POS (FastAPI/uvicorn)
+After=network-online.target mysql.service
+Wants=network-online.target
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=sehati
+Group=sehati
+WorkingDirectory=/opt/sehati_clinic
+EnvironmentFile=/opt/sehati_clinic/.env
+ExecStart=/opt/sehati_clinic/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+# Hardening ringan
+NoNewPrivileges=true
+# Batas restart-loop (kalau crash beruntun, berhenti dan tunggu intervensi)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

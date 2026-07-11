@@ -1,0 +1,195 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Nota #{{ transaksi.id_transaksi }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+
+{% block doc_content %}
+{# ===== VOID watermark + banner ===== #}
+{% if is_voided %}
+<div class="void-watermark">VOID</div>
+<div class="void-info-banner">
+    <div><strong>STATUS:</strong> TRANSAKSI DI-VOID{% if late_void %} (FORCE PAST-DAY){% endif %}</div>
+    {% if void_reason_code %}<div><strong>Alasan:</strong> {{ void_reason_code }}</div>{% endif %}
+    {% if void_reason_note %}<div><strong>Catatan:</strong> {{ void_reason_note }}</div>{% endif %}
+    {% if voided_by_nama %}<div><strong>Oleh:</strong> {{ voided_by_nama }}</div>{% endif %}
+    {% if void_at %}<div><strong>Waktu:</strong> {{ void_at }}</div>{% endif %}
+</div>
+{% endif %}
+
+{# ===== Header klinik (2 kolom ringkas: nama+judul tengah, logo+alamat kanan) ===== #}
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+    <div style="width:22%;">
+        {% if klinik.logo_path %}<img src="/static/{{ klinik.logo_path }}" style="max-width:56px; max-height:56px;" alt="Logo">{% endif %}
+    </div>
+    <div style="flex:1; text-align:center; padding-top:4px;">
+        <div class="klinik-name" style="font-size:1.5em; line-height:1.1;">{{ klinik.nama_klinik }}</div>
+        <div class="font-bold" style="font-size:0.95em; margin-top:3px; letter-spacing:0.5px;">NOTA PEMBAYARAN</div>
+    </div>
+    <div style="width:34%; text-align:right;">
+        <div class="klinik-addr" style="text-align:right;">
+            {% if klinik.alamat_baris1 %}{{ klinik.alamat_baris1 }}<br>{% endif %}
+            {% if klinik.alamat_baris2 %}{{ klinik.alamat_baris2 }}<br>{% endif %}
+            {% if klinik.alamat_baris3 %}{{ klinik.alamat_baris3 }}<br>{% endif %}
+            {% if klinik.no_telepon %}Telp: {{ klinik.no_telepon }}{% endif %}
+            {% if klinik.no_whatsapp %}{% if klinik.no_telepon %}<br>{% endif %}WA: {{ klinik.no_whatsapp }}{% endif %}
+            {% if klinik.email %}<br>{{ klinik.email }}{% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="divider-solid"></div>
+
+<table style="margin-bottom: 8px;">
+    <tr>
+        <td style="width: 35%;" class="muted">No. Transaksi</td>
+        <td class="mono">#{{ transaksi.id_transaksi }}</td>
+        <td style="width: 25%;" class="muted text-right">Tanggal</td>
+        <td class="mono text-right">{{ transaksi.waktu_bayar.strftime('%d/%m/%Y %H:%M') if transaksi.waktu_bayar else tgl_cetak }}</td>
+    </tr>
+    <tr>
+        <td class="muted">No. RM</td>
+        <td class="mono">{{ pasien.no_rm }}</td>
+        <td class="muted text-right">Kasir</td>
+        <td class="text-right">{{ kasir_nama }}</td>
+    </tr>
+    <tr>
+        <td class="muted">Pasien</td>
+        <td class="font-bold">{{ pasien.nama }}{% if pasien.tgl_lahir %} ({{ pasien.tgl_lahir.strftime('%d/%m/%Y') }}){% endif %}</td>
+        <td class="muted text-right">JK</td>
+        <td class="text-right">{{ pasien.jenis_kelamin }}</td>
+    </tr>
+    <tr>
+        <td class="muted">Tenaga Medis</td>
+        <td colspan="3">{{ tenaga_medis }}</td>
+    </tr>
+</table>
+
+<div class="divider"></div>
+
+{# ===== Items ===== #}
+<table>
+    <thead>
+        <tr>
+            <th style="width: 50%;">Item</th>
+            <th class="text-right" style="width: 12%;">Qty</th>
+            <th class="text-right" style="width: 18%;">Harga</th>
+            <th class="text-right" style="width: 20%;">Subtotal</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for it in items %}
+        <tr>
+            <td>
+                <span class="mono muted" style="font-size: 0.8em;">{{ it.tipe }}</span>
+                {{ it.label }}
+            </td>
+            <td class="text-right mono">{{ "%g"|format(it.qty) }}</td>
+            <td class="text-right mono">{{ "{:,.0f}".format(it.harga).replace(",", ".") }}</td>
+            <td class="text-right mono font-bold">{{ "{:,.0f}".format(it.subtotal).replace(",", ".") }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center muted">(tidak ada item)</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="divider"></div>
+
+{# ===== Total ===== #}
+<table>
+    <tr>
+        <td class="text-right" style="width: 70%;">Subtotal</td>
+        <td class="text-right mono" style="width: 30%;">Rp {{ "{:,.0f}".format(subtotal).replace(",", ".") }}</td>
+    </tr>
+    {% if diskon > 0 %}
+    <tr>
+        <td class="text-right">Diskon
+            {% if transaksi.keterangan_promo %}<span class="muted">({{ transaksi.keterangan_promo }})</span>{% endif %}
+        </td>
+        <td class="text-right mono">− Rp {{ "{:,.0f}".format(diskon).replace(",", ".") }}</td>
+    </tr>
+    {% endif %}
+    {% if diskon_benefit and diskon_benefit > 0 %}
+    <tr>
+        <td class="text-right">🎁 Benefit Member <span class="muted">({{ benefit_items|length }} item kuota)</span></td>
+        <td class="text-right mono">− Rp {{ "{:,.0f}".format(diskon_benefit).replace(",", ".") }}</td>
+    </tr>
+    {% endif %}
+    <tr>
+        <td class="text-right font-bold" style="font-size: 1.1em;">TOTAL</td>
+        <td class="text-right mono font-bold" style="font-size: 1.1em;">Rp {{ "{:,.0f}".format(total).replace(",", ".") }}</td>
+    </tr>
+</table>
+
+{% if benefit_items and benefit_items|length > 0 %}
+<div class="divider"></div>
+<div class="section-title">🎁 Benefit Member Terpakai</div>
+<table>
+    {% for b in benefit_items %}
+    <tr>
+        <td>
+            {{ b.nama_treatment }}
+            <span class="muted" style="font-size: 0.85em;">— {{ b.tier }} {{ b.periode }}</span>
+        </td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(b.nominal).replace(",", ".") }}</td>
+    </tr>
+    {% endfor %}
+</table>
+<div class="muted" style="font-size: 0.8em; margin-top: 4px;">
+    Treatment dibayar dengan kuota benefit membership — tidak dibebankan ke pasien.
+</div>
+{% endif %}
+
+<div class="divider"></div>
+
+{# ===== Pembayaran ===== #}
+<div class="section-title">Pembayaran</div>
+<table>
+    {% for p in pembayaran %}
+    <tr>
+        <td>{{ p.metode }}</td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(p.nominal).replace(",", ".") }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+        <td class="font-bold">Total Diterima</td>
+        <td class="text-right mono font-bold">Rp {{ "{:,.0f}".format(total_bayar).replace(",", ".") }}</td>
+    </tr>
+    {% if kembali > 0 %}
+    <tr>
+        <td class="muted">Kembali</td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(kembali).replace(",", ".") }}</td>
+    </tr>
+    {% endif %}
+</table>
+
+{# ===== Catatan + Tanda tangan ===== #}
+<div class="divider"></div>
+<div style="display:flex; gap:12px; margin-top:12px; align-items:flex-end;">
+    <div style="width:40%; border:1px solid #94a3b8; border-radius:4px; padding:5px; min-height:58px;">
+        <div class="muted" style="font-size:0.78em;">Catatan:</div>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="width:11%; text-align:center;">
+        <div class="muted" style="font-size:0.72em;">Ttd Pasien</div>
+        <div style="height:44px;"></div>
+        <div style="border-top:1px solid #0f172a;"></div>
+    </div>
+    <div style="width:11%; text-align:center;">
+        <div class="muted" style="font-size:0.72em;">Ttd Petugas</div>
+        <div style="height:44px;"></div>
+        <div style="border-top:1px solid #0f172a;"></div>
+    </div>
+</div>
+
+{# ===== Footer ===== #}
+{% if klinik.footer_text %}
+<div class="divider"></div>
+<div class="text-center muted" style="margin-top: 8px;">
+    {{ klinik.footer_text }}
+</div>
+{% endif %}
+
+<div class="text-center muted" style="margin-top: 16px; font-size: 0.75em;">
+    Dicetak: {{ tgl_cetak }} · Trx #{{ transaksi.id_transaksi }}
+</div>
+{% endblock %}

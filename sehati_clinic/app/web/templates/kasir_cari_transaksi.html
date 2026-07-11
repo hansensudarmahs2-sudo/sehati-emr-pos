@@ -1,0 +1,121 @@
+{% extends "_app.html" %}
+{% block title %}Cari Transaksi{% endblock %}
+{% block page_title %}Cari Transaksi{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/kasir/antrian" class="hover:text-blue-600">Antrian Kasir</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Cari Transaksi</span>
+    </div>
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Dari Tanggal</label>
+                <input type="date" name="tgl_mulai" value="{{ tgl_mulai }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Sampai Tanggal</label>
+                <input type="date" name="tgl_akhir" value="{{ tgl_akhir }}"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">No. RM (partial)</label>
+                <input type="text" name="no_rm" value="{{ no_rm }}"
+                       placeholder="mis. SEED-001"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">Status</label>
+                <select name="status" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    <option value="" {% if not status %}selected{% endif %}>— Semua —</option>
+                    <option value="BAYAR" {% if status == "BAYAR" %}selected{% endif %}>BAYAR</option>
+                    <option value="VOID" {% if status == "VOID" %}selected{% endif %}>VOID</option>
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/kasir/cari-transaksi"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Info banner #}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-lg mb-3 text-xs">
+        ⚡ Sebagai <strong>{{ user.role.value if user.role.value is defined else user.role }}</strong>,
+        Bapak/Ibu bisa Force Void transaksi sampai <strong>{{ max_force_days }} hari</strong> lalu.
+        Transaksi same-day silakan via halaman Pembayaran Berhasil.
+    </div>
+
+    {# Hasil count #}
+    <div class="text-sm text-slate-600 mb-3">
+        Menampilkan <strong>{{ total }}</strong> transaksi dari rentang {{ tgl_mulai }} sd {{ tgl_akhir }}.
+    </div>
+
+    {# Tabel hasil #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-left py-2 px-3">Trx</th>
+                    <th class="text-left py-2 px-3">Tanggal</th>
+                    <th class="text-left py-2 px-3">Pasien</th>
+                    <th class="text-right py-2 px-3">Total</th>
+                    <th class="text-center py-2 px-3">Status</th>
+                    <th class="text-center py-2 px-3">Hari Lalu</th>
+                    <th class="text-right py-2 px-3">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in items %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3 font-mono text-xs">#{{ it.id_transaksi }}</td>
+                    <td class="py-2 px-3 text-slate-700 text-xs">{{ it.waktu_bayar }}</td>
+                    <td class="py-2 px-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_pasien }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ it.no_rm }}</div>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono">Rp {{ "{:,.0f}".format(it.total_tagihan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-center">
+                        {% if it.status_transaksi == "VOID" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">VOID</span>
+                        {% if it.void_reason_code %}<div class="text-[10px] text-slate-500 mt-0.5">{{ it.void_reason_code }}</div>{% endif %}
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">BAYAR</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-center text-xs text-slate-600">{{ it.days_past }}d</td>
+                    <td class="py-2 px-3 text-right whitespace-nowrap">
+                        <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100">
+                            Detail
+                        </a>
+                        {% if it.can_force_void %}
+                        <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}#force-void-modal"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100 ml-1">
+                            ⚡ Force Void
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="py-6 text-center text-sm text-slate-400">Tidak ada transaksi di rentang ini.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}

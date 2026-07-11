@@ -1,0 +1,282 @@
+{% extends "_app.html" %}
+{% block title %}Pembayaran Berhasil - #{{ id_transaksi }}{% endblock %}
+{% block page_title %}Pembayaran Berhasil{% endblock %}
+
+{% block page_content %}
+<div class="max-w-2xl mx-auto">
+
+    {# Flash banner: ?err= atau ?ok= dari query param (mis. dari void validation) #}
+    {% set _err = request.query_params.get("err") %}
+    {% set _ok = request.query_params.get("ok") %}
+    {% if _err %}
+    <div class="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+        <div class="text-2xl">⚠</div>
+        <div class="flex-1">
+            <div class="font-bold text-red-800 text-sm mb-1">Aksi Gagal</div>
+            <div class="text-sm text-red-700">{{ _err }}</div>
+        </div>
+        <button type="button" onclick="this.parentElement.style.display='none'"
+                class="text-red-600 hover:text-red-800 text-lg leading-none">✕</button>
+    </div>
+    {% endif %}
+    {% if _ok %}
+    <div class="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+        <div class="text-2xl">✓</div>
+        <div class="flex-1 text-sm text-emerald-800">{{ _ok }}</div>
+        <button type="button" onclick="this.parentElement.style.display='none'"
+                class="text-emerald-600 hover:text-emerald-800 text-lg leading-none">✕</button>
+    </div>
+    {% endif %}
+
+    {# Big success card #}
+    <div class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8 mb-4 text-center">
+        <div class="text-6xl mb-3">✅</div>
+        <h2 class="text-2xl font-bold text-emerald-700 mb-1">Pembayaran Berhasil</h2>
+        <p class="text-sm text-slate-500">Transaksi #{{ id_transaksi }} · {{ tgl_bayar }}</p>
+    </div>
+
+    {# Pasien + ringkasan #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Pasien</div>
+                <div class="font-semibold text-slate-800">{{ nama_pasien }}</div>
+                <div class="text-xs font-mono text-slate-500">{{ no_rm }}</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-slate-500 uppercase">No. Transaksi</div>
+                <div class="font-mono font-semibold text-slate-800">#{{ id_transaksi }}</div>
+            </div>
+        </div>
+    </div>
+
+    {# Highlight kembalian #}
+    <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-6 mb-4">
+        <div class="grid grid-cols-3 gap-3 text-sm">
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Total Tagihan</div>
+                <div class="font-semibold text-slate-800">Rp {{ "{:,.0f}".format(total_tagihan|float).replace(",", ".") }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Diterima</div>
+                <div class="font-semibold text-slate-800">Rp {{ "{:,.0f}".format(total_bayar|float).replace(",", ".") }}</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-amber-700 uppercase font-bold">Kembalian</div>
+                <div class="text-2xl font-bold text-amber-700">Rp {{ "{:,.0f}".format(kembalian|float).replace(",", ".") }}</div>
+            </div>
+        </div>
+    </div>
+
+    {# Print info + buttons #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-start gap-3 mb-4">
+            <div class="text-2xl">🖨</div>
+            <div class="flex-1">
+                <div class="font-semibold text-slate-800">Cetak Nota</div>
+                <p class="text-sm text-slate-500">
+                    Tab cetak otomatis dibuka <span class="font-mono">({{ default_paper.upper() }})</span>.
+                    Kalau tidak terbuka (popup blocker), klik salah satu tombol di bawah.
+                </p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <a href="/web/kasir/nota/{{ id_transaksi }}/cetak?paper=a5"
+               target="_blank"
+               class="inline-flex items-center justify-center gap-2 px-4 py-3 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                🖨 Cetak Ulang (A5)
+            </a>
+            <a href="/web/kasir/nota/{{ id_transaksi }}/cetak?paper=thermal"
+               target="_blank"
+               class="inline-flex items-center justify-center gap-2 px-4 py-3 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium">
+                🖨 Cetak Ulang (Thermal)
+            </a>
+        </div>
+    </div>
+
+    {# Void Transaksi (DEC-063, #364) — same-day window #}
+    <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+        <div class="flex items-start gap-3">
+            <div class="text-2xl">⚠</div>
+            <div class="flex-1">
+                <div class="font-semibold text-red-800 text-sm">Salah input / customer cancel?</div>
+                <p class="text-xs text-red-700 mt-1">
+                    Void transaksi hanya bisa dilakukan hari ini sampai pukul 00:00.
+                    Setelah lewat tengah malam, hubungi Admin/Owner.
+                </p>
+                <button type="button" onclick="document.getElementById('void-modal').classList.remove('hidden')"
+                        class="mt-3 px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700 font-medium">
+                    Void Transaksi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Selesai → kembali ke antrian #}
+    <div class="flex items-center justify-between gap-3">
+        <a href="/web/kasir/tagihan/{{ id_kunjungan }}"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+            ← Lihat Detail Tagihan
+        </a>
+        <a href="/web/kasir/antrian"
+           class="px-6 py-3 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+            ✓ Selesai → Antrian Berikutnya
+        </a>
+    </div>
+</div>
+
+{# ============================================================
+   VOID MODAL (DEC-063, #364) — kasir same-day void
+   ============================================================ #}
+<div id="void-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <form method="POST" action="/web/kasir/transaksi/{{ id_transaksi }}/void"
+              onsubmit="return validateVoidForm(this);">
+            {{ csrf_input(request) }}
+
+            <div class="p-5 border-b border-slate-200">
+                <h3 class="text-lg font-bold text-red-700 flex items-center gap-2">
+                    <span>⚠</span> Void Transaksi #{{ id_transaksi }}
+                </h3>
+                <p class="text-xs text-slate-500 mt-1">Aksi ini akan tercatat permanen di audit log.</p>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Alasan Void <span class="text-red-500">*</span></label>
+                    <select name="reason_code" required
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500"
+                            onchange="updateNoteHint(this.value)">
+                        <option value="">— Pilih alasan —</option>
+                        <option value="SALAH_INPUT">Salah Input (qty/harga keliru)</option>
+                        <option value="CUSTOMER_CANCEL">Customer Cancel (berubah pikiran/keliru)</option>
+                        <option value="REFUND_PASCA_TINDAKAN">Refund Pasca Tindakan (alergi/treatment keliru)</option>
+                        <option value="ITEM_RUSAK">Item Rusak (rusak/expiring)</option>
+                        <option value="DUPLICATE_TRANSAKSI">Duplicate Transaksi (double input)</option>
+                        <option value="OTHER">Other (jelaskan detail)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Catatan <span class="text-red-500">*</span>
+                        <span id="note-hint" class="text-xs text-slate-500 font-normal">(pilih alasan dulu)</span>
+                    </label>
+                    <textarea name="reason_note" required rows="3"
+                              placeholder="Jelaskan secara singkat alasan void..."
+                              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500"></textarea>
+                </div>
+
+                {% if items_produk %}
+                <div class="border-t border-slate-200 pt-3">
+                    <label class="block text-sm font-medium text-slate-700 mb-2">
+                        Reverse Stok Produk?
+                        <span class="text-xs text-slate-500 font-normal">(Centang produk yang masih utuh & bisa dijual)</span>
+                    </label>
+                    <div class="space-y-1 bg-slate-50 p-3 rounded-lg max-h-40 overflow-y-auto">
+                        {% for item in items_produk %}
+                        <div class="p-1 rounded hover:bg-slate-100">
+                            <label class="flex items-center gap-2 text-sm cursor-pointer">
+                                <input type="checkbox" name="items_reverse_stok_list" value="{{ item.id_detail }}"
+                                       class="rounded text-emerald-600 focus:ring-emerald-500">
+                                <span class="flex-1">{{ item.nama_produk }}</span>
+                                <span class="text-xs text-slate-500">qty {{ item.qty }}</span>
+                            </label>
+                            <div class="ml-6 mt-1">
+                                <select name="lot_{{ item.id_detail }}" class="text-xs border border-slate-300 rounded px-1 py-0.5 w-full">
+                                    <option value="">— Buat lot retur baru (batch tak diketahui) —</option>
+                                    {% for l in item.lots %}
+                                    <option value="{{ l.id_lot }}">{{ l.batch_no or "(tanpa batch)" }}{% if l.tgl_ed %} · ED {{ l.tgl_ed.strftime("%d/%m/%y") }}{% endif %} · sisa {{ l.qty_sisa|int if l.qty_sisa == l.qty_sisa|int else l.qty_sisa }}{% if l.status == "HABIS" %} (habis){% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="text-slate-400" style="font-size:10px">Pilih batch fisik yang dikembalikan (baca label). Kosong = lot retur baru.</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <p class="text-xs text-amber-700 mt-1">
+                        ⚠ Jika produk sudah dipakai/dibuka, JANGAN centang. Klinik tanggung loss.
+                    </p>
+                </div>
+                {% endif %}
+
+                <input type="hidden" name="items_reverse_stok" id="hidden-reverse-list" value="">
+            </div>
+
+            <div class="p-5 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button type="button" onclick="document.getElementById('void-modal').classList.add('hidden')"
+                        class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Batal
+                </button>
+                <button type="submit"
+                        class="px-5 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                    Void Transaksi
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function updateNoteHint(code) {
+        var minChars = {
+            'SALAH_INPUT': 5, 'CUSTOMER_CANCEL': 5, 'ITEM_RUSAK': 5,
+            'DUPLICATE_TRANSAKSI': 5, 'REFUND_PASCA_TINDAKAN': 10, 'OTHER': 20,
+        };
+        var hint = document.getElementById('note-hint');
+        if (code && minChars[code]) {
+            hint.textContent = '(min ' + minChars[code] + ' karakter)';
+        } else {
+            hint.textContent = '(pilih alasan dulu)';
+        }
+    }
+    function syncReverseList(form) {
+        var checks = form.querySelectorAll('input[name="items_reverse_stok_list"]:checked');
+        var hidden = form.querySelector('#hidden-reverse-list');
+        if (hidden) {
+            hidden.value = Array.from(checks).map(function(c) { return c.value; }).join(',');
+        }
+        return true;
+    }
+
+    // Min chars per reason (sinkron dengan _VOID_REASON_MIN_CHARS di kasir_service.py)
+    var VOID_NOTE_MIN_CHARS = {
+        'SALAH_INPUT': 5, 'CUSTOMER_CANCEL': 5, 'ITEM_RUSAK': 5,
+        'DUPLICATE_TRANSAKSI': 5, 'REFUND_PASCA_TINDAKAN': 10, 'OTHER': 20,
+    };
+
+    function validateVoidForm(form) {
+        var reason = form.querySelector('select[name="reason_code"]').value;
+        var note = (form.querySelector('textarea[name="reason_note"]').value || '').trim();
+        var minChars = VOID_NOTE_MIN_CHARS[reason] || 5;
+        if (!reason) {
+            alert('Pilih alasan void terlebih dahulu.');
+            return false;
+        }
+        if (note.length < minChars) {
+            alert('Catatan untuk alasan "' + reason + '" minimal ' + minChars + ' karakter.\nSaat ini: ' + note.length + ' karakter.');
+            return false;
+        }
+        syncReverseList(form);
+        window.appConfirm('PERHATIAN: Void transaksi ini TIDAK BISA dibatalkan setelah submit.\n\nLanjutkan?').then(function(ok){
+            if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
+        });
+        return false;
+    }
+</script>
+
+<script>
+    // Auto-open print tab dengan default_paper dari klinik config
+    (function autoOpenPrint() {
+        var paper = {{ default_paper|tojson }};
+        var url = "/web/kasir/nota/{{ id_transaksi }}/cetak?paper=" + paper;
+        setTimeout(function() {
+            var win = window.open(url, "_blank");
+            if (!win || win.closed || typeof win.closed === "undefined") {
+                console.warn("Popup print diblokir browser. Klik tombol Cetak Ulang manual.");
+            }
+        }, 300);
+    })();
+</script>
+{% endblock %}

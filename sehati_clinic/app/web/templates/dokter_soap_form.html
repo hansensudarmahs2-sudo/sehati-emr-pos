@@ -1,0 +1,430 @@
+{% extends "_app.html" %}
+{% block title %}Input Medis SOAP — {{ pasien.nama }}{% endblock %}
+{% block page_title %}Input Medis (SOAP){% endblock %}
+
+{% block page_content %}
+<style>
+.soap-page{max-width:1400px;margin:0 auto}
+.soap-cols{display:flex;gap:16px;align-items:flex-start}
+.soap-form-col{flex:1 1 60%;min-width:0}
+.soap-hist-col{flex:0 0 38%;max-width:38%;position:sticky;top:var(--soap-hdr,150px);max-height:calc(100vh - var(--soap-hdr,150px) - 16px);overflow-y:auto}
+.soap-hist-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.soap-hist-head{position:sticky;top:0;background:#f8fafc;border-bottom:1px solid #eef1f6;padding:8px 12px;font-size:12px;font-weight:600;color:#1f3864;border-radius:12px 12px 0 0}
+.soap-hist-item{padding:8px 12px;border-bottom:1px solid #f1f5f9}
+.soap-hist-item:last-child{border-bottom:0}
+.soap-hist-meta{font-size:10px;color:#94a3b8}
+.soap-hist-dx{font-size:12px;color:#1f2937;margin-top:1px;line-height:1.35}
+.soap-hist-plan{font-size:11px;color:#64748b;margin-top:2px}
+.soap-hist-empty{padding:20px 12px;text-align:center;color:#94a3b8;font-size:12px}
+@media (max-width:900px){.soap-cols{flex-direction:column}.soap-hist-col{position:static;flex:1 1 auto;max-width:100%;max-height:none}}
+</style>
+<div class="soap-page">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/dokter/antrian" class="hover:text-blue-600">Antrian Saya</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ pasien.nama }} (#{{ kunjungan.nomor_antrean }})</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {# Sticky header card — pasien info + alergi + antropometri #}
+    <div id="soap-sticky-header" class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-4 sticky top-0 z-30">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {# Kolom 1: Identitas #}
+            <div class="border-r border-slate-100 pr-4">
+                <div class="mb-1">
+                    <div class="font-bold text-slate-800">{{ pasien.nama }}</div>
+                    <div class="text-xs text-slate-500 font-mono">{{ pasien.no_rm }}</div>
+                </div>
+                <div class="text-xs text-slate-600">
+                    <span>{{ pasien.jenis_kelamin or "-" }}</span>
+                    {% if pasien.tgl_lahir %}<span class="ml-2">• Lahir {{ pasien.tgl_lahir }}</span>{% endif %}
+                </div>
+                <div class="text-xs text-slate-500 mt-1">
+                    Antrean #{{ kunjungan.nomor_antrean }} • Status: <strong>{{ kunjungan.status_antrian }}</strong>
+                </div>
+            </div>
+
+            {# Kolom 2: Alergi (CRITICAL — red banner kalau ada) #}
+            <div class="border-r border-slate-100 pr-4">
+                {% if pasien.alergi and pasien.alergi|length > 0 %}
+                <div class="bg-red-50 border border-red-300 rounded-lg p-2">
+                    <div class="text-xs font-bold text-red-700 mb-1 flex items-center gap-1">
+                        ⚠ ALERGI ({{ pasien.alergi|length }})
+                    </div>
+                    <div class="space-y-1">
+                        {% for a in pasien.alergi %}
+                        <div class="text-xs">
+                            <strong class="text-red-800">{{ a.alergen }}</strong>
+                            {% if a.tingkat_keparahan %}
+                            <span class="ml-1 px-1 rounded text-[10px] font-medium
+                                {% if a.tingkat_keparahan == 'BERAT' %}bg-red-200 text-red-900
+                                {% elif a.tingkat_keparahan == 'SEDANG' %}bg-amber-200 text-amber-900
+                                {% else %}bg-slate-200 text-slate-700{% endif %}">{{ a.tingkat_keparahan }}</span>
+                            {% endif %}
+                            {% if a.gejala %}<div class="text-red-700 text-[10px]">{{ a.gejala }}</div>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-xs text-slate-400 text-center py-3">Tidak ada alergi tercatat</div>
+                {% endif %}
+
+                {% if pasien.penyakit_kronis and pasien.penyakit_kronis|length > 0 %}
+                <div class="mt-2">
+                    <div class="text-xs font-medium text-slate-600 mb-1">🩺 Penyakit Kronis:</div>
+                    {% for pk in pasien.penyakit_kronis %}
+                    <div class="text-xs text-slate-700">• {{ pk.nama_penyakit }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# TODO-NEW-1 #29A — Dokter inline kelola alergi (collapsible) #}
+                {% set _ur = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+                {% if _ur in ["DOKTER", "ADMIN", "OWNER", "SUPERADMIN"] %}
+                <div class="text-[10px] text-blue-600 cursor-pointer mt-1 hover:underline"
+                     onclick="document.getElementById('soap-kelola-alergi').classList.toggle('hidden')">
+                    ⚙ Kelola Alergi
+                </div>
+                <div id="soap-kelola-alergi" class="hidden">
+                    {% set alergi_action_base = "/web/dokter/kunjungan/" ~ kunjungan.id_kunjungan ~ "/alergi" %}
+                    {% set alergi_panel_uid = "kj" ~ kunjungan.id_kunjungan ~ "" %}
+                    {% include "_dokter_alergi_panel.html" %}
+                </div>
+                {% endif %}
+
+                {# TODO-NEW-1 #29B — Dokter inline kelola penyakit kronis (collapsible) #}
+                {% if _ur in ["DOKTER", "ADMIN", "OWNER", "SUPERADMIN"] %}
+                <div class="text-[10px] text-blue-600 cursor-pointer mt-1 hover:underline"
+                     onclick="document.getElementById('soap-kelola-pk').classList.toggle('hidden')">
+                    ⚙ Kelola Penyakit Kronis
+                </div>
+                <div id="soap-kelola-pk" class="hidden">
+                    {% set pk_action_base = "/web/dokter/kunjungan/" ~ kunjungan.id_kunjungan ~ "/penyakit-kronis" %}
+                    {% set pk_panel_uid = "kj" ~ kunjungan.id_kunjungan ~ "" %}
+                    {% set pk_next = "/web/dokter/kunjungan/" ~ kunjungan.id_kunjungan ~ "/soap" %}
+                    {% include "_dokter_penyakit_kronis_panel.html" %}
+                </div>
+                {% endif %}
+            </div>
+
+            {# Kolom 3: Antropometri (Laporan AI modul). Dokter: draft belum-approve tampil dulu. #}
+            <div>
+                <div class="text-xs font-medium text-slate-600 mb-1">📏 Antropometri (AI)</div>
+                {% if not (antro_laporan and antro_laporan.enabled) %}
+                <div class="text-xs text-slate-400 py-2">Modul belum aktif.</div>
+                {% elif antro_laporan.error %}
+                <div class="text-xs text-amber-700 py-2">⚠ Modul tak terhubung.</div>
+                {% else %}
+                    {% if antro_laporan.pending %}
+                    {% for r in antro_laporan.pending %}
+                    <div class="mb-1.5 border border-amber-300 bg-amber-50 rounded px-2 py-1.5">
+                        <div class="text-xs font-semibold text-amber-800">⏳ Draft menunggu approval</div>
+                        <div class="text-[11px] text-slate-500 truncate">{{ r.date or r.updated_at or "" }}</div>
+                        <a href="{{ r.view_url }}" target="_blank" rel="noopener"
+                           class="inline-block mt-1 text-[11px] px-2 py-0.5 bg-amber-600 text-white rounded hover:bg-amber-700">
+                            Tinjau &amp; approve ↗
+                        </a>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% if antro_laporan.processing %}
+                    <div class="mb-1.5 border border-slate-300 bg-slate-50 rounded px-2 py-1.5">
+                        <div class="text-xs font-medium text-slate-600">⏳ Sedang diproses</div>
+                        <div class="text-[11px] text-slate-400">{{ antro_laporan.processing|length }} laporan dalam pembuatan…</div>
+                    </div>
+                    {% endif %}
+                    {% if antro_laporan.approved %}
+                    {% for r in antro_laporan.approved[:2] %}
+                    <div class="mb-1 flex items-center justify-between gap-2 text-xs">
+                        <span class="text-emerald-700 truncate">✓ {{ r.date or "Disetujui" }}</span>
+                        <a href="{{ r.view_url }}" target="_blank" rel="noopener"
+                           class="text-blue-600 hover:underline whitespace-nowrap">Buka ↗</a>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% if not antro_laporan.pending and not antro_laporan.processing and not antro_laporan.approved %}
+                    <div class="text-xs text-slate-400 py-2">Belum ada laporan.</div>
+                    {% endif %}
+                {% endif %}
+
+                {% if antro_laporan and antro_laporan.enabled %}
+                <form method="POST" action="/web/pasien/{{ pasien.id_pasien }}/antro/buat" class="mt-1" target="_blank" rel="noopener">
+                    {{ csrf_input(request) }}
+                    <input type="hidden" name="return_to" value="/web/dokter/kunjungan/{{ kunjungan.id_kunjungan }}/soap">
+                    <button type="submit" class="bg-teal-600 text-white rounded hover:bg-teal-700" style="font-size:10px;padding:3px 8px">
+                        + Buat Laporan
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Keluhan utama dari FO #}
+        {% if kunjungan.keluhan_utama %}
+        <div class="mt-3 pt-3 border-t border-slate-100">
+            <div class="text-xs font-medium text-slate-600 mb-1">📝 Keluhan dari FO:</div>
+            <div class="text-sm text-slate-700">{{ kunjungan.keluhan_utama }}</div>
+        </div>
+        {% endif %}
+
+        <div class="mt-3 pt-3 border-t border-slate-100 flex items-center gap-3 text-xs">
+            <a href="/web/pasien/{{ pasien.id_pasien }}" target="_blank"
+               class="text-blue-600 hover:text-blue-800">📋 Detail Pasien (tab baru)</a>
+            <a href="/web/pasien/{{ pasien.id_pasien }}/riwayat" target="_blank"
+               class="text-blue-600 hover:text-blue-800">📜 Riwayat Lengkap (tab baru)</a>
+        </div>
+    </div>
+
+    {# SOAP form + panel riwayat (2 kolom) #}
+    <div class="soap-cols">
+    <div class="soap-form-col">
+    <form method="POST" action="/web/dokter/kunjungan/{{ kunjungan.id_kunjungan }}/soap"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+        {{ csrf_input(request) }}
+
+        {% if is_edit_mode %}
+        <div class="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 text-sm">
+            <strong class="text-amber-800">📝 Mode Ubah Konsul</strong>
+            <p class="text-amber-700 text-xs mt-1">
+                Mengubah SOAP untuk kunjungan ini.
+                Status sekarang: <strong>{{ kunjungan.status_antrian }}</strong>.
+                Submit akan menyimpan versi baru SOAP (versi lama tetap di riwayat).
+                {% if kunjungan.status_antrian not in ("ANTRI_KONSULTASI", "KONSULTASI") %}
+                <br><strong>Catatan:</strong> Karena workflow sudah berjalan
+                ({{ kunjungan.status_antrian }}),
+                status kunjungan TIDAK akan di-reset — perawat/kasir/apoteker tidak terganggu.
+                {% endif %}
+                Aksi ini ter-audit (siapa & kapan).
+            </p>
+        </div>
+        {% endif %}
+
+        <div class="text-sm text-slate-500 mb-2">
+            <strong class="text-slate-700">Minimal 1</strong> dari Anamnesa / Pemeriksaan Fisik / Diagnosa wajib diisi.
+        </div>
+
+        {# 1. Anamnesa #}
+        <div>
+            <label for="anamnesa" class="block text-sm font-semibold text-slate-800 mb-1">
+                S — Subjective (Anamnesa)
+            </label>
+            <p class="text-xs text-slate-500 mb-1">Keluhan pasien, riwayat sakit, durasi, lokasi nyeri, dll.</p>
+            <textarea name="anamnesa" id="anamnesa" rows="4"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.anamnesa or "" }}</textarea>
+        </div>
+
+        {# 2. Pemeriksaan Fisik #}
+        <div>
+            <label for="pemeriksaan_fisik" class="block text-sm font-semibold text-slate-800 mb-1">
+                O — Objective (Pemeriksaan Fisik)
+            </label>
+            <p class="text-xs text-slate-500 mb-1">Hasil pemeriksaan fisik, tanda vital, observasi visual.</p>
+            <textarea name="pemeriksaan_fisik" id="pemeriksaan_fisik" rows="4"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.pemeriksaan_fisik or "" }}</textarea>
+        </div>
+
+        {# 3. Diagnosa (Assessment) #}
+        <div>
+            <label for="diagnosa" class="block text-sm font-semibold text-slate-800 mb-1">
+                A — Assessment (Diagnosa)
+            </label>
+            <p class="text-xs text-slate-500 mb-1">Kesimpulan klinis, working diagnosis, differential diagnosis.</p>
+            <textarea name="diagnosa" id="diagnosa" rows="3"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.diagnosa or "" }}</textarea>
+        </div>
+
+        {# P — Plan: Tindakan + Resep #}
+        <div class="border-t border-slate-100 pt-5">
+            <div class="text-sm font-semibold text-slate-800 mb-1">P — Plan: Tindakan & Resep</div>
+            <p class="text-xs text-slate-500 mb-3">
+                Pilih treatment yang dikerjakan perawat + produk yang diresepkan.
+                Catatan per-row untuk perawat (treatment) dan aturan pakai (produk).
+            </p>
+        </div>
+
+        {# Tindakan (multi-row) #}
+        <div>
+            <div class="flex items-center justify-between mb-2">
+                <h4 class="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    💉 Tindakan / Treatment
+                </h4>
+                <button type="button"
+                        hx-get="/web/dokter/_tindakan-row"
+                        hx-target="#tindakan-rows"
+                        hx-swap="beforeend"
+                        class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">
+                    + Tambah Tindakan
+                </button>
+            </div>
+
+            {# P2-#3 — Kuota benefit banner (membantu dokter lihat kuota tersedia) #}
+            {% if kuota_map and kuota_map|length > 0 %}
+            <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs">
+                <div class="font-semibold text-emerald-800 mb-1.5 flex items-center gap-1">
+                    🎁 Kuota Membership Tersedia ({{ kuota_map|length }} treatment)
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                    {% for tid, k in kuota_map.items() %}
+                    <div class="flex items-center justify-between px-2 py-1 bg-white rounded border border-emerald-100">
+                        <span class="text-slate-700 truncate">
+                            {% for t in master_treatments %}{% if t.id_treatment == tid %}{{ t.nama_treatment }}{% endif %}{% endfor %}
+                        </span>
+                        <span class="font-mono font-semibold text-emerald-700 ml-2">{{ k.sisa }}/{{ k.kuota_total }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="text-[10px] text-emerald-700 italic mt-1.5">
+                    Pilih treatment di dropdown → auto pakai kuota → tagihan Rp 0.
+                </div>
+            </div>
+            {% else %}
+            <div class="mb-3 p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-500">
+                ℹ Pasien tidak punya kuota benefit aktif
+                {% if pasien.tipe_membership and pasien.tipe_membership != "REGULAR" %}
+                (status: {{ pasien.tipe_membership }}, tapi tidak ada membership aktif atau belum ada benefit untuk tier ini —
+                <a href="/web/pasien/{{ pasien.id_pasien }}/membership" target="_blank" class="text-blue-600 hover:underline">Kelola Membership</a>).
+                {% else %}
+                (status: REGULAR).
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {# Existing tindakan (read-only display, untuk Ubah mode) #}
+            {% if existing_tindakan and existing_tindakan|length > 0 %}
+            <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                <div class="font-medium text-slate-600 mb-2">Tindakan sebelumnya ({{ existing_tindakan|length }}):</div>
+                <ul class="space-y-1">
+                    {% for t in existing_tindakan %}
+                    <li class="flex items-center justify-between">
+                        <span class="text-slate-700">• {{ t.nama_treatment }}</span>
+                        <span class="text-slate-500">Rp {{ "{:,.0f}".format(t.harga).replace(",", ".") }} · {{ t.status_tindakan }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if existing_series and existing_series|length > 0 %}
+            <div class="mb-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs">
+                <div class="font-medium text-purple-700 mb-2">Rencana series ({{ existing_series|length }} sesi):</div>
+                <ul class="space-y-1">
+                    {% for s in existing_series %}
+                    <li class="flex items-center justify-between">
+                        <span class="text-purple-800">• Sesi #{{ s.urutan_sesi }} — {{ s.nama_tindakan }}</span>
+                        <span class="text-purple-600">{{ s.status }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <div id="tindakan-rows" class="space-y-2"></div>
+            <p class="text-xs text-slate-500 mt-2">
+                Tindakan single → lempar ke perawat hari ini (status kunjungan → ANTRI_TREATMENT).
+                Series → buat rencana N sesi (status → ANTRI_BAYAR untuk konsultasi fee dulu).
+                Kosongkan kalau tidak ada tindakan.
+            </p>
+        </div>
+
+        {# Resep (multi-row) #}
+        <div>
+            <div class="flex items-center justify-between mb-2">
+                <h4 class="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    💊 Resep Produk
+                </h4>
+                <button type="button"
+                        hx-get="/web/dokter/_resep-row"
+                        hx-target="#resep-rows"
+                        hx-swap="beforeend"
+                        class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">
+                    + Tambah Resep
+                </button>
+            </div>
+
+            {# Existing resep (read-only display, untuk Ubah mode) #}
+            {% if existing_resep and existing_resep|length > 0 %}
+            <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                <div class="font-medium text-slate-600 mb-2">Resep sebelumnya ({{ existing_resep|length }}):</div>
+                <ul class="space-y-1">
+                    {% for r in existing_resep %}
+                    <li class="flex items-start justify-between gap-2">
+                        <span class="text-slate-700">• [{{ r.kode_produk }}] {{ r.nama_produk }} × {{ r.qty }}{% if r.aturan_pakai %} <em class="text-slate-500">({{ r.aturan_pakai }})</em>{% endif %}</span>
+                        <span class="text-slate-500 whitespace-nowrap">{{ r.status_item }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <div id="resep-rows" class="space-y-2"></div>
+            <p class="text-xs text-slate-500 mt-2">
+                Pilih produk dari master + qty + aturan pakai. Kosongkan kalau tidak ada resep.
+            </p>
+        </div>
+
+        {# Kontrol / Follow-up (modul #7) — override dokter atas jadwal follow-up #}
+        <div class="bg-sky-50 border border-sky-100 rounded-lg p-3 mb-4">
+            <div class="text-sm font-semibold text-slate-800 mb-1">🔔 Rencana Kontrol / Follow-up</div>
+            <p class="text-xs text-slate-500 mb-2">
+                Isi tanggal kontrol berikutnya bila ingin menimpa jadwal default.
+                Kosongkan = pakai default (konsultasi 1 minggu / treatment sesuai master).
+            </p>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <input type="date" name="tgl_kontrol_selanjutnya"
+                       value="{{ kunjungan.tgl_kontrol_selanjutnya or '' }}"
+                       class="border border-slate-300 rounded px-2 py-1 text-sm" style="min-width:150px">
+                <input type="text" name="catatan_kontrol" maxlength="255"
+                       value="{{ kunjungan.catatan_kontrol or '' }}"
+                       placeholder="Catatan kontrol (mis. evaluasi jerawat, lanjut sesi 2)"
+                       class="border border-slate-300 rounded px-2 py-1 text-sm flex-1">
+            </div>
+        </div>
+
+        {# Submit #}
+        <div class="flex items-center justify-between pt-4 border-t border-slate-100">
+            <a href="/web/dokter/antrian"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                ← Batal & Kembali
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                ✓ Simpan SOAP
+            </button>
+        </div>
+    </form>
+    </div>{# /soap-form-col #}
+
+    <aside class="soap-hist-col">
+      <div class="soap-hist-card">
+        <div class="soap-hist-head">📜 Riwayat Kunjungan{% if soap_history %} ({{ soap_history|length }}){% endif %}</div>
+        {% if soap_history %}
+          {% for h in soap_history %}
+          <div class="soap-hist-item">
+            <div class="soap-hist-meta">{{ h.tanggal }}{% if h.dokter %} · {{ h.dokter }}{% endif %}</div>
+            {% if h.diagnosa %}<div class="soap-hist-dx">Dx: {{ h.diagnosa }}</div>{% endif %}
+            {% if h.treatments or h.products %}
+            <div class="soap-hist-plan">{% if h.treatments %}💉 {{ h.treatments|join(", ") }}{% endif %}{% if h.treatments and h.products %} · {% endif %}{% if h.products %}💊 {{ h.products|join(", ") }}{% endif %}</div>
+            {% endif %}
+            {% if not h.diagnosa and not h.treatments and not h.products %}<div class="soap-hist-dx">—</div>{% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="soap-hist-empty">Belum ada riwayat kunjungan sebelumnya untuk pasien ini.</div>
+        {% endif %}
+      </div>
+    </aside>
+    </div>{# /soap-cols #}
+</div>
+
+<script>
+(function(){
+  function sync(){var h=document.getElementById('soap-sticky-header');if(h){document.documentElement.style.setProperty('--soap-hdr',(h.offsetHeight+14)+'px');}}
+  window.addEventListener('load',sync);window.addEventListener('resize',sync);setTimeout(sync,150);
+})();
+</script>
+{% endblock %}

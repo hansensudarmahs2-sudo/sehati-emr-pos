@@ -1,0 +1,17 @@
+# ============================================================================
+# systemd unit — Sehati pip-audit (scan kerentanan dependensi Python, V14.5.2)
+# Dipicu oleh sehati-pipaudit.timer (mingguan). Salin ke /etc/systemd/system/.
+# ============================================================================
+[Unit]
+Description=Sehati pip-audit (scan kerentanan dependensi Python)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sehati
+Group=sehati
+WorkingDirectory=/opt/sehati_clinic
+# Skrip auto-detect .venv. Exit 2 = ada temuan → systemd tandai 'failed' (mudah dimonitor).
+ExecStart=/bin/bash /opt/sehati_clinic/scripts/security_pip_audit.sh
+NoNewPrivileges=true

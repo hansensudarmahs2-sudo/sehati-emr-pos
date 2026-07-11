@@ -1,0 +1,156 @@
+{% extends "_app.html" %}
+{% block title %}Resep #{{ detail.id_kunjungan }} - {{ detail.nama_pasien }}{% endblock %}
+{% block page_title %}Detail Resep{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/apotek" class="hover:text-teal-600">Apotek</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ detail.nama_pasien }}</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    {# Header pasien #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 sticky top-0 z-30">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="font-bold text-slate-800 text-lg">{{ detail.nama_pasien }}</div>
+                <div class="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                    <span class="font-mono">{{ detail.no_rm }}</span>
+                    <span>•</span>
+                    <span>Kunjungan #{{ detail.id_kunjungan }}</span>
+                    <span>•</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700 font-medium">ANTRI_OBAT</span>
+                </div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-slate-500">Total Item</div>
+                <div class="text-2xl font-bold text-teal-700">{{ detail.total_item }}</div>
+            </div>
+        </div>
+    </div>
+
+    {# Stok warning kalau ada item kurang #}
+    {% if not detail.semua_stok_cukup %}
+    <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4 text-sm flex items-start gap-2">
+        <span class="text-xl">⚠</span>
+        <div>
+            <div class="font-semibold">Ada item dengan stok tidak mencukupi!</div>
+            <p class="text-xs mt-1">Periksa baris merah di bawah. Hubungi Admin/Owner untuk restock dulu sebelum diserahkan.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Daftar obat #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            💊 Daftar Obat ({{ detail.daftar_obat|length }})
+        </h3>
+
+        {% if detail.daftar_obat %}
+        <div class="space-y-3">
+            {% for o in detail.daftar_obat %}
+            <div class="border {% if not o.stok_cukup %}border-red-300 bg-red-50/30{% else %}border-slate-200{% endif %} rounded-lg p-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex-1">
+                        <div class="font-medium text-slate-800">
+                            {{ o.nama_produk }}
+                        </div>
+                        <div class="text-xs text-slate-500 mt-1 font-mono">{{ o.kode_produk }}</div>
+                        {% if o.aturan_pakai %}
+                        <div class="mt-2 text-sm text-slate-700 bg-amber-50 border-l-2 border-amber-300 px-2 py-1 rounded-r">
+                            <span class="text-xs text-amber-700 font-medium uppercase">Aturan Pakai:</span>
+                            {{ o.aturan_pakai }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="text-right whitespace-nowrap">
+                        <div class="text-2xl font-bold text-slate-800">{{ o.qty }}</div>
+                        <div class="text-xs text-slate-500">{{ o.satuan or 'unit' }}</div>
+                    </div>
+                </div>
+
+                <div class="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
+                    <div class="text-slate-500">
+                        Stok terkini: <span class="font-mono font-semibold {% if not o.stok_cukup %}text-red-600{% else %}text-emerald-700{% endif %}">{{ o.stok_terkini }}</span>
+                        {% if o.stok_cukup %}
+                        <span class="ml-2 text-emerald-600">✓ Cukup</span>
+                        {% else %}
+                        <span class="ml-2 text-red-600 font-semibold">✗ Kurang!</span>
+                        {% endif %}
+                        {% set _lots = fefo_map.get(o.id_produk, []) %}
+                        {% if _lots %}
+                        <div class="mt-1 text-slate-500">Batch (FEFO):
+                            {% for l in _lots %}
+                            <span class="inline-block px-1.5 py-0.5 bg-slate-100 rounded mr-1 mt-0.5">{{ l.qty|int if l.qty == l.qty|int else l.qty }}× {{ l.batch_no or "(tanpa batch)" }}{% if l.tgl_ed %} · ED {{ l.tgl_ed.strftime("%d/%m/%y") }}{% endif %}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% set si = o.status_item or "" %}
+                        {% if si == "DIBAYAR" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">✓ Sudah Dibayar</span>
+                        {% elif si == "PENDING" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">⏸ Belum Dibayar</span>
+                        {% elif si == "BATAL" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-red-50 text-red-700 font-medium">✗ Batal</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600">{{ si }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-400 text-center py-6">Tidak ada item obat untuk kunjungan ini.</p>
+        {% endif %}
+    </div>
+
+    {# Action: Serahkan Obat #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h4 class="font-semibold text-slate-800">Serahkan Obat ke Pasien</h4>
+                <p class="text-xs text-slate-500 mt-1">
+                    Stok akan terpotong otomatis dan kunjungan ditutup (COMPLETED).
+                    Pastikan semua obat sudah disiapkan.
+                </p>
+            </div>
+            <form method="POST" action="/web/apotek/kunjungan/{{ detail.id_kunjungan }}/serahkan"
+                  data-confirm="Yakin serah obat ke {{ detail.nama_pasien }}?\nStok akan terpotong dan kunjungan ditutup.">
+                {{ csrf_input(request) }}
+                <button type="submit"
+                        class="inline-flex items-center px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition font-semibold"
+                        {% if not detail.semua_stok_cukup %}disabled{% endif %}>
+                    💊 Serahkan Obat
+                </button>
+            </form>
+        </div>
+        {% if not detail.semua_stok_cukup %}
+        <p class="text-xs text-red-600 mt-3">⚠ Tombol disable karena ada item dengan stok kurang. Restock dulu di Master Produk.</p>
+        {% endif %}
+    </div>
+
+    <div class="flex items-center justify-between">
+        <a href="/web/apotek"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+            ← Kembali ke Antrian
+        </a>
+        <a href="/web/pasien/{{ detail.id_pasien }}"
+           class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            Lihat Detail Pasien →
+        </a>
+    </div>
+
+</div>
+{% endblock %}

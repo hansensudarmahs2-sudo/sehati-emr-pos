@@ -1,0 +1,98 @@
+{% extends "_app.html" %}
+{% block title %}Laporan Tutup Kasir — {{ klinik_nama }}{% endblock %}
+{% block page_title %}{% if is_kasir_view %}Tutup Kasir Saya{% else %}Laporan Tutup Kasir{% endif %}{% endblock %}
+
+{% block page_content %}
+<nav class="text-sm text-slate-500 mb-3">
+    <a href="/web/reports" class="text-blue-600 hover:underline">Reports</a>
+    <span class="mx-1 text-slate-400">&rsaquo;</span>
+    <span class="text-slate-700">Laporan Tutup Kasir</span>
+</nav>
+<div class="max-w-6xl">
+
+    {# ===== Filter ===== #}
+    <form method="get" action="/web/reports/tutup-kasir" class="flex items-end gap-3 mb-2">
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Tanggal tutup</label>
+            <input type="date" name="tgl" value="{{ tgl_selected }}"
+                class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400">
+        </div>
+        <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition">Filter</button>
+        <a href="/web/reports/tutup-kasir?tgl=all"
+           class="px-4 py-2 text-sm rounded-lg border transition {% if showing_all %}bg-slate-100 border-slate-300 text-slate-700{% else %}border-slate-300 text-slate-500 hover:bg-slate-50{% endif %}">Semua tanggal</a>
+    </form>
+    <p class="text-xs text-slate-400 mb-5">
+        {% if showing_all %}Menampilkan <b>semua tanggal</b>.{% else %}Menampilkan tanggal <b>{{ tgl_selected }}</b>.{% endif %}
+    </p>
+
+    {# ===== Ringkasan ===== #}
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Jumlah closing</div>
+            <div class="text-xl font-semibold text-slate-800">{{ n_closing }}</div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Total selisih</div>
+            <div class="text-xl font-semibold {% if total_selisih > 0 %}text-blue-600{% elif total_selisih < 0 %}text-red-600{% else %}text-slate-800{% endif %}">
+                {{ "{:+,.0f}".format(total_selisih|float).replace(",", ".") }}
+            </div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Sesi lebih (over)</div>
+            <div class="text-xl font-semibold text-blue-600">{{ n_over }}</div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-400">Sesi kurang (short)</div>
+            <div class="text-xl font-semibold text-red-600">{{ n_short }}</div>
+        </div>
+    </div>
+
+    {# ===== Tabel ===== #}
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
+                <tr>
+                    <th class="text-left px-4 py-3">Tutup</th>
+                    {% if not is_kasir_view %}<th class="text-left px-4 py-3">Kasir</th>{% endif %}
+                    <th class="text-right px-4 py-3">Modal</th>
+                    <th class="text-right px-4 py-3">Expected</th>
+                    <th class="text-right px-4 py-3">Counted</th>
+                    <th class="text-right px-4 py-3">Selisih</th>
+                    <th class="text-center px-4 py-3">Slip</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                <tr class="hover:bg-slate-50">
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        {{ r.shift_tutup.strftime('%d/%m/%Y %H:%M') if r.shift_tutup else '-' }}
+                        <span class="block text-xs text-slate-400">sesi #{{ r.id_closing }}</span>
+                    </td>
+                    {% if not is_kasir_view %}<td class="px-4 py-3">{{ r.kasir_nama }}</td>{% endif %}
+                    <td class="px-4 py-3 text-right font-mono text-slate-500">{{ "{:,.0f}".format(r.modal_awal|float).replace(",", ".") }}</td>
+                    <td class="px-4 py-3 text-right font-mono">{{ "{:,.0f}".format(r.total_expected|float).replace(",", ".") }}</td>
+                    <td class="px-4 py-3 text-right font-mono">{{ "{:,.0f}".format(r.total_counted|float).replace(",", ".") }}</td>
+                    <td class="px-4 py-3 text-right font-mono font-semibold {% if r.total_selisih > 0 %}text-blue-600{% elif r.total_selisih < 0 %}text-red-600{% else %}text-slate-400{% endif %}">
+                        {{ "{:+,.0f}".format(r.total_selisih|float).replace(",", ".") }}
+                        {% if r.catatan %}<span class="block text-xs text-slate-400 font-normal italic" title="{{ r.catatan }}">{{ r.catatan[:40] }}{% if r.catatan|length > 40 %}…{% endif %}</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <a href="/web/kasir/tutup/slip/{{ r.id_closing }}" target="_blank"
+                           class="text-emerald-600 hover:text-emerald-700 text-xs font-medium">🖨 Cetak</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">
+                    Belum ada data tutup kasir{% if tgl_selected %} untuk tanggal ini{% endif %}.
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="text-xs text-slate-400 mt-3">
+        Selisih <span class="text-blue-600">biru = lebih (over)</span>,
+        <span class="text-red-600">merah = kurang (short)</span>. Slip Z-report transien (tidak disimpan).
+    </p>
+</div>
+{% endblock %}

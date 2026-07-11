@@ -1,0 +1,154 @@
+{% extends "_app.html" %}
+{% block title %}Profil — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Profil Saya{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl space-y-6">
+
+    {% if success %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg text-sm">
+        ✓ {{ success }}
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        ⚠ {{ error }}
+    </div>
+    {% endif %}
+
+    {# Profil info card — Username + Role + ID read-only #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span>👤</span> Informasi Akun
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">Username</div>
+                <div class="font-mono text-slate-800">{{ user.username }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">Role</div>
+                <div class="inline-flex items-center px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                    {{ user.role.value if user.role.value is defined else user.role }}
+                </div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase mb-1">ID Staf</div>
+                <div class="font-mono text-xs text-slate-600">{{ user.id_staf }}</div>
+            </div>
+        </div>
+        <p class="text-xs text-slate-400 mt-3">Username dan role tidak bisa diubah dari sini — hubungi Admin/Owner.</p>
+    </div>
+
+    {# Edit nama lengkap card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+            <span>✏️</span> Nama Lengkap
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">Nama ini muncul di display profil dan riwayat audit.</p>
+        <form method="POST" action="/web/profil/update-nama" class="space-y-3">
+            {{ csrf_input(request) }}
+            <div>
+                <label for="nama_staf" class="block text-sm font-medium text-slate-700 mb-1">
+                    Nama Lengkap
+                </label>
+                <input type="text" id="nama_staf" name="nama_staf" required
+                       minlength="1" maxlength="100"
+                       value="{{ user.nama_staf }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                Simpan Nama
+            </button>
+        </form>
+    </div>
+
+    {# Ganti password card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+            <span>🔒</span> Ganti Password
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">Password untuk login ke aplikasi.</p>
+
+        <form method="POST" action="/web/profil/ganti-password" class="space-y-4">
+            {{ csrf_input(request) }}
+            <div>
+                <label for="old_password" class="block text-sm font-medium text-slate-700 mb-1">
+                    Password Lama
+                </label>
+                <input type="password" id="old_password" name="old_password" required
+                       autocomplete="current-password"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label for="new_password" class="block text-sm font-medium text-slate-700 mb-1">
+                    Password Baru
+                </label>
+                <input type="password" id="new_password" name="new_password" required
+                       minlength="6" autocomplete="new-password"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Minimal 6 karakter.</p>
+            </div>
+            <div>
+                <label for="confirm_password" class="block text-sm font-medium text-slate-700 mb-1">
+                    Konfirmasi Password Baru
+                </label>
+                <input type="password" id="confirm_password" name="confirm_password" required
+                       minlength="6" autocomplete="new-password"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button type="submit"
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                Simpan Password Baru
+            </button>
+        </form>
+    </div>
+
+    {# Ubah PIN card — butuh current password sebagai bukti identitas #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+            <span>🔐</span> Ubah PIN Otorisasi
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">
+            PIN dipakai untuk otorisasi action sensitif (mis. void item kasir, upsell treatment butuh otorisasi).
+            <strong>Demi keamanan, butuh password Bapak sebagai bukti identitas.</strong>
+            Kosongkan PIN baru untuk menghapus PIN Bapak.
+        </p>
+        <form method="POST" action="/web/profil/ubah-pin"
+              data-confirm="Yakin ubah PIN otorisasi?"
+              class="space-y-3">
+            {{ csrf_input(request) }}
+            <div>
+                <label for="current_password_pin" class="block text-sm font-medium text-slate-700 mb-1">
+                    Password Sekarang (bukti identitas)
+                </label>
+                <input type="password" id="current_password_pin" name="current_password" required
+                       autocomplete="current-password"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+                <label for="new_pin" class="block text-sm font-medium text-slate-700 mb-1">
+                    PIN Baru
+                </label>
+                <input type="password" id="new_pin" name="new_pin"
+                       minlength="4" maxlength="20" autocomplete="new-password"
+                       inputmode="numeric" placeholder="4-20 karakter (kosongkan untuk hapus PIN)"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg
+                              focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <p class="text-xs text-slate-500 mt-1">PIN di-hash bcrypt — tidak ada yang bisa lihat PIN asli.</p>
+            </div>
+            <button type="submit"
+                    class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+                Simpan PIN
+            </button>
+        </form>
+    </div>
+
+</div>
+{% endblock %}

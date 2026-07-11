@@ -1,0 +1,160 @@
+{% extends "_app.html" %}
+{% block title %}Master Membership — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Master Membership{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <span class="text-slate-700">Master Data</span>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Membership</span>
+    </div>
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {# Header action #}
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-slate-800">Daftar Tier Membership</h2>
+        <a href="/web/master/membership/tambah"
+           class="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+            + Tambah Tier
+        </a>
+    </div>
+
+    {# Filter card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-6">
+                <label class="block text-xs text-slate-500 mb-1">Cari nama tier</label>
+                <input type="text" name="keyword" value="{{ keyword }}"
+                       placeholder="VIP, VVIP..."
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+            </div>
+            <div class="md:col-span-3">
+                <label class="block text-xs text-slate-500 mb-1">Filter</label>
+                <select name="only_active" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                    <option value="" {% if not only_active_selected %}selected{% endif %}>Semua tier</option>
+                    <option value="1" {% if only_active_selected %}selected{% endif %}>Aktif saja</option>
+                </select>
+            </div>
+            <div class="md:col-span-3 flex gap-2">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Filter
+                </button>
+                <a href="/web/master/membership"
+                   class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {# Tabel tier #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <div class="px-4 py-2 border-b border-slate-200 text-sm text-slate-600">
+            Menampilkan <strong>{{ rows|length }}</strong> tier
+        </div>
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 bg-slate-50">
+                <tr class="text-xs text-slate-500 uppercase">
+                    <th class="text-center py-2 px-3">Urutan</th>
+                    <th class="text-left py-2 px-3">Nama Tier</th>
+                    <th class="text-right py-2 px-3">Harga Aktivasi</th>
+                    <th class="text-center py-2 px-3">Durasi</th>
+                    <th class="text-center py-2 px-3">Free Konsul</th>
+                    <th class="text-right py-2 px-3">Disc. Treatment</th>
+                    <th class="text-right py-2 px-3">Disc. Produk</th>
+                    <th class="text-center py-2 px-3">Status</th>
+                    <th class="text-center py-2 px-3">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                <tr class="hover:bg-slate-50 {% if not r.is_active %}opacity-50{% endif %}">
+                    <td class="py-2 px-3 text-center font-mono text-xs text-slate-500">{{ r.urutan_tampilan }}</td>
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-3 py-0.5 rounded-full text-xs font-bold
+                            {% if r.nama_tier == 'VVIP' %}bg-amber-100 text-amber-700
+                            {% elif r.nama_tier == 'VIP' %}bg-blue-100 text-blue-700
+                            {% else %}bg-slate-200 text-slate-700{% endif %}">
+                            {% if r.nama_tier == 'VVIP' %}⭐⭐ {% elif r.nama_tier == 'VIP' %}⭐ {% endif %}{{ r.nama_tier }}
+                        </span>
+                        {% if r.catatan %}
+                        <div class="text-xs text-slate-500 mt-0.5 italic">{{ r.catatan }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono">Rp {{ "{:,.0f}".format(r.harga_aktivasi).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-center text-xs">{{ r.durasi_bulan }} bln</td>
+                    <td class="py-2 px-3 text-center">
+                        {% if r.free_konsultasi_dokter %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 font-medium">✓ Ya</span>
+                        {% else %}
+                        <span class="text-slate-400 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono
+                        {% if r.diskon_treatment_persen > 0 %}text-emerald-700 font-semibold{% else %}text-slate-400{% endif %}">
+                        {{ "%g"|format(r.diskon_treatment_persen) }}%
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono
+                        {% if r.diskon_produk_persen > 0 %}text-emerald-700 font-semibold{% else %}text-slate-400{% endif %}">
+                        {{ "%g"|format(r.diskon_produk_persen) }}%
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                        {% if r.is_active %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 font-medium">AKTIF</span>
+                        {% else %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600 font-medium">NONAKTIF</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-center">
+                        <div class="inline-flex items-center gap-1">
+                            <a href="/web/master/membership/{{ r.id_membership }}/benefit"
+                               class="inline-flex items-center px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100 font-medium"
+                               title="Kelola benefit treatment per tier">
+                                📦 Benefit
+                            </a>
+                            <a href="/web/master/membership/{{ r.id_membership }}"
+                               class="inline-flex items-center px-2 py-1 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100 font-medium">
+                                ✏ Edit
+                            </a>
+                            <form method="POST" action="/web/master/membership/{{ r.id_membership }}/toggle-active"
+                                  data-confirm="{% if r.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %} tier {{ r.nama_tier }}?">
+                                {{ csrf_input(request) }}
+                                <input type="hidden" name="is_active" value="{% if r.is_active %}0{% else %}1{% endif %}">
+                                <button type="submit"
+                                        class="inline-flex items-center px-2 py-1 text-xs
+                                            {% if r.is_active %}bg-red-50 text-red-700 hover:bg-red-100
+                                            {% else %}bg-emerald-50 text-emerald-700 hover:bg-emerald-100{% endif %}
+                                            rounded font-medium">
+                                    {% if r.is_active %}🚫 Nonaktif{% else %}✓ Aktif{% endif %}
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="py-12 text-center text-slate-400">
+                        <div class="text-3xl mb-2">🎖️</div>
+                        <p class="text-sm">Belum ada tier membership. <a href="/web/master/membership/tambah" class="text-blue-600 hover:underline">+ Tambah tier baru</a></p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-4 text-xs text-slate-500 italic">
+        💡 Tier nama harus match ENUM (REGULAR/VIP/VVIP). Untuk add tier baru, edit dulu <code>app/db/models/_enums.py</code> + redeploy.
+    </div>
+</div>
+{% endblock %}

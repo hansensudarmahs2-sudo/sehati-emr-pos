@@ -1,0 +1,370 @@
+ Tables_in_db_sehati      |
++--------------------------+
+| Tables_in_db_sehati      |
++--------------------------+
+| inventory_history        |
+| inventory_stok           |
+| jadwal_booking           |
+| kunjungan                |
+| kunjungan_antropometri   |
+| kunjungan_foto           |
+| kunjungan_resep          |
+| kunjungan_tindakan       |
+| master_produk            |
+| master_staf              |
+| master_treatment         |
+| pasien                   |
+| pasien_alergi            |
+| pasien_penyakit_kronis   |
+| pasien_rencana_treatment |
+| pasien_resep_iterasi     |
+| pemeriksaan_klinis       |
+| transaksi_detail_produk  |
+| transaksi_kasir          |
+| transaksi_pembayaran     |
+| treatment_komponen       |
++--------------------------+
+
+inventory_history
++---------------+------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| Field         | Type                                                                   | Null | Key | Default           | Extra             |
++---------------+------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| id_history    | int                                                                    | NO   | PRI | NULL              | auto_increment    |
+| id_bahan      | int                                                                    | NO   | MUL | NULL              |                   |
+| id_staf       | int                                                                    | NO   | MUL | NULL              |                   |
+| jenis_mutasi  | enum('TINDAKAN','PENJUALAN','RESTOCK','EXPIRED','RUSAK','PENYESUAIAN') | NO   |     | NULL              |                   |
+| qty_perubahan | float                                                                  | NO   |     | NULL              |                   |
+| stok_akhir    | float                                                                  | NO   |     | NULL              |                   |
+| referensi     | varchar(100)                                                           | YES  |     | NULL              |                   |
+| keterangan    | text                                                                   | YES  |     | NULL              |                   |
+| waktu_mutasi  | datetime                                                               | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++---------------+------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+
+inventory_stok
++-------------------+--------------+------+-----+---------+----------------+
+| Field             | Type         | Null | Key | Default | Extra          |
++-------------------+--------------+------+-----+---------+----------------+
+| id_bahan          | int          | NO   | PRI | NULL    | auto_increment |
+| nama_bahan        | varchar(100) | NO   |     | NULL    |                |
+| stok_gudang_utama | float        | YES  |     | 0       |                |
+| stok_kabin        | float        | YES  |     | 0       |                |
+| satuan            | varchar(20)  | YES  |     | NULL    |                |
+| satuan_pembelian  | varchar(20)  | YES  |     | NULL    |                |
+| rasio_konversi    | float        | YES  |     | 1       |                |
++-------------------+--------------+------+-----+---------+----------------+
+
+jadwal_booking
++--------------------+-------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| Field              | Type                                                              | Null | Key | Default           | Extra             |
++--------------------+-------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| id_booking         | int                                                               | NO   | PRI | NULL              | auto_increment    |
+| id_pasien          | int                                                               | NO   | MUL | NULL              |                   |
+| tgl_rencana        | date                                                              | NO   |     | NULL              |                   |
+| jam_rencana        | time                                                              | NO   |     | NULL              |                   |
+| sumber_pendaftaran | varchar(50)                                                       | YES  |     | NULL              |                   |
+| status_booking     | enum('BOOKED','CONFIRMED','RESCHEDULED','CANCELLED','CHECKED_IN') | YES  |     | BOOKED            |                   |
+| id_booking_lama    | int                                                               | YES  |     | NULL              |                   |
+| created_at         | timestamp                                                         | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++--------------------+-------------------------------------------------------------------+------+-----+-------------------+-------------------+
+
+kunjungan
++-------------------------+-------------+------+-----+-------------------+-------------------+
+| Field                   | Type        | Null | Key | Default           | Extra             |
++-------------------------+-------------+------+-----+-------------------+-------------------+
+| id_kunjungan            | int         | NO   | PRI | NULL              | auto_increment    |
+| id_pasien               | int         | NO   | MUL | NULL              |                   |
+| tgl_kunjungan           | datetime    | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| nomor_antrean           | int         | YES  |     | NULL              |                   |
+| status_antrian          | varchar(50) | YES  |     | ANTRI_KONSULTASI  |                   |
+| keluhan_utama           | text        | YES  |     | NULL              |                   |
+| tgl_kontrol_selanjutnya | date        | YES  |     | NULL              |                   |
+| id_staf_fo              | int         | YES  |     | NULL              |                   |
+| created_at              | timestamp   | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| id_booking              | int         | YES  | MUL | NULL              |                   |
+| sumber_pendaftaran      | varchar(50) | YES  |     | WALK_IN           |                   |
++-------------------------+-------------+------+-----+-------------------+-------------------+
+
+kunjungan_antropometri;
++------------------+-------------+------+-----+-------------------+-------------------+
+| Field            | Type        | Null | Key | Default           | Extra             |
++------------------+-------------+------+-----+-------------------+-------------------+
+| id_antropometri  | int         | NO   | PRI | NULL              | auto_increment    |
+| id_kunjungan     | int         | NO   | MUL | NULL              |                   |
+| berat_badan      | float       | YES  |     | NULL              |                   |
+| tinggi_badan     | float       | YES  |     | NULL              |                   |
+| tekanan_darah    | varchar(20) | YES  |     | NULL              |                   |
+| suhu_tubuh       | float       | YES  |     | NULL              |                   |
+| skinfold_titik_1 | float       | YES  |     | NULL              |                   |
+| skinfold_titik_2 | float       | YES  |     | NULL              |                   |
+| skinfold_titik_3 | float       | YES  |     | NULL              |                   |
+| lingkar_perut    | float       | YES  |     | NULL              |                   |
+| id_staf          | int         | YES  | MUL | NULL              |                   |
+| created_at       | timestamp   | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++------------------+-------------+------+-----+-------------------+-------------------+
+
+kunjungan_foto
++--------------+-----------------------------------+------+-----+-------------------+-------------------+
+| Field        | Type                              | Null | Key | Default           | Extra             |
++--------------+-----------------------------------+------+-----+-------------------+-------------------+
+| id_foto      | int                               | NO   | PRI | NULL              | auto_increment    |
+| id_kunjungan | int                               | NO   |     | NULL              |                   |
+| id_pasien    | int                               | NO   |     | NULL              |                   |
+| kategori     | enum('BEFORE','AFTER','PROGRESS') | YES  |     | BEFORE            |                   |
+| url_path     | varchar(255)                      | NO   |     | NULL              |                   |
+| keterangan   | text                              | YES  |     | NULL              |                   |
+| created_at   | timestamp                         | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++--------------+-----------------------------------+------+-----+-------------------+-------------------+
+
+kunjungan_resep
++---------------+-----------------------------------+------+-----+-------------------+-------------------+
+| Field         | Type                              | Null | Key | Default           | Extra             |
++---------------+-----------------------------------+------+-----+-------------------+-------------------+
+| id_resep      | int                               | NO   | PRI | NULL              | auto_increment    |
+| id_kunjungan  | int                               | NO   |     | NULL              |                   |
+| id_produk     | int                               | NO   |     | NULL              |                   |
+| qty           | float                             | NO   |     | NULL              |                   |
+| aturan_pakai  | varchar(100)                      | YES  |     | NULL              |                   |
+| status_item   | enum('PENDING','BATAL','DIBAYAR') | YES  |     | PENDING           |                   |
+| id_staf_input | int                               | NO   |     | NULL              |                   |
+| id_staf_void  | int                               | YES  |     | NULL              |                   |
+| waktu_input   | timestamp                         | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| waktu_void    | timestamp                         | YES  |     | NULL              |                   |
++---------------+-----------------------------------+------+-----+-------------------+-------------------+
+
+kunjungan_tindakan
++-----------------------+------------------------------------+------+-----+---------+----------------+
+| Field                 | Type                               | Null | Key | Default | Extra          |
++-----------------------+------------------------------------+------+-----+---------+----------------+
+| id_kunjungan_tindakan | int                                | NO   | PRI | NULL    | auto_increment |
+| id_kunjungan          | int                                | NO   | MUL | NULL    |                |
+| id_treatment          | int                                | NO   | MUL | NULL    |                |
+| status_tindakan       | enum('PENDING','PROSES','SELESAI') | YES  |     | PENDING |                |
+| id_staf_pelaksana     | int                                | YES  |     | NULL    |                |
+| waktu_mulai           | datetime                           | YES  |     | NULL    |                |
+| waktu_selesai         | datetime                           | YES  |     | NULL    |                |
++-----------------------+------------------------------------+------+-----+---------+----------------+
+
+master_produk 
++--------------+-------------------------------+------+-----+-------------------+-----------------------------------------------+
+| Field        | Type                          | Null | Key | Default           | Extra                                         |
++--------------+-------------------------------+------+-----+-------------------+-----------------------------------------------+
+| id_produk    | int                           | NO   | PRI | NULL              | auto_increment                                |
+| kode_produk  | varchar(20)                   | NO   | UNI | NULL              |                                               |
+| nama_produk  | varchar(100)                  | NO   |     | NULL              |                                               |
+| tipe_produk  | enum('RETAIL','CABIN','ALAT') | NO   |     | NULL              |                                               |
+| satuan       | varchar(20)                   | NO   |     | NULL              |                                               |
+| harga_jual   | decimal(12,2)                 | YES  |     | 0.00              |                                               |
+| stok_terkini | float                         | YES  |     | 0                 |                                               |
+| stok_minimal | float                         | YES  |     | 5                 |                                               |
+| is_active    | tinyint(1)                    | YES  |     | 1                 |                                               |
+| updated_at   | timestamp                     | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED on update CURRENT_TIMESTAMP |
++--------------+-------------------------------+------+-----+-------------------+-----------------------------------------------+
+
+master_staf 
++-------------------+-------------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| Field             | Type                                                                          | Null | Key | Default           | Extra             |
++-------------------+-------------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+| id_staf           | int                                                                           | NO   | PRI | NULL              | auto_increment    |
+| username          | varchar(50)                                                                   | NO   | UNI | NULL              |                   |
+| password_hash     | varchar(255)                                                                  | NO   |     | NULL              |                   |
+| role              | enum('Owner','Dokter','Perawat','Apoteker','Kasir','FO','Admin','Superadmin') | NO   |     | NULL              |                   |
+| nama_staf         | varchar(100)                                                                  | NO   |     | NULL              |                   |
+| is_active         | tinyint(1)                                                                    | YES  |     | 1                 |                   |
+| created_at        | timestamp                                                                     | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| token_expired_at  | datetime                                                                      | YES  |     | NULL              |                   |
+| is_logged_in      | tinyint(1)                                                                    | YES  |     | 0                 |                   |
+| waktu_mulai_shift | datetime                                                                      | YES  |     | NULL              |                   |
+| pin               | varchar(255)                                                                  | YES  |     | NULL              |                   |
++-------------------+-------------------------------------------------------------------------------+------+-----+-------------------+-------------------+
+
+master_treatment
++-----------------+---------------+------+-----+-------------------+-----------------------------------------------+
+| Field           | Type          | Null | Key | Default           | Extra                                         |
++-----------------+---------------+------+-----+-------------------+-----------------------------------------------+
+| id_treatment    | int           | NO   | PRI | NULL              | auto_increment                                |
+| nama_treatment  | varchar(100)  | NO   |     | NULL              |                                               |
+| role_pelaksana  | varchar(50)   | NO   |     | NULL              |                                               |
+| durasi_menit    | int           | NO   |     | NULL              |                                               |
+| harga           | decimal(12,2) | NO   |     | NULL              |                                               |
+| is_active       | tinyint(1)    | YES  |     | 1                 |                                               |
+| id_staf         | int           | YES  |     | NULL              |                                               |
+| created_at      | timestamp     | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED                             |
+| updated_at      | timestamp     | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED on update CURRENT_TIMESTAMP |
+| butuh_otorisasi | tinyint(1)    | YES  |     | 0                 |                                               |
++-----------------+---------------+------+-----+-------------------+-----------------------------------------------+
+
+pasien
++-------------------+-------------------------------+------+-----+-------------------+-------------------+
+| Field             | Type                          | Null | Key | Default           | Extra             |
++-------------------+-------------------------------+------+-----+-------------------+-------------------+
+| id_pasien         | int                           | NO   | PRI | NULL              | auto_increment    |
+| no_rm             | varchar(20)                   | NO   | UNI | NULL              |                   |
+| nama              | varchar(100)                  | NO   |     | NULL              |                   |
+| jenis_kelamin     | enum('L','P')                 | YES  |     | NULL              |                   |
+| alamat            | text                          | YES  |     | NULL              |                   |
+| tgl_lahir         | date                          | YES  |     | NULL              |                   |
+| nomor_telepon     | varchar(20)                   | YES  |     | NULL              |                   |
+| nomor_ktp         | varchar(30)                   | YES  |     | NULL              |                   |
+| sumber_referensi  | varchar(100)                  | YES  |     | NULL              |                   |
+| created_at        | timestamp                     | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| id_staf           | int                           | YES  | MUL | NULL              |                   |
+| tipe_membership   | enum('REGULAR','VIP','VVIP')  | YES  |     | REGULAR           |                   |
+| status_verifikasi | enum('UNVERIFIED','VERIFIED') | YES  |     | VERIFIED          |                   |
+| tgl_verifikasi    | datetime                      | YES  |     | NULL              |                   |
+| email_address     | varchar(100)                  | YES  |     | NULL              |                   |
++-------------------+-------------------------------+------+-----+-------------------+-------------------+
+
+pasien_alergi
++-------------------+---------------------------------+------+-----+-------------------+-------------------+
+| Field             | Type                            | Null | Key | Default           | Extra             |
++-------------------+---------------------------------+------+-----+-------------------+-------------------+
+| id_alergi         | int                             | NO   | PRI | NULL              | auto_increment    |
+| id_pasien         | int                             | YES  | MUL | NULL              |                   |
+| alergen           | varchar(100)                    | NO   |     | NULL              |                   |
+| gejala            | text                            | YES  |     | NULL              |                   |
+| tingkat_keparahan | enum('Ringan','Sedang','Berat') | NO   |     | NULL              |                   |
+| is_active         | tinyint(1)                      | YES  |     | 1                 |                   |
+| created_at        | timestamp                       | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| id_staf           | int                             | YES  | MUL | NULL              |                   |
++-------------------+---------------------------------+------+-----+-------------------+-------------------+
+
+pasien_penyakit_kronis
++---------------+--------------+------+-----+---------+----------------+
+| Field         | Type         | Null | Key | Default | Extra          |
++---------------+--------------+------+-----+---------+----------------+
+| id_penyakit   | int          | NO   | PRI | NULL    | auto_increment |
+| id_pasien     | int          | NO   | MUL | NULL    |                |
+| nama_penyakit | varchar(100) | NO   |     | NULL    |                |
+| catatan       | text         | YES  |     | NULL    |                |
+| is_active     | tinyint(1)   | YES  |     | 1       |                |
++---------------+--------------+------+-----+---------+----------------+
+
+pasien_rencana_treatment
++-----------------------+--------------+------+-----+-------------------+-------------------+
+| Field                 | Type         | Null | Key | Default           | Extra             |
++-----------------------+--------------+------+-----+-------------------+-------------------+
+| id_rencana            | int          | NO   | PRI | NULL              | auto_increment    |
+| id_pasien             | int          | NO   | MUL | NULL              |                   |
+| urutan_sesi           | int          | NO   |     | NULL              |                   |
+| nama_tindakan         | varchar(100) | NO   |     | NULL              |                   |
+| status                | varchar(20)  | YES  |     | PENDING           |                   |
+| id_kunjungan_eksekusi | int          | YES  |     | NULL              |                   |
+| created_at            | timestamp    | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++-----------------------+--------------+------+-----+-------------------+-------------------+
+
+pasien_resep_iterasi
++----------------+--------------+------+-----+-------------------+-------------------+
+| Field          | Type         | Null | Key | Default           | Extra             |
++----------------+--------------+------+-----+-------------------+-------------------+
+| id_iterasi     | int          | NO   | PRI | NULL              | auto_increment    |
+| id_pasien      | int          | NO   | MUL | NULL              |                   |
+| nama_produk    | varchar(100) | NO   |     | NULL              |                   |
+| kuota_maksimal | int          | NO   |     | NULL              |                   |
+| sudah_diambil  | int          | YES  |     | 0                 |                   |
+| is_active      | tinyint(1)   | YES  |     | 1                 |                   |
+| created_at     | timestamp    | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++----------------+--------------+------+-----+-------------------+-------------------+
+
+pemeriksaan_klinis
++-------------------+-----------+------+-----+-------------------+-------------------+
+| Field             | Type      | Null | Key | Default           | Extra             |
++-------------------+-----------+------+-----+-------------------+-------------------+
+| id_pemeriksaan    | int       | NO   | PRI | NULL              | auto_increment    |
+| id_kunjungan      | int       | NO   | MUL | NULL              |                   |
+| id_pasien         | int       | NO   | MUL | NULL              |                   |
+| anamnesa          | text      | YES  |     | NULL              |                   |
+| pemeriksaan_fisik | text      | YES  |     | NULL              |                   |
+| diagnosa          | text      | YES  |     | NULL              |                   |
+| saran_treatment   | text      | YES  |     | NULL              |                   |
+| saran_produk      | text      | YES  |     | NULL              |                   |
+| created_at        | timestamp | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
+| id_staf_dokter    | int       | YES  |     | NULL              |                   |
++-------------------+-----------+------+-----+-------------------+-------------------+
+
+transaksi_detail_produk
++--------------+---------------+------+-----+---------+----------------+
+| Field        | Type          | Null | Key | Default | Extra          |
++--------------+---------------+------+-----+---------+----------------+
+| id_detail    | int           | NO   | PRI | NULL    | auto_increment |
+| id_transaksi | int           | NO   | MUL | NULL    |                |
+| id_produk    | int           | NO   | MUL | NULL    |                |
+| qty          | float         | NO   |     | NULL    |                |
+| harga_satuan | decimal(12,2) | NO   |     | NULL    |                |
+| subtotal     | decimal(12,2) | NO   |     | NULL    |                |
++--------------+---------------+------+-----+---------+----------------+
+
+transaksi_kasir
++------------------+--------------+------+-----+-------------------+-------------------+
+| Field            | Type         | Null | Key | Default           | Extra             |
++------------------+--------------+------+-----+-------------------+-------------------+
+| id_transaksi     | int          | NO   | PRI | NULL              | auto_increment    |
+| id_kunjungan     | int          | YES  | MUL | NULL              |                   |
+| id_staf_kasir    | int          | NO   |     | NULL              |                   |
+| rincian_tagihan  | text         | NO   |     | NULL              |                   |
+| subtotal         | int          | YES  |     | 0                 |                   |
+| nominal_diskon   | int          | YES  |     | 0                 |                   |
+| keterangan_promo | varchar(100) | YES  |     | NULL              |                   |
+| total_tagihan    | int          | NO   |     | NULL              |                   |
+| waktu_bayar      | timestamp    | YES  |     | CURRENT_TIMESTAMP | DEFAULT_GENERATED |
++------------------+--------------+------+-----+-------------------+-------------------+
+
+transaksi_pembayaran
++---------------+-------------+------+-----+---------+----------------+
+| Field         | Type        | Null | Key | Default | Extra          |
++---------------+-------------+------+-----+---------+----------------+
+| id_pembayaran | int         | NO   | PRI | NULL    | auto_increment |
+| id_transaksi  | int         | NO   | MUL | NULL    |                |
+| metode_bayar  | varchar(50) | NO   |     | NULL    |                |
+| nominal       | int         | NO   |     | NULL    |                |
++---------------+-------------+------+-----+---------+----------------+
+
+treatment_komponen
++--------------+----------------------+------+-----+---------+----------------+
+| Field        | Type                 | Null | Key | Default | Extra          |
++--------------+----------------------+------+-----+---------+----------------+
+| id_komponen  | int                  | NO   | PRI | NULL    | auto_increment |
+| id_treatment | int                  | NO   | MUL | NULL    |                |
+| kategori     | enum('BAHAN','ALAT') | NO   |     | NULL    |                |
+| id_bahan     | int                  | YES  | MUL | NULL    |                |
+| qty          | float                | NO   |     | NULL    |                |
+| satuan       | varchar(20)          | NO   |     | NULL    |                |
++--------------+----------------------+------+-----+---------+----------------+
+
+===============================================================================================
+ALUR DALAM SISTEM ERM DAN POS PROJECT ERM BY DOKTER HANSEN POV PASIEN
+===============================================================================================
+ALUR KONVENSIONAL UNTUK REGISTRASI
+1. Pasien datang ke klinik lalu menunju FO untuk registrasi
+2. Bila pasien sudah pernah berkunjung maka FO akan meminta nomor RM atau nomor identitas atau nama+nomor telepon. inti request fo ini adalah untuk memudahkan pencarian data pasien
+2A. data ditemukan, FO konfirmasi ke pasien agar tidak salah identitas (ini SOP untuk manusia tidak melibatkan system IT), konfirmasi selesai, daftarkan pasien untuk :
+	* konsultasi dokter ==> status antrian : antri_konsultasi
+	* melanjutkan series treatment. series treatment adalah rangkaian rencana Tindakan yang sudah dibuat oleh dokter sehingga pasien tidak perlu konsultasi pada kunjungan2 berikut, status pasien adalah antri_treatment
+	* membeli produk bebas. mengikuti iterasi produk, produk bebas adalah produk yang bisa dibeli langsung oleh pasien. status pasien antri_bayar
+		** urutan alur pasien secara garis besar adalah FO - destinasi dokter/ruang treatment/kasir - kasir - pengambilan produk - done
+2B. bila pasien baru maka FO membuka form registrasi untuk pasien baru (data yang diinput disesuaikan dengan table). untuk antropometri optional, namun alergi dan penyakit kronis wajib ditanyakan
+
+**** Tugas FO adalah sebagai flow manager. bila ada pembatalan oleh pasien maka hanya FO yang bisa melakukannya. oleh karena itu tracing id dan timestamp selalu ada di semua database
+
+ALUR NON KONVENSIONAL UNTUK REGISTRASI (NOTES : THIS IS FUTURE FEATURE OR PHASE 2)
+1. Pasien mendaftar melalui website resmi dan mengisi biodata secara mandiri
+2. Pasien berkunjung untuk mengkonfirm dirinya dan memulai antrian. FO melakukan validasi antara data dari website dengan KTP, lalu klik tombol verified maka seluruh biodata akan tercatat. tugas FO jadi lebih simple
+
+ALUR NON KONVENSIONAL VERSION II
+1. Pasien mendaftar melalui kiosk
+2. FO confirm, pendaftaran selesai
+
+HAL HAL KHUSUS
+1. ANTROPOMETRI : 3 point skinfold, lingkar perut, tinggi badan, berat badan. lanjutkan ke rumus pollock atau lainnya untuk mencari tahu Fat Mass ratio, lean mass ratio
+2. ALERGI : FO/Perawat/Dokter bisa menambah Riwayat alergi. mengubah dan menghapus sepenuhnya milik dokter
+3. Series of treatment : hak dari dokter. dia bisa menentukan sejumlah treatment, mengenai kapan dilakukan treatment berikutnya tidak ditentukan secara kaku melainkan ada rentang Waktu. misal dokter menentukan hari ini 2 Tindakan, next antara 2 sd 4 minggu kita akan melakukan treatment x, lalu 4 sd 6 minggu kemudian treatment y dst
+4. ITERASI PRODUK : produk2 seperti antibiotic, krim malam, krim steroid harus ada iterasi dari dokter. by default only 1
+5. MEMBERSHIP : core bisnis. membership adalah pelanggan yang membayar sejumlah uang dan mendapatkan secara langsung series of treatment dan 1 produk serta diskon khusus untuk Tindakan/treatment. tidak ada diskon khusus untuk produk tapi ada system untuk delivery to their doorstep <--- ini tertinggal untuk kasir/fo, delivery products untuk biaya kirim dan packaging
+6. START OR END TREATMENT di ruang treatment adalah aktivitas perawat dan dokter. setiap Tindakan perawat harus melakukan start treatment trigger dan end treatment trigger bila selesai. dokter juga sama
+7. UP SELLING : bisa oleh dokter bisa oleh perawat. ada up selling treatment tanpa verifikasi dokter. ada yang perlu verifikasi <<----diatur di master treatment 
+
+PERSIAPAN SETELAH SELURUH STRUKTUR SIAP
+1. MENYEDIAKAN SLOT DI FORM SOAP DOKTER UNTUK SMART ASSIST BY GEMINI AI
+2. MENYEDIAKAN 1 slot untuk data usg kulit serta intepretasi ai
+3. MENYEDIAKAN basic algoritma dan machine learning untuk feature skin analysis pada portal pasien. pasien foto mukanya dan akan diberikan Analisa singkat untuk kondisi muka
+4. MENYIAPKAN PASIEN PROGRESS REPORT baik dari usg kulit, antropometri, progress kunjungan, foto collage, metabolic analysis, serta diet plan
+5. MENYIAPKAN INTERAKSI PASIEN dengan membership ke chat ai. di sini chat ai bisa melihat sekilas rangkuman resume sehingga interaksi tidak menyimpang dan tetap terarah. 

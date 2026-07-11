@@ -1,0 +1,114 @@
+{% extends "_app.html" %}
+{% block title %}Manajemen Staf — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Manajemen Staf{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {# Header bar #}
+    <div class="flex items-center justify-between mb-4">
+        <div class="text-sm text-slate-500">
+            Total: <strong class="text-slate-700">{{ total }}</strong> staf
+        </div>
+        <a href="/web/staf/tambah"
+           class="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium gap-2">
+            + Tambah User Baru
+        </a>
+    </div>
+
+    {% if success %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">
+        ✓ {{ success }}
+    </div>
+    {% endif %}
+
+    {# Filter role #}
+    <form method="GET" action="/web/staf" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+        <div class="flex items-center gap-3">
+            <label class="text-sm text-slate-700 font-medium">Filter:</label>
+            <select name="role" onchange="this.form.submit()"
+                    class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Semua Role</option>
+                {% for r in roles %}
+                <option value="{{ r }}" {% if filter_role == r %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+            </select>
+            <label class="inline-flex items-center gap-2 text-sm text-slate-700 ml-4">
+                <input type="checkbox" name="only_active" value="1" {% if only_active %}checked{% endif %}
+                       onchange="this.form.submit()"
+                       class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                Hanya yang aktif
+            </label>
+            {% if filter_role or only_active %}
+            <a href="/web/staf" class="text-xs text-slate-500 hover:text-blue-600 ml-auto">Reset filter</a>
+            {% endif %}
+        </div>
+    </form>
+
+    {# Tabel staf #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {% if data %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                    <tr>
+                        <th class="text-left px-4 py-3 font-medium">Username</th>
+                        <th class="text-left px-4 py-3 font-medium">Nama</th>
+                        <th class="text-left px-4 py-3 font-medium">Role</th>
+                        <th class="text-left px-4 py-3 font-medium">PIN</th>
+                        <th class="text-left px-4 py-3 font-medium">Status</th>
+                        <th class="text-left px-4 py-3 font-medium">Login</th>
+                        <th class="text-right px-4 py-3 font-medium">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for s in data %}
+                    <tr class="hover:bg-blue-50/30 transition">
+                        <td class="px-4 py-3 font-mono text-xs text-slate-700">{{ s.username }}</td>
+                        <td class="px-4 py-3 font-medium text-slate-800">{{ s.nama_staf }}</td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                                {{ s.role }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3">
+                            {% if s.has_pin %}
+                            <span class="text-emerald-600 text-xs">✓ Ada</span>
+                            {% else %}
+                            <span class="text-slate-400 text-xs">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">
+                            {% if s.is_active %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">Aktif</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-500">Nonaktif</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">
+                            {% if s.is_logged_in %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 font-medium">● Online</span>
+                            {% else %}
+                            <span class="text-xs text-slate-400">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <a href="/web/staf/{{ s.id_staf }}"
+                               class="inline-flex items-center px-2.5 py-1 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition">
+                                Kelola
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-12 text-center text-slate-400">
+            <div class="text-4xl mb-2">👥</div>
+            <p class="text-sm">Tidak ada staf yang cocok dengan filter.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

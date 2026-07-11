@@ -1,0 +1,66 @@
+{% extends "_app.html" %}
+{% block title %}Detail Stok {{ produk.nama_produk }} — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Detail Stok — {{ produk.nama_produk }}{% endblock %}
+
+{% macro rp(v) %}{% if v is none %}-{% else %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endif %}{% endmacro %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3">
+        <a href="/web/apotek/stok" class="text-blue-600 hover:underline">‹ Kembali ke Manajemen Stok</a>
+    </nav>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="font-mono text-xs text-slate-500">{{ produk.kode_produk }}</div>
+                <div class="text-lg font-semibold text-slate-800">{{ produk.nama_produk }}</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-slate-500">Total stok (cache)</div>
+                <div class="text-2xl font-bold text-slate-800">{{ "%g"|format(produk.stok_terkini) }} {{ produk.satuan }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">Rincian Batch / Lot ({{ lots|length }})</div>
+        {% if lots and lots|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">No. Batch</th>
+                    <th class="text-left px-4 py-2 font-medium">ED</th>
+                    <th class="text-right px-4 py-2 font-medium">Sisa</th>
+                    <th class="text-right px-4 py-2 font-medium">Masuk</th>
+                    <th class="text-right px-4 py-2 font-medium">Harga Terima</th>
+                    <th class="text-left px-4 py-2 font-medium">Distributor</th>
+                    <th class="text-left px-4 py-2 font-medium">Masuk Tgl</th>
+                    <th class="text-center px-4 py-2 font-medium">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for l in lots %}
+                <tr class="hover:bg-blue-50/30 {% if l.status != 'AKTIF' %}opacity-60{% endif %}">
+                    <td class="px-4 py-2 font-medium text-slate-800">{{ l.batch_no or "(tanpa batch)" }}</td>
+                    <td class="px-4 py-2 text-slate-600">{{ l.tgl_ed.strftime('%d/%m/%Y') if l.tgl_ed else "–" }}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if l.qty_sisa <= 0 %}text-slate-400{% else %}text-slate-800 font-semibold{% endif %}">{{ "%g"|format(l.qty_sisa) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-400">{{ "%g"|format(l.qty_masuk) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">{{ rp(l.harga_terima) }}</td>
+                    <td class="px-4 py-2 text-slate-600">{{ l.distributor or "–" }}</td>
+                    <td class="px-4 py-2 text-slate-500 text-xs">{{ l.tgl_masuk.strftime('%d/%m/%y') if l.tgl_masuk else "–" }}</td>
+                    <td class="px-4 py-2 text-center">
+                        {% if l.status == 'AKTIF' %}<span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs">Aktif</span>
+                        {% elif l.status == 'HABIS' %}<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">Habis</span>
+                        {% else %}<span class="px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-xs">{{ l.status }}</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-500">Belum ada lot untuk produk ini.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

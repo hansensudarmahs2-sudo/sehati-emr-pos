@@ -1,0 +1,88 @@
+[project]
+name = "sehati-clinic"
+version = "0.1.0"
+description = "Sistem eMR (Electronic Medical Record) + POS (Point of Sale) untuk Klinik Sehati"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "dr. Hansen", email = "hansensudarma.hs2@gmail.com" }
+]
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # Database & ORM
+    "sqlalchemy>=2.0.27",
+    "alembic>=1.13.1",
+    "pymysql>=1.1.0",
+    "cryptography>=42.0.0",  # diperlukan PyMySQL untuk auth_socket dll
+
+    # Validation & settings
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "email-validator>=2.1.0",
+
+    # Authentication & security
+    "python-jose[cryptography]>=3.3.0",  # JWT
+    "bcrypt>=4.1.0",                      # password hashing
+    "python-multipart>=0.0.9",            # form upload
+
+    # Templates (untuk HTMX/Jinja2 frontend nanti)
+    "jinja2>=3.1.3",
+
+    # Misc utilities
+    "python-dotenv>=1.0.1",
+    "structlog>=24.1.0",                  # structured logging
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",                      # test client
+    "ruff>=0.3.0",                        # linter + formatter
+    "ipython>=8.21.0",                    # nicer Python REPL
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ----- Ruff config (linter + formatter) -----
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ----- Pytest config -----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: integration test yang pakai DB real (skip dengan -m 'not integration')",
+    "slow: test yang lambat (skip dengan -m 'not slow')",
+]

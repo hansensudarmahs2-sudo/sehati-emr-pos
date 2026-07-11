@@ -1,0 +1,30 @@
+{% extends "_app.html" %}
+{% block title %}Tren Harga Beli — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Tren Harga Pembelian{% endblock %}
+{% macro rp(v) %}{% if v is none %}-{% else %}{{ "{:,.0f}".format(v|float).replace(",", ".") }}{% endif %}{% endmacro %}
+{% block page_content %}
+<div class="max-w-5xl">
+    <nav class="text-sm text-slate-500 mb-3"><a href="/web/apotek/stok" class="text-blue-600 hover:underline">‹ Manajemen Stok</a></nav>
+    <p class="text-xs text-slate-500 mb-3">Harga terima antar penerimaan. Naik = harga beli meningkat.</p>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {% if rows and rows|length > 0 %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr><th class="text-left px-4 py-2 font-medium">Item</th><th class="text-right px-4 py-2 font-medium">Harga Awal</th><th class="text-right px-4 py-2 font-medium">Harga Terakhir</th><th class="text-right px-4 py-2 font-medium">Selisih</th><th class="text-center px-4 py-2 font-medium">#Terima</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                <tr class="hover:bg-blue-50/30">
+                    <td class="px-4 py-2 font-medium text-slate-800">{{ r.nama }} <span class="text-slate-400 text-xs">{{ r.tipe_item }}</span></td>
+                    <td class="px-4 py-2 text-right text-slate-500">{{ rp(r.harga_pertama) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-700 font-semibold">{{ rp(r.harga_terakhir) }}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if r.delta > 0 %}text-red-600{% elif r.delta < 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">{% if r.delta > 0 %}▲ +{{ rp(r.delta) }}{% elif r.delta < 0 %}▼ {{ rp(r.delta) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-center text-slate-500">{{ r.n }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<div class="p-12 text-center text-slate-500">Belum ada riwayat harga terima. Terima barang (dengan harga terima) dulu.</div>{% endif %}
+    </div>
+</div>
+{% endblock %}

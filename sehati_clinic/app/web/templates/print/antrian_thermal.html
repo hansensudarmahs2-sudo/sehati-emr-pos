@@ -1,0 +1,30 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Antrian {{ nomor_antrean }}{% endblock %}
+{% block paper_class %}paper-thermal{% endblock %}
+{% block page_size %}80mm auto{% endblock %}
+
+{% block doc_content %}
+<div class="text-center">
+    {% if klinik.logo_path %}<img src="/static/{{ klinik.logo_path }}" class="klinik-logo" alt="Logo" style="max-height:36px;">{% endif %}
+    <div class="font-bold">{{ klinik.nama_klinik }}</div>
+    {% if klinik.alamat_baris1 %}<div>{{ klinik.alamat_baris1 }}</div>{% endif %}
+    {% if klinik.no_telepon %}<div>Telp: {{ klinik.no_telepon }}</div>{% endif %}
+</div>
+
+<div class="divider"></div>
+
+<div class="text-center">NOMOR ANTRIAN</div>
+<div class="text-center" style="font-size:52px;font-weight:800;line-height:1.05;margin:6px 0;">{{ nomor_antrean if nomor_antrean is not none else "-" }}</div>
+<div class="text-center font-bold">{{ tujuan }}</div>
+
+<div class="divider"></div>
+
+<div style="margin-top:4px;">
+    <div>Nama : {{ pasien.nama }}</div>
+    <div>RM   : {{ pasien.no_rm }}</div>
+    <div>Tgl  : {{ tgl_cetak }}</div>
+</div>
+
+<div class="divider"></div>
+<div class="text-center" style="font-size:10px;">Simpan struk ini. Nomor akan dipanggil petugas.</div>
+{% endblock %}

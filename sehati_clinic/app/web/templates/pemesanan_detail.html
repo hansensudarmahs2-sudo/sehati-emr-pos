@@ -1,0 +1,347 @@
+{% extends "_app.html" %}
+{% block title %}PO {{ po.nomor_po }}{% endblock %}
+{% block page_title %}Detail PO {{ po.nomor_po }}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pengadaan/pemesanan" class="hover:text-blue-600">Pemesanan</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{{ po.nomor_po }}</span>
+    </div>
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {# Header card #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <div class="flex items-start justify-between mb-3">
+            <div>
+                <div class="font-mono text-xl font-bold text-blue-700">{{ po.nomor_po }}</div>
+                <div class="text-xs text-slate-500 mt-1">Dibuat: {{ po.tgl_pemesanan }} oleh <strong>{{ po.nama_staf_pemesan }}</strong></div>
+            </div>
+            <div>
+                {% set st = po.status %}
+                {% if st == "SUBMITTED" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-amber-50 text-amber-700 font-semibold">📝 SUBMITTED</span>
+                {% elif st == "ORDERED" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 font-semibold">📦 ORDERED</span>
+                {% elif st == "PARTIAL_RECEIVED" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-purple-50 text-purple-700 font-semibold">📥 PARTIAL</span>
+                {% elif st == "RECEIVED" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-emerald-50 text-emerald-700 font-semibold">✓ RECEIVED</span>
+                {% elif st == "CANCELLED" %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-red-50 text-red-700 font-semibold">✗ CANCELLED</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm border-t border-slate-100 pt-3">
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Supplier</div>
+                <div class="text-slate-700">{{ po.supplier_nama or "—" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Perkiraan Datang</div>
+                <div class="text-slate-700">{{ po.tgl_perkiraan_datang or "—" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Total Estimasi</div>
+                <div class="text-slate-700 font-mono">
+                    {% if po.total_estimasi_biaya %}
+                    Rp {{ "{:,.0f}".format(po.total_estimasi_biaya).replace(",", ".") }}
+                    {% else %}—{% endif %}
+                </div>
+            </div>
+            {% if po.nama_staf_approver %}
+            <div class="md:col-span-3 text-xs text-slate-500 border-t border-slate-100 pt-2">
+                ✓ Di-approve <strong>{{ po.tgl_approve }}</strong> oleh <strong>{{ po.nama_staf_approver }}</strong>
+            </div>
+            {% endif %}
+            {% if po.cancel_info %}
+            <div class="md:col-span-3 bg-red-50 border border-red-200 rounded-lg p-3 mt-2">
+                <div class="text-xs text-red-700 uppercase font-medium mb-1">⚠ Informasi Pembatalan</div>
+                <div class="text-sm text-red-900">
+                    <strong>Alasan:</strong> {{ po.cancel_info.alasan }}
+                </div>
+                <div class="text-xs text-red-700 mt-1">
+                    Di-cancel <strong>{{ po.cancel_info.tgl_cancel }}</strong> oleh <strong>{{ po.cancel_info.nama_canceller }}</strong>
+                </div>
+            </div>
+            {% endif %}
+            {% if po.catatan %}
+            <div class="md:col-span-3 text-sm">
+                <div class="text-xs text-slate-500 uppercase">Catatan</div>
+                <div class="text-slate-700 whitespace-pre-wrap">{{ po.catatan }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Action buttons (state-aware) #}
+    {% if can_approve or can_cancel or can_edit or po.status in ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+        <div class="flex items-center gap-2 flex-wrap">
+            {% if po.status in ["ORDERED", "PARTIAL_RECEIVED", "RECEIVED"] %}
+            <a href="/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/cetak" target="_blank"
+               class="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium">🖨 Print PO</a>
+            {% endif %}
+            {% if can_receive %}
+            <a href="/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/faktur"
+               class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">📥 Terima Barang</a>
+            {% endif %}
+            {% if can_approve %}
+            <form method="POST" action="/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/approve-ordered"
+                  data-confirm="Approve PO {{ po.nomor_po }} ke status ORDERED? Setelah ini, items tidak bisa diedit lagi." class="inline">
+                {{ csrf_input(request) }}
+                <button type="submit" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    ✓ Approve → ORDERED
+                </button>
+            </form>
+            {% endif %}
+            {% if can_cancel %}
+            {% set _partial = po.status == "PARTIAL_RECEIVED" %}
+            <form method="POST" action="/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/cancel"
+                  onsubmit="var r = prompt('{% if _partial %}Tutup PO ini? Sisa yang belum dikirim distributor dibatalkan. Barang yang sudah diterima TETAP tercatat (faktur & lot tidak berubah). Alasan (opsional):{% else %}Alasan cancel (opsional):{% endif %}'); if (r === null) return false; this.querySelector('input[name=alasan]').value = r || ''; return true;" class="inline">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="alasan" value="">
+                <button type="submit" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                    {% if _partial %}✗ Tutup PO (batalkan sisa){% else %}✗ Cancel PO{% endif %}
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Items table #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            Items ({{ items|length }})
+        </div>
+        {% if items %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Tipe</th>
+                    <th class="text-left px-4 py-2 font-medium">Nama Item</th>
+                    <th class="text-right px-4 py-2 font-medium">Dipesan</th>
+                    <th class="text-right px-4 py-2 font-medium">Diterima</th>
+                    <th class="text-right px-4 py-2 font-medium">Sisa</th>
+                    <th class="text-right px-4 py-2 font-medium">Harga</th>
+                    <th class="text-center px-4 py-2 font-medium">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in items %}
+                <tr class="hover:bg-slate-50/50">
+                    <td class="px-4 py-3">
+                        {% if it.tipe_item == "PRODUK" %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">📦 PRODUK</span>
+                        {% else %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-700">🧪 BAHAN</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="font-medium text-slate-800">{{ it.nama_snapshot }}</div>
+                        {% if it.catatan_item %}
+                        <div class="text-xs text-slate-500 italic">{{ it.catatan_item }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right font-mono text-slate-700">{{ it.qty_dipesan }} {{ it.satuan_snapshot }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-emerald-700">{{ it.qty_diterima }}</td>
+                    <td class="px-4 py-3 text-right font-mono {% if it.qty_sisa > 0 %}text-amber-700 font-semibold{% else %}text-slate-400{% endif %}">{{ it.qty_sisa }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-xs text-slate-600">
+                        {% if it.harga_satuan %}Rp {{ "{:,.0f}".format(it.harga_satuan).replace(",", ".") }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% if it.is_complete %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">✓ Selesai</span>
+                        {% else %}
+                        <span class="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">⏳ Pending</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-8 text-center text-slate-400 text-sm">Tidak ada item di PO ini.</div>
+        {% endif %}
+    </div>
+
+    {# FK-L5: Faktur Penerimaan (per pengiriman) #}
+    {% if faktur_list %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            🧾 Faktur Penerimaan ({{ faktur_list|length }} pengiriman)
+        </div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">No. Pengiriman</th>
+                    <th class="text-left px-4 py-2 font-medium">No. Faktur</th>
+                    <th class="text-left px-4 py-2 font-medium">Tanggal</th>
+                    <th class="text-left px-4 py-2 font-medium">Distributor</th>
+                    <th class="text-right px-4 py-2 font-medium">Item</th>
+                    <th class="text-right px-4 py-2 font-medium">Total Ditagih</th>
+                    <th class="text-right px-4 py-2 font-medium">Cetak</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for fk in faktur_list %}
+                <tr>
+                    <td class="px-4 py-2 font-mono text-xs text-slate-700">{{ fk.nomor_pengiriman }}</td>
+                    <td class="px-4 py-2 text-slate-700">{{ fk.nomor_faktur }}</td>
+                    <td class="px-4 py-2 text-slate-600">{{ fk.tgl }}</td>
+                    <td class="px-4 py-2 text-slate-700">{{ fk.distributor }}</td>
+                    <td class="px-4 py-2 text-right text-slate-600">{{ fk.n_item }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-slate-700">{% if fk.total_ditagih is not none %}Rp {{ "{:,.0f}".format(fk.total_ditagih).replace(",", ".") }}{% else %}-{% endif %}</td>
+                    <td class="px-4 py-2 text-right whitespace-nowrap">
+                        <a href="/web/pengadaan/faktur/{{ fk.id_faktur }}/cetak?versi=finance" target="_blank" class="px-2.5 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-800">Finance</a>
+                        <a href="/web/pengadaan/faktur/{{ fk.id_faktur }}/cetak?versi=inventory" target="_blank" class="px-2.5 py-1 text-xs bg-slate-500 text-white rounded hover:bg-slate-600">Inventory</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# History receive events #}
+    {% if history %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            History Receive ({{ history|length }})
+        </div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2">Waktu</th>
+                    <th class="text-right px-4 py-2">Item ID</th>
+                    <th class="text-right px-4 py-2">Qty</th>
+                    <th class="text-left px-4 py-2">Faktur</th>
+                    <th class="text-left px-4 py-2">Penerima</th>
+                    <th class="text-left px-4 py-2">Catatan</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for h in history %}
+                <tr>
+                    <td class="px-4 py-3 text-xs font-mono text-slate-600">{{ h.tgl_terima }}</td>
+                    <td class="px-4 py-3 text-right text-xs font-mono">#{{ h.id_pemesanan_item }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-emerald-700">{{ h.qty_diterima }}</td>
+                    <td class="px-4 py-3 text-xs text-slate-700">{{ h.nomor_faktur }}</td>
+                    <td class="px-4 py-3 text-xs text-slate-700">{{ h.nama_staf_penerima }}</td>
+                    <td class="px-4 py-3 text-xs text-slate-500">{{ h.catatan or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {# Edit header (SUBMITTED only) #}
+    {% if can_edit %}
+    <details class="bg-white rounded-xl shadow-sm border border-slate-200 mb-4">
+        <summary class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-100">
+            ✏️ Edit Header (Supplier / ETA / Catatan)
+        </summary>
+        <form method="POST" action="/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/edit" class="p-5 space-y-3">
+            {{ csrf_input(request) }}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Supplier</label>
+                    <select name="supplier_nama" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Pilih distributor —</option>
+                        {% if po.supplier_nama and po.supplier_nama not in distributors %}<option value="{{ po.supplier_nama }}" selected>{{ po.supplier_nama }} (lama)</option>{% endif %}
+                        {% for d in distributors %}<option value="{{ d }}" {% if d == po.supplier_nama %}selected{% endif %}>{{ d }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Perkiraan Datang</label>
+                    <input type="date" name="tgl_perkiraan_datang" value="{{ po.tgl_perkiraan_datang or '' }}"
+                           class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Catatan</label>
+                    <textarea name="catatan" rows="2" maxlength="2000"
+                              class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg">{{ po.catatan or '' }}</textarea>
+                </div>
+            </div>
+            <button type="submit" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                Simpan Perubahan Header
+            </button>
+        </form>
+    </details>
+    {% endif %}
+
+</div>
+
+{# Modal Receive #}
+{% if can_receive %}
+<div id="receive-modal" class="hidden fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">📥 Receive Item</h3>
+            <button type="button" onclick="closeReceiveModal()" class="text-slate-400 text-2xl leading-none">&times;</button>
+        </div>
+        <form id="receive-form" method="POST" action="" class="p-5 space-y-3">
+            {{ csrf_input(request) }}
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Item</div>
+                <div id="receive-nama-item" class="font-medium text-slate-800"></div>
+                <div class="text-xs text-slate-500">Sisa: <strong id="receive-qty-sisa"></strong></div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Qty Diterima</label>
+                <input type="number" id="receive-qty" name="qty_diterima" required min="0.01" step="any"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Nomor Faktur (opsional)</label>
+                <input type="text" name="nomor_faktur" maxlength="100" placeholder="Faktur supplier"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Catatan (opsional)</label>
+                <textarea name="catatan" rows="2"
+                          class="w-full px-3 py-2 border border-slate-300 rounded-lg"></textarea>
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <button type="button" onclick="closeReceiveModal()"
+                        class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg">Batal</button>
+                <button type="submit"
+                        class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                    Receive Item
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openReceiveModal(idItem, nama, qtySisa) {
+    var modal = document.getElementById('receive-modal');
+    document.getElementById('receive-nama-item').textContent = nama;
+    document.getElementById('receive-qty-sisa').textContent = qtySisa;
+    var input = document.getElementById('receive-qty');
+    input.max = qtySisa;
+    input.value = qtySisa;
+    document.getElementById('receive-form').action = '/web/pengadaan/pemesanan/{{ po.id_pemesanan }}/item/' + idItem + '/receive';
+    modal.classList.remove('hidden');
+}
+function closeReceiveModal() {
+    document.getElementById('receive-modal').classList.add('hidden');
+}
+document.getElementById('receive-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeReceiveModal();
+});
+</script>
+{% endif %}
+
+{% endblock %}

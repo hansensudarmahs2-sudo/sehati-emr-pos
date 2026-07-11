@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /pasien/{id}/buat-antrian,CatchResponseError('buat-antrian fail: 403'),12,2026-06-07T08:59:23Z,2026-06-07T09:01:16Z
+GET,GET /apotek/suggested-order,HTTPError('403 Client Error: Forbidden for url: GET /apotek/suggested-order'),2,2026-06-07T08:59:35Z,2026-06-07T08:59:50Z
+GET,GET /apotek,HTTPError('403 Client Error: Forbidden for url: GET /apotek'),15,2026-06-07T08:59:20Z,2026-06-07T09:01:14Z

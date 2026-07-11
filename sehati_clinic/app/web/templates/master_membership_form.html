@@ -1,0 +1,123 @@
+{% extends "_app.html" %}
+{% block title %}{% if is_edit %}Edit{% else %}Tambah{% endif %} Tier Membership{% endblock %}
+{% block page_title %}{% if is_edit %}Edit Tier Membership — {{ form.nama_tier }}{% else %}Tambah Tier Baru{% endif %}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+    {# Breadcrumb #}
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/master/membership" class="hover:text-blue-600">Master Membership</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">{% if is_edit %}Edit{% else %}Tambah Baru{% endif %}</span>
+    </div>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+
+    <form method="POST" action="{% if is_edit %}/web/master/membership/{{ form.id_membership }}{% else %}/web/master/membership/tambah{% endif %}"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+        {{ csrf_input(request) }}
+
+        {# Baris 1: nama_tier + urutan_tampilan #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="md:col-span-2">
+                <label for="nama_tier" class="block text-sm font-medium text-slate-700 mb-1">
+                    Nama Tier <span class="text-red-500">*</span>
+                </label>
+                <select id="nama_tier" name="nama_tier" required
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    {% for opt in ["REGULAR", "VIP", "VVIP"] %}
+                    <option value="{{ opt }}" {% if (form.nama_tier or "") == opt %}selected{% endif %}>{{ opt }}</option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-slate-500 mt-1">Harus match MembershipTierEnum. Tier baru butuh redeploy.</p>
+            </div>
+            <div>
+                <label for="urutan_tampilan" class="block text-sm font-medium text-slate-700 mb-1">Urutan</label>
+                <input type="number" id="urutan_tampilan" name="urutan_tampilan" min="0" step="1"
+                       value="{{ form.urutan_tampilan or 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">ASC (kecil = tampil duluan).</p>
+            </div>
+        </div>
+
+        {# Baris 2: harga_aktivasi + durasi_bulan #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label for="harga_aktivasi" class="block text-sm font-medium text-slate-700 mb-1">Harga Aktivasi (Rp)</label>
+                <input type="number" id="harga_aktivasi" name="harga_aktivasi" min="0" step="1000"
+                       value="{{ form.harga_aktivasi or 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">0 = gratis (mis. REGULAR auto-assign).</p>
+            </div>
+            <div>
+                <label for="durasi_bulan" class="block text-sm font-medium text-slate-700 mb-1">Durasi (bulan) <span class="text-red-500">*</span></label>
+                <input type="number" id="durasi_bulan" name="durasi_bulan" required min="1" max="120" step="1"
+                       value="{{ form.durasi_bulan or 12 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Berapa bulan tier berlaku setelah aktivasi.</p>
+            </div>
+        </div>
+
+        {# Baris 3: Free Konsultasi #}
+        <div class="border-t border-slate-100 pt-4">
+            <label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" id="free_konsultasi_dokter" name="free_konsultasi_dokter" value="1"
+                       {% if form.free_konsultasi_dokter %}checked{% endif %}
+                       class="w-4 h-4 rounded border-slate-300 focus:ring-2 focus:ring-blue-500">
+                <span class="font-medium text-slate-700">✓ Free Konsultasi Dokter</span>
+            </label>
+            <p class="text-xs text-slate-500 mt-1 ml-6">Kalau dicentang, kunjungan konsul dokter tidak ditarik biaya.</p>
+        </div>
+
+        {# Baris 4: Diskon treatment & produk #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label for="diskon_treatment_persen" class="block text-sm font-medium text-slate-700 mb-1">Diskon Treatment (%)</label>
+                <input type="number" id="diskon_treatment_persen" name="diskon_treatment_persen" min="0" max="100" step="0.1"
+                       value="{{ form.diskon_treatment_persen or 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Diaplikasikan ke setiap kunjungan dengan tindakan.</p>
+            </div>
+            <div>
+                <label for="diskon_produk_persen" class="block text-sm font-medium text-slate-700 mb-1">Diskon Produk (%)</label>
+                <input type="number" id="diskon_produk_persen" name="diskon_produk_persen" min="0" max="100" step="0.1"
+                       value="{{ form.diskon_produk_persen or 0 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Diaplikasikan ke resep + pembelian produk retail.</p>
+            </div>
+        </div>
+
+        {# Catatan #}
+        <div>
+            <label for="catatan" class="block text-sm font-medium text-slate-700 mb-1">Catatan (opsional)</label>
+            <textarea id="catatan" name="catatan" rows="2" maxlength="500"
+                      placeholder="mis. Termasuk benefit 6× facial gratis per tahun"
+                      class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">{{ form.catatan or "" }}</textarea>
+        </div>
+
+        {# Submit #}
+        <div class="flex items-center justify-between pt-4 border-t border-slate-100">
+            <a href="/web/master/membership"
+               class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
+                ← Kembali
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                ✓ {% if is_edit %}Simpan Perubahan{% else %}Simpan Tier Baru{% endif %}
+            </button>
+        </div>
+    </form>
+
+    {% if is_edit %}
+    <div class="text-xs text-slate-500 mt-3 italic">
+        💡 Untuk nonaktifkan tier, kembali ke list lalu klik tombol "🚫 Nonaktif" di row tier.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
