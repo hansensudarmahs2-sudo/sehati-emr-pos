@@ -272,3 +272,12 @@ class StatusFollowupEnum(str, enum.Enum):
     RESCHEDULED = "RESCHEDULED"
     NO_ANSWER = "NO_ANSWER"
     CANCELLED = "CANCELLED"
+
+
+class StatusAktivasiEnum(str, enum.Enum):
+    """Status aktivasi membership — pasien_membership_history.status_aktivasi (CS-activation)."""
+    PENDING = "PENDING"      # tier di-set, belum bayar
+    PAID = "PAID"            # sudah bayar, menunggu aktivasi CS
+    ACTIVE = "ACTIVE"        # diaktifkan CS
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"

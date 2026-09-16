@@ -26,7 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models._enums import PeriodeKuotaEnum
+from app.db.models._enums import PeriodeKuotaEnum, StatusAktivasiEnum
 
 
 class MasterMembership(Base):
@@ -127,6 +127,10 @@ class PasienMembershipHistory(Base):
 
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="1", nullable=False
+    )
+    status_aktivasi: Mapped[StatusAktivasiEnum] = mapped_column(
+        Enum(StatusAktivasiEnum, values_callable=lambda x: [e.value for e in x]),
+        default=StatusAktivasiEnum.PENDING, server_default="PENDING", nullable=False,
     )
     catatan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(

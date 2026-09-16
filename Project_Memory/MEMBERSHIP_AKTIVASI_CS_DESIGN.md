@@ -64,12 +64,12 @@ Sekarang status disimpulkan dari kombinasi `is_active` + `id_transaksi_aktivasi`
 - **Siapa boleh mengaktifkan?** Sistem tak punya role "CS" — kandidat = **FO / Kasir / Admin / Owner /
   Superadmin**. (KEPUTUSAN TERBUKA.)
 
-## 9. Keputusan terbuka (perlu dr. Hansen)
-1. **`tgl_aktif`/`tgl_expired` di-anchor ke tgl AKTIVASI (rekomendasi) atau tgl BAYAR?**
-2. **Nomor member:** format final + diberikan saat PAID atau ACTIVE? disimpan di `pasien` (rekomendasi)?
-3. **Role yang boleh aktivasi** = FO? (atau FO+Kasir+Admin+Owner/Superadmin)
-4. **Kuota** dibuat saat aktivasi (rekomendasi) — konfirmasi.
-5. Perlukah batas waktu "PAID tapi tak kunjung diaktifkan" (auto-warning, mirip Obat Tertunda)?
+## 9. Keputusan TERKUNCI (dr. Hansen, 2026-09-16)
+1. **Masa berlaku** (`tgl_aktif`/`tgl_expired`) di-anchor ke **tgl AKTIVASI** (bukan tgl bayar).
+2. **Nomor member** diberikan **saat ACTIVE**; format **`M-000123`** (sekuensial; nanti bisa prefix cabang saat multi-cabang); disimpan di **`pasien.no_member`** (unik, 1 pasien 1 nomor seumur hidup).
+3. **Role yang boleh mengaktifkan** = **FO + Kasir + Admin + Owner + Superadmin**.
+4. **Kuota treatment dibuat saat AKTIVASI** (bukan saat bayar).
+5. **Ada peringatan "PAID belum diaktifkan"** = worklist **"Menunggu Aktivasi"** + badge/notifikasi (pola Obat Tertunda).
 
 ## 10. Rencana build (nanti, setelah 3 item prioritas)
 - M1. Migrasi `status_aktivasi` + `no_member` + backfill. Model + enum.
@@ -77,3 +77,12 @@ Sekarang status disimpulkan dari kombinasi `is_active` + `id_transaksi_aktivasi`
 - M3. Aksi CS "Aktifkan" (service + route + tombol) → ACTIVE + kuota + no_member + audit.
 - M4. Worklist "Menunggu Aktivasi" + notifikasi. Tangani void di state PAID (nyambung P2-5).
 - M5. Verifikasi: py_compile + jinja + test (set→bayar→PAID→aktifkan→benefit; void di PAID & ACTIVE) + smoke.
+
+---
+## BUILD LOG
+- **M1 — DONE 2026-09-16 (live).** Enum `StatusAktivasiEnum` + kolom `pasien_membership_history.status_aktivasi`
+  (default PENDING) + `pasien.no_member` (unik). Migrasi `20260916_0200` (backfill: 15 existing → ACTIVE).
+  Head migrasi = `20260916_0200`. Perilaku BELUM berubah (pay masih auto-aktif) — status_aktivasi belum dibaca kode.
+- **M2–M5 — PENDING** (sesi berikutnya): proses_bayar→PAID; aksi CS "Aktifkan" (ACTIVE+kuota+no_member `M-000123`+audit);
+  worklist "Menunggu Aktivasi" + badge; tangani void di PAID; test+smoke.
+  Keputusan sudah terkunci di §9. Role aktivasi: FO/Kasir/Admin/Owner/Superadmin. tgl_aktif=tgl aktivasi. Kuota saat aktivasi.

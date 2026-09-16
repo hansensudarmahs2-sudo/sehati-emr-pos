@@ -51,6 +51,7 @@ class Pasien(Base):
     alamat: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tgl_lahir: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     nomor_telepon: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    no_member: Mapped[Optional[str]] = mapped_column(String(30), unique=True, nullable=True, comment="Nomor member (diisi saat aktivasi CS)")
     nomor_ktp: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     email_address: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sumber_referensi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
