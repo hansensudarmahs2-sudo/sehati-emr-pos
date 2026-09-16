@@ -1,0 +1,66 @@
+/* Royal Teal v2 — chrome teal gelap (sidebar+header #0D5C63), panel logo PUTIH,
+   konten PUTIH, nav-active PUTIH, aksen GOLD. Scope body.theme-rt. Reversible. */
+:root{
+  --rt-teal:#0D5C63; --rt-teal-700:#094A50; --rt-teal-050:#E7F1F2;
+  --rt-gold:#D4AF37;
+  --rt-border:#E5E7EB; --rt-text:#232323;
+  --rt-navtext:#DCEAEB; --rt-navmuted:rgba(255,255,255,.55);
+  --rt-shadow-card:0 1px 2px rgba(35,35,35,.05), 0 1px 6px rgba(13,92,99,.06);
+  --rt-radius-lg:14px;
+}
+body.theme-rt{
+  font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background:#ffffff !important; color:var(--rt-text);
+}
+.theme-rt main{ background:#ffffff !important; }
+
+/* Cards */
+.theme-rt .border-slate-200{ border-color:var(--rt-border) !important; }
+.theme-rt .shadow-sm{ box-shadow:var(--rt-shadow-card) !important; }
+.theme-rt .rounded-xl{ border-radius:var(--rt-radius-lg) !important; }
+
+/* ===== HEADER: teal gelap + teks terang ===== */
+.theme-rt header.bg-white{
+  background:var(--rt-teal) !important; border-bottom-color:rgba(255,255,255,.15) !important;
+  height:73px; min-height:73px; box-sizing:border-box;
+}
+.theme-rt header h1{ color:#ffffff !important; }
+.theme-rt header p,
+.theme-rt header .text-slate-500, .theme-rt header .text-slate-700,
+.theme-rt header .text-blue-600, .theme-rt header span, .theme-rt header a{ color:#ffffff !important; }
+.theme-rt header a:hover, .theme-rt header .hover\:text-blue-600:hover{ color:var(--rt-gold) !important; }
+
+/* ===== SIDEBAR: teal gelap ===== */
+.theme-rt #app-sidebar{ background:var(--rt-teal) !important; border-right-color:rgba(255,255,255,.12) !important; }
+/* Panel logo (kiri atas) tetap PUTIH — teks di dalamnya JANGAN diubah */
+.theme-rt #app-sidebar > a:first-child{
+  background:#ffffff !important; border-bottom-color:var(--rt-border) !important;
+  height:73px; min-height:73px; box-sizing:border-box; display:flex; align-items:center;
+}
+/* Label grup + item nav → terang */
+.theme-rt #app-sidebar nav .text-slate-400{ color:var(--rt-navmuted) !important; }
+.theme-rt #app-sidebar nav a{ color:var(--rt-navtext) !important; }
+/* Hover nav → overlay putih tipis */
+.theme-rt #app-sidebar nav a.hover\:bg-slate-50:hover{ background:rgba(255,255,255,.10) !important; color:#ffffff !important; }
+/* AKTIF → highlight PUTIH + teks teal + aksen GOLD */
+.theme-rt #app-sidebar nav a.bg-blue-50{ background:#ffffff !important; color:var(--rt-teal) !important; box-shadow:inset 3px 0 0 var(--rt-gold); }
+.theme-rt #app-sidebar nav a.text-blue-700{ color:var(--rt-teal) !important; }
+/* Blok user (bawah sidebar) → terang */
+.theme-rt #app-sidebar .border-t{ border-top-color:rgba(255,255,255,.15) !important; }
+.theme-rt #app-sidebar .border-t .text-slate-800{ color:#ffffff !important; }
+.theme-rt #app-sidebar .border-t .text-slate-500{ color:rgba(255,255,255,.70) !important; }
+.theme-rt #app-sidebar .border-t .bg-slate-200{ background:rgba(255,255,255,.18) !important; }
+
+/* Primer biru → teal (tombol/link di konten) */
+.theme-rt .bg-blue-600{ background-color:var(--rt-teal) !important; }
+.theme-rt .hover\:bg-blue-700:hover{ background-color:var(--rt-teal-700) !important; }
+.theme-rt main .text-blue-600, .theme-rt main .text-blue-700{ color:var(--rt-teal) !important; }
+
+/* Dropdown: aksen GOLD + opsi terpilih teal */
+.theme-rt .ts-dropdown{ border-top:2px solid var(--rt-gold) !important; }
+.theme-rt .ts-dropdown .active{ background:var(--rt-teal-050) !important; color:var(--rt-teal) !important; }
+.theme-rt .ts-control:focus-within{ border-color:var(--rt-teal) !important; box-shadow:0 0 0 2px var(--rt-teal-050) !important; }
+.theme-rt .ubah-menu{ border-top:2px solid var(--rt-gold) !important; }
+
+/* Angka tabular */
+.theme-rt .font-bold{ font-variant-numeric:tabular-nums; }

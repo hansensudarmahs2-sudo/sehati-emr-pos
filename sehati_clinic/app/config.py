@@ -7,6 +7,7 @@ Akses config: `from app.config import settings`.
 
 from functools import lru_cache
 from pydantic import Field, model_validator
+from pathlib import Path as _Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     """Aplikasi settings — di-load otomatis dari .env file."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_Path(__file__).resolve().parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
