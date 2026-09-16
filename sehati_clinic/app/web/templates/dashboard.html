@@ -70,6 +70,21 @@
     {% endif %}
     {% endif %}
 
+    {# Obat Tertunda (P1-1) — kartu alert #}
+    {% if can_obat_tertunda is defined and can_obat_tertunda and obat_tertunda is defined and obat_tertunda.total and obat_tertunda.total > 0 %}
+    {% set _ot_hi = obat_tertunda.overdue and obat_tertunda.overdue > 0 %}
+    <a href="/web/obat-tertunda" class="block bg-white border border-{{ 'red' if _ot_hi else 'amber' }}-200 rounded-xl p-4 hover:shadow-md transition mb-4">
+        <div class="flex items-center gap-3">
+            <div class="text-3xl">🚚</div>
+            <div class="flex-1">
+                <div class="text-xs text-slate-500 uppercase">Obat belum diserahkan / dikirim</div>
+                <div class="text-2xl font-bold text-{{ 'red' if _ot_hi else 'amber' }}-700">{{ obat_tertunda.total }}{% if _ot_hi %} <span class="text-sm font-medium">({{ obat_tertunda.overdue }} jatuh tempo)</span>{% endif %}</div>
+            </div>
+            <div class="text-slate-400">→</div>
+        </div>
+    </a>
+    {% endif %}
+
     {# Antrian per Stage (Owner/Admin/FO) #}
     {% if stats.antrian_per_stage %}
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">

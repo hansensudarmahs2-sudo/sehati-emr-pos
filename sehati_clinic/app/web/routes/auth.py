@@ -163,6 +163,22 @@ def dashboard(request: Request, db: DbSession):
     except Exception:
         pass
 
+    # Obat Tertunda (P1-1): kartu dashboard + ikon notif header (shell dashboard manual)
+    from datetime import date as _date_ot
+    from sqlalchemy import select as _sel_ot
+    from app.db.models import Kunjungan as _K_ot
+    _ot_rows = db.execute(
+        _sel_ot(_K_ot.tgl_janji_kirim).where(
+            _K_ot.status_antrian == "COMPLETED", _K_ot.tgl_janji_kirim.is_not(None)
+        )
+    ).all()
+    _today_ot = _date_ot.today()
+    _obat_tertunda = {
+        "total": len(_ot_rows),
+        "overdue": sum(1 for (d,) in _ot_rows if d is not None and d <= _today_ot),
+    }
+    _can_obat_tertunda = role_value in {"Owner", "Superadmin", "Admin", "Kasir", "FO", "Apoteker"}
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -184,6 +200,8 @@ def dashboard(request: Request, db: DbSession):
             "klinik_logo_path": _klinik_logo,
             "klinik_mini_logo_path": _klinik_mini_logo,
             "app_name": APP_NAME,
+            "obat_tertunda": _obat_tertunda,
+            "can_obat_tertunda": _can_obat_tertunda,
         },
     )
 

@@ -24,6 +24,7 @@ from app.web.routes import (
     export,
     finance_export,
     followup,
+    obat_tertunda,
     kasir,
     kasir_closing,
     kunjungan,
@@ -65,6 +66,7 @@ router.include_router(reports.router)
 router.include_router(export.router)
 router.include_router(finance_export.router)
 router.include_router(followup.router)
+router.include_router(obat_tertunda.router)
 router.include_router(settings.router)
 
 

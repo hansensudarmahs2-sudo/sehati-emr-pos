@@ -472,8 +472,13 @@ class MembershipService:
                 request=request,
             )
             return id_hist
+        except HTTPException:
+            raise
         except Exception as e:
-            self.db.rollback()
+            # P2-5 (DEC-081): helper ini dipanggil DI TENGAH transaksi void_transaksi.
+            # JANGAN self.db.rollback() (mengguyur transaksi void induk → korup/partial).
+            # Biarkan exception naik → void_transaksi yang rollback transaksi induk
+            # secara atomik (void all-or-nothing).
             raise HTTPException(500, f"Gagal revert membership history: {e!s}")
 
 

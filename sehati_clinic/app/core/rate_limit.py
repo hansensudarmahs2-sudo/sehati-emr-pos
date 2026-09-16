@@ -36,13 +36,59 @@ _last_block_at: dict[str, float] = {}  # untuk reset strike setelah bersih
 _lock = threading.Lock()
 
 
+import ipaddress
+
+
+def _trusted_networks():
+    """Parse settings.trusted_proxies (IP/CIDR, koma) → list ip_network. Default loopback."""
+    raw = "127.0.0.1,::1"
+    try:
+        from app.config import settings
+        raw = getattr(settings, "trusted_proxies", raw)
+        if raw is None:
+            raw = ""
+    except Exception:
+        pass
+    nets = []
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            pass
+    return nets
+
+
+def _is_trusted(ip_str, nets) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(ip in n for n in nets)
+
+
 def get_client_ip(request) -> str:
-    """Ambil IP klien. Hormati X-Forwarded-For kalau di belakang nginx/proxy."""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    """Ambil IP klien dengan aman (P1-3).
+
+    X-Forwarded-For HANYA dipercaya bila peer koneksi = proxy tepercaya
+    (settings.trusted_proxies). Kalau tidak, XFF diabaikan (bisa di-spoof) dan
+    dipakai request.client.host. Di belakang proxy, ambil IP paling kanan yang
+    BUKAN proxy tepercaya = klien yang benar-benar dilihat proxy (tahan-spoof).
+    """
     client = getattr(request, "client", None)
-    return client.host if client else "unknown"
+    peer = client.host if client else None
+    nets = _trusted_networks()
+    xff = request.headers.get("x-forwarded-for")
+    if xff and peer and _is_trusted(peer, nets):
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        for cand in reversed(parts):
+            if not _is_trusted(cand, nets):
+                return cand
+        if parts:
+            return parts[0]
+    return peer or "unknown"
 
 
 def _maybe_reset_strikes(ip: str, now: float) -> None:

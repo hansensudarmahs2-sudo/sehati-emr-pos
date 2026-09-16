@@ -11,7 +11,7 @@ Validasi:
 Audit hooks: CREATE, UPDATE, SET_ACTIVE, RESTOCK per aksi.
 """
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from fastapi import HTTPException, Request, status
@@ -44,17 +44,24 @@ def _hitung_komisi_satu(tipe: Optional[str], value: float, harga: float, hpp: fl
     """Hitung 1 komisi (dokter) berdasarkan tipe untuk produk.
 
     Untuk produk, basis margin = harga_jual - hpp_per_unit (bukan harga - BHP).
+    P2-1: aritmetika pakai Decimal (bukan float) + quantize ke 2dp (ROUND_HALF_UP)
+    agar nilai yang disimpan ke komisi_nominal DECIMAL(12,2) bebas galat biner.
     """
-    if not tipe or value is None or value <= 0:
+    if not tipe or value is None or float(value) <= 0:
         return 0.0
+    v = Decimal(str(value)); h = Decimal(str(harga)); c = Decimal(str(hpp))
     if tipe == KOMISI_TIPE_PERSEN_HARGA:
-        return float(harga) * float(value) / 100.0
+        res = h * v / Decimal("100")
     elif tipe == KOMISI_TIPE_PERSEN_MARGIN:
-        margin = max(0.0, float(harga) - float(hpp))
-        return margin * float(value) / 100.0
+        margin = h - c
+        if margin < 0:
+            margin = Decimal("0")
+        res = margin * v / Decimal("100")
     elif tipe == KOMISI_TIPE_NOMINAL:
-        return float(value)
-    return 0.0
+        res = v
+    else:
+        return 0.0
+    return float(res.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def hitung_komisi_produk(produk, harga_override: Optional[float] = None) -> dict:

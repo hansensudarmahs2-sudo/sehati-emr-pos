@@ -135,6 +135,84 @@ class ApotekService:
     # =========================================================================
     # SERAHKAN OBAT — atomic potong stok + COMPLETED
     # =========================================================================
+    def list_obat_tertunda(self) -> list[dict]:
+        """Daftar kunjungan COMPLETED yang obatnya masih tertunda (tgl_janji_kirim terisi)."""
+        from datetime import date as _date
+        from sqlalchemy import select as _sel
+        from app.db.models import Kunjungan as _K, Pasien as _P, KunjunganResep as _KR, MasterProduk as _MP
+        today = _date.today()
+        rows = self.db.execute(
+            _sel(_K, _P).join(_P, _P.id_pasien == _K.id_pasien)
+            .where(_K.status_antrian == "COMPLETED", _K.tgl_janji_kirim.is_not(None))
+            .order_by(_K.tgl_janji_kirim.asc())
+        ).all()
+        out = []
+        for kj, pasien in rows:
+            resep = self.db.execute(
+                _sel(_KR, _MP).join(_MP, _MP.id_produk == _KR.id_produk)
+                .where(_KR.id_kunjungan == kj.id_kunjungan, _KR.status_item == "DIBAYAR")
+            ).all()
+            obat = [f"{mp.nama_produk} x{float(kr.qty or 0):g}" for kr, mp in resep]
+            out.append({
+                "id_kunjungan": kj.id_kunjungan,
+                "id_pasien": kj.id_pasien,
+                "no_rm": pasien.no_rm,
+                "nama_pasien": pasien.nama,
+                "nomor_telepon": pasien.nomor_telepon or "",
+                "tgl_janji_kirim": kj.tgl_janji_kirim,
+                "catatan_kirim": kj.catatan_kirim or "",
+                "obat": obat,
+                "overdue": kj.tgl_janji_kirim is not None and kj.tgl_janji_kirim <= today,
+            })
+        return out
+
+    def tunda_serah_obat(
+        self,
+        id_kunjungan: int,
+        tgl_janji_kirim,
+        catatan: Optional[str],
+        id_staf: int,
+        request: Optional[Request] = None,
+    ) -> dict:
+        """OBAT TERTUNDA (P1-1): tandai obat dibayar tapi diserah/dikirim belakangan.
+
+        Kunjungan → COMPLETED (kasir bisa Tutup Kasir), resep tetap DIBAYAR, stok BELUM
+        dipotong. tgl_janji_kirim WAJIB. Serah sebenarnya dilakukan nanti via serahkan_obat.
+        """
+        kunjungan = self.kunjungan_repo.get_by_id(id_kunjungan)
+        if kunjungan is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Kunjungan {id_kunjungan} tidak ditemukan.")
+        if kunjungan.status_antrian != "ANTRI_OBAT":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Hanya kunjungan 'ANTRI_OBAT' yang bisa ditunda (saat ini '{kunjungan.status_antrian}').",
+            )
+        if tgl_janji_kirim is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tanggal janji kirim/ambil WAJIB diisi.")
+        resep_list = self.repo.get_resep_dibayar_for_serah(id_kunjungan)
+        if not resep_list:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tidak ada resep DIBAYAR untuk ditunda.")
+
+        kunjungan.tgl_janji_kirim = tgl_janji_kirim
+        kunjungan.catatan_kirim = (catatan or None)
+        self.kunjungan_repo.update_status(kunjungan, "COMPLETED")
+        self.audit.log(
+            aksi="OBAT_TUNDA",
+            id_staf=id_staf,
+            tabel_target="kunjungan",
+            id_target=id_kunjungan,
+            data_lama={"status_antrian": "ANTRI_OBAT"},
+            data_baru={"status_antrian": "COMPLETED", "tgl_janji_kirim": str(tgl_janji_kirim)},
+            keterangan=f"Obat ditunda (kirim/ambil {tgl_janji_kirim}). {len(resep_list)} item. Stok belum dipotong.",
+            request=request,
+        )
+        self.db.commit()
+        return {
+            "status": "success",
+            "message": f"Obat ditandai TERTUNDA — dijadwalkan {tgl_janji_kirim}. Kasir bisa menutup.",
+            "data": {"id_kunjungan": id_kunjungan, "tgl_janji_kirim": str(tgl_janji_kirim)},
+        }
+
     def serahkan_obat(
         self,
         payload: SerahkanObatRequest,
@@ -148,12 +226,16 @@ class ApotekService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Kunjungan {payload.id_kunjungan} tidak ditemukan.",
             )
-        if kunjungan.status_antrian != "ANTRI_OBAT":
+        _is_tertunda = (
+            kunjungan.status_antrian == "COMPLETED"
+            and kunjungan.tgl_janji_kirim is not None
+        )
+        if kunjungan.status_antrian != "ANTRI_OBAT" and not _is_tertunda:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"Kunjungan status saat ini '{kunjungan.status_antrian}' — "
-                    f"hanya 'ANTRI_OBAT' yang bisa diserahkan obatnya."
+                    f"hanya 'ANTRI_OBAT' atau kunjungan dengan obat TERTUNDA yang bisa diserahkan."
                 ),
             )
 
@@ -169,6 +251,7 @@ class ApotekService:
             # 3. Loop potong stok produk (FOR UPDATE lock per produk)
             items_dipotong: list[StokPotongItem] = []
             batch_terpakai = []  # P-L5: jejak batch/ED yang keluar (FEFO)
+            shortfall_warnings: list[str] = []  # sub-fix C: surface divergensi (tak blok)
             from app.services.inventory_lot_service import InventoryLotService
             _lot_svc = InventoryLotService(self.db)
             for resep in resep_list:
@@ -179,9 +262,13 @@ class ApotekService:
                 qty = float(resep.qty or 0)
                 stok_sebelum = float(produk.stok_terkini or 0)
                 stok_sesudah = self.repo.update_stok_produk(produk, delta=-qty)
+                if stok_sesudah < 0:
+                    shortfall_warnings.append(f"{produk.nama_produk}: stok jadi minus ({stok_sesudah:g})")
                 # P-L5: potong lot FEFO (RETAIL) — ED terdekat keluar dulu
                 _fefo = _lot_svc.consume_fefo(
                     tipe_item="PRODUK", lokasi="RETAIL", qty=qty, id_produk=produk.id_produk)
+                if (_fefo.get("shortfall") or 0) > 0:
+                    shortfall_warnings.append(f"{produk.nama_produk}: lot kurang {_fefo['shortfall']:g} (cache vs lot divergen)")
                 # H2/P0-1: rekam lot yang dipotong → void bisa restore ke lot ASLI (ED terjaga).
                 self._simpan_lot_terpakai(payload.id_kunjungan, produk.id_produk, _fefo["consumed"])
                 for c in _fefo["consumed"]:
@@ -197,8 +284,11 @@ class ApotekService:
                     stok_sesudah=stok_sesudah,
                 ))
 
-            # 4. Transition kunjungan ANTRI_OBAT → COMPLETED
-            self.kunjungan_repo.update_status(kunjungan, "COMPLETED")
+            # 4. Transition ANTRI_OBAT → COMPLETED (kalau serah normal).
+            # Kalau ini serah obat TERTUNDA, kunjungan sudah COMPLETED — cukup bersihkan marker.
+            if kunjungan.status_antrian == "ANTRI_OBAT":
+                self.kunjungan_repo.update_status(kunjungan, "COMPLETED")
+            kunjungan.tgl_janji_kirim = None  # obat sudah benar-benar diserah → keluar dari daftar tertunda
 
             # 5. AUDIT
             self.audit.log(
@@ -212,6 +302,7 @@ class ApotekService:
                     f"Serah obat oleh apoteker_id={id_staf_apoteker}. "
                     f"Jumlah item: {len(items_dipotong)}. "
                     + ("Lot FEFO: " + "; ".join(batch_terpakai) if batch_terpakai else "")
+                    + (" | \u26a0 " + "; ".join(shortfall_warnings) if shortfall_warnings else "")
                 ),
                 request=request,
             )
@@ -223,6 +314,7 @@ class ApotekService:
                     f"Obat berhasil diserahkan ke pasien. "
                     f"{len(items_dipotong)} item ter-potong dari stok. "
                     "Perjalanan pasien SELESAI."
+                    + (" \u26a0 Perhatian: " + "; ".join(shortfall_warnings) if shortfall_warnings else "")
                 ),
                 "data": {
                     "id_kunjungan": payload.id_kunjungan,

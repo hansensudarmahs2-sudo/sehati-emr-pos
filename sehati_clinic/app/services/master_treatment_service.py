@@ -7,6 +7,7 @@ Mirror pattern dari MasterProdukService:
 - Owner/Superadmin role di route layer (sini cuma service)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from fastapi import HTTPException, Request, status
@@ -45,17 +46,23 @@ def _hitung_komisi_satu(tipe: Optional[str], value: float, harga: float, bhp: fl
     - PERSEN_MARGIN: value% × (harga - BHP)
     - NOMINAL: value rupiah flat
     - tipe NULL atau value <= 0 → 0
+    P2-1: aritmetika pakai Decimal + quantize 2dp (ROUND_HALF_UP), bukan float.
     """
-    if not tipe or value is None or value <= 0:
+    if not tipe or value is None or float(value) <= 0:
         return 0.0
+    v = Decimal(str(value)); h = Decimal(str(harga)); c = Decimal(str(bhp))
     if tipe == KOMISI_TIPE_PERSEN_HARGA:
-        return float(harga) * float(value) / 100.0
+        res = h * v / Decimal("100")
     elif tipe == KOMISI_TIPE_PERSEN_MARGIN:
-        margin = max(0.0, float(harga) - float(bhp))
-        return margin * float(value) / 100.0
+        margin = h - c
+        if margin < 0:
+            margin = Decimal("0")
+        res = margin * v / Decimal("100")
     elif tipe == KOMISI_TIPE_NOMINAL:
-        return float(value)
-    return 0.0
+        res = v
+    else:
+        return 0.0
+    return float(res.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def hitung_komisi_treatment(db, treatment, harga_override: Optional[float] = None) -> dict:

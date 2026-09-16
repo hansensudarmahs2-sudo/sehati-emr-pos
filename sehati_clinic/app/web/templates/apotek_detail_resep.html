@@ -141,6 +141,33 @@
         {% endif %}
     </div>
 
+    {# Action: Tunda serah — obat dikirim/diambil nanti (P1-1 Obat Tertunda) #}
+    <div class="bg-white rounded-xl shadow-sm border border-blue-100 p-5 mb-4">
+        <h4 class="font-semibold text-slate-800">🚚 Tunda serah (obat dikirim/diambil nanti)</h4>
+        <p class="text-xs text-slate-500 mt-1 mb-3">
+            Pilih ini kalau pasien bayar hari ini tapi obat menyusul. Kunjungan ditutup (kasir bisa Tutup Kasir),
+            stok belum dipotong; muncul di daftar Obat Tertunda sampai benar-benar diserahkan.
+        </p>
+        <form method="POST" action="/web/apotek/kunjungan/{{ detail.id_kunjungan }}/tunda-serah"
+              class="flex flex-wrap gap-2 items-end">
+            {{ csrf_input(request) }}
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Tgl kirim/ambil *</label>
+                <input type="date" name="tgl_janji_kirim" required
+                       class="border border-slate-300 rounded px-2 py-1 text-sm" style="min-width:150px">
+            </div>
+            <div class="flex-1" style="min-width:180px">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Catatan/alamat (opsional)</label>
+                <input type="text" name="catatan_kirim" maxlength="255" placeholder="alamat / kurir / catatan"
+                       class="w-full border border-slate-300 rounded px-2 py-1 text-sm">
+            </div>
+            <button type="submit"
+                    class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                🚚 Tandai Tertunda
+            </button>
+        </form>
+    </div>
+
     <div class="flex items-center justify-between">
         <a href="/web/apotek"
            class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">

@@ -77,6 +77,16 @@ class Kunjungan(Base):
         comment="Catatan rencana kontrol/follow-up dari dokter (modul #7)",
     )
 
+    # OBAT TERTUNDA (P1-1): obat sudah dibayar tapi diserah/dikirim belakangan.
+    tgl_janji_kirim: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True,
+        comment="Tanggal janji kirim/ambil obat tertunda (diisi apotek saat Tunda serah)",
+    )
+    catatan_kirim: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True,
+        comment="Catatan/alamat/kurir untuk obat tertunda",
+    )
+
     # WARNA_ANTRIAN_FO: waktu pasien masuk status_antrian saat ini (untuk hitung wait per-tahap).
     # server_default → baris baru otomatis = waktu masuk (ANTRI_KONSULTASI); transisi di-stempel event listener (EOF).
     waktu_masuk_status: Mapped[Optional[datetime]] = mapped_column(

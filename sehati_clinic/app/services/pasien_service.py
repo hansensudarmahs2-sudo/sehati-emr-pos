@@ -68,51 +68,6 @@ class PasienService:
                 ),
             )
 
-    def _create_pending_membership_history_if_needed(
-        self, id_pasien: int, tier_value
-    ):
-        """#362D - Create PENDING pasien_membership_history kalau tier non-REGULAR.
-
-        Pattern:
-        - is_active=False, id_transaksi_aktivasi=NULL = PENDING (created saat daftar)
-        - is_active=True, id_transaksi_aktivasi NOT NULL = ACTIVE (paid)
-        - is_active=False, id_transaksi_aktivasi NOT NULL = EXPIRED/CANCELLED
-        """
-        from datetime import date as _date, timedelta
-        from app.db.models import MasterMembership, PasienMembershipHistory
-        from sqlalchemy import select
-
-        if tier_value is None:
-            return
-        tier_str = tier_value.value if hasattr(tier_value, "value") else str(tier_value)
-        if tier_str.upper() == "REGULAR":
-            return
-        # Lookup master_membership untuk harga + durasi
-        stmt = (
-            select(MasterMembership)
-            .where(MasterMembership.nama_tier == tier_str)
-            .where(MasterMembership.is_active.is_(True))
-            .limit(1)
-        )
-        tier = self.db.execute(stmt).scalar_one_or_none()
-        if tier is None:
-            # Sudah di-validate sebelumnya, tapi safety net
-            return
-        today = _date.today()
-        history = PasienMembershipHistory(
-            id_pasien=id_pasien,
-            id_membership=tier.id_membership,
-            tgl_aktif=today,
-            tgl_expired=today + timedelta(days=int(tier.durasi_bulan or 12) * 30),
-            harga_bayar=float(tier.harga_aktivasi or 0),
-            id_transaksi_aktivasi=None,  # NULL = pending
-            id_staf_aktivasi=None,
-            is_active=False,  # False = pending
-            catatan=f"PENDING - menunggu pembayaran aktivasi {tier_str}",
-        )
-        self.db.add(history)
-        self.db.flush()
-
     def register_pasien_baru(self, payload: PasienBaruRequest, id_staf_fo: int, request: Optional[Request] = None, buat_kunjungan: bool = True) -> dict:
         try:
             # #362C - Validate tier aktif sebelum register

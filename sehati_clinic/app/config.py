@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Localhost dev WAJIB override ke false di .env, karena browser tidak
     # kirim cookie Secure lewat HTTP — login akan loop kalau dev pakai True.
     cookie_secure: bool = Field(default=True)
+    # P1-3: daftar proxy tepercaya (IP/CIDR, koma) untuk mem-percaya X-Forwarded-For.
+    # Default = loopback (nginx satu host). Kosongkan = TIDAK pernah percaya XFF (pakai peer).
+    trusted_proxies: str = Field(default="127.0.0.1,::1")
 
     # ----- CORS -----
     cors_allowed_origins: str = Field(

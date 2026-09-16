@@ -139,6 +139,16 @@
                 <a href="/docs" target="_blank" class="hover:text-blue-600">Swagger UI</a>
                 <span>·</span>
                 {% endif %}
+                {% if can_obat_tertunda is defined and can_obat_tertunda %}
+                <a href="/web/obat-tertunda" title="Notifikasi — Obat Tertunda"
+                   style="position:relative;display:inline-flex;align-items:center;font-size:1.15rem;line-height:1;text-decoration:none">
+                    🔔
+                    {% if obat_tertunda is defined and obat_tertunda.total and obat_tertunda.total > 0 %}
+                    <span style="position:absolute;top:-6px;right:-8px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;padding:0 4px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;line-height:1;">{{ obat_tertunda.total }}</span>
+                    {% endif %}
+                </a>
+                <span>·</span>
+                {% endif %}
                 <div class="text-right">
                     <div class="font-medium text-slate-700">{{ user.nama_staf }}</div>
                     <div class="text-xs text-blue-600">{{ user.role.value if user.role.value is defined else user.role }}</div>

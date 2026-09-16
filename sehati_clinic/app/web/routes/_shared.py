@@ -605,6 +605,32 @@ def build_shell_context(user: MasterStaf, db=None, current_path: str = "", **ext
         except Exception:
             badge_counts = {}
     ctx["badge_counts"] = badge_counts
+    # Obat Tertunda (P1-1): hitung untuk kartu dashboard + ikon notifikasi header.
+    obat_tertunda = {"total": 0, "overdue": 0}
+    if db is not None:
+        try:
+            from app.core import ttl_cache as _tc
+
+            def _ot():
+                from datetime import date as _date
+                from sqlalchemy import select as _sel
+                from app.db.models import Kunjungan as _K
+                today = _date.today()
+                rows = _db_ot = db.execute(
+                    _sel(_K.tgl_janji_kirim).where(
+                        _K.status_antrian == "COMPLETED",
+                        _K.tgl_janji_kirim.is_not(None),
+                    )
+                ).all()
+                tot = len(rows)
+                od = sum(1 for (d,) in rows if d is not None and d <= today)
+                return {"total": tot, "overdue": od}
+
+            obat_tertunda = _tc.get_or_set("obat:tertunda", 30.0, _ot)
+        except Exception:
+            obat_tertunda = {"total": 0, "overdue": 0}
+    ctx["obat_tertunda"] = obat_tertunda
+    ctx["can_obat_tertunda"] = role_str in {"Owner", "Superadmin", "Admin", "Kasir", "FO", "Apoteker"}
     ctx.update(extra)
     return ctx
 

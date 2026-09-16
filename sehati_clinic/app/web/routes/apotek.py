@@ -159,6 +159,48 @@ def apotek_detail_resep(id_kunjungan: int, request: Request, db: DbSession):
 # =============================================================================
 # POST /web/apotek/kunjungan/{id_kunjungan}/serahkan
 # =============================================================================
+@router.post("/apotek/kunjungan/{id_kunjungan}/tunda-serah")
+async def apotek_tunda_serah(id_kunjungan: int, request: Request, db: DbSession):
+    """OBAT TERTUNDA (P1-1): tandai obat menyusul (wajib tgl kirim). Kunjungan → COMPLETED."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_apoteker_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    from datetime import date as _date
+    f = await request.form()
+    raw = (f.get("tgl_janji_kirim") or "").strip()
+    catatan = (f.get("catatan_kirim") or "").strip() or None
+    tgl = None
+    if raw:
+        try:
+            tgl = _date.fromisoformat(raw)
+        except ValueError:
+            tgl = None
+    if tgl is None:
+        return RedirectResponse(
+            url=f"/web/apotek/kunjungan/{id_kunjungan}?err={quote('Tanggal kirim/ambil wajib diisi (YYYY-MM-DD).')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    try:
+        result = ApotekService(db).tunda_serah_obat(
+            id_kunjungan=id_kunjungan, tgl_janji_kirim=tgl, catatan=catatan,
+            id_staf=user.id_staf, request=request,
+        )
+    except HTTPException as e:
+        return RedirectResponse(
+            url=f"/web/apotek/kunjungan/{id_kunjungan}?err={quote(str(e.detail))}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/web/apotek/kunjungan/{id_kunjungan}?err={quote(f'Gagal: {e!s}')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    msg = result.get("message", "Obat ditunda.") if isinstance(result, dict) else "Obat ditunda."
+    return RedirectResponse(url=f"/web/apotek?ok={quote(msg)}", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.post("/apotek/kunjungan/{id_kunjungan}/serahkan")
 def apotek_serahkan_obat(id_kunjungan: int, request: Request, db: DbSession):
     user = get_user_from_cookie(request, db)
