@@ -42,3 +42,8 @@ sehati_clinic_template/
 # ==== OS ====
 .DS_Store
 Thumbs.db
+
+# ==== Cloudflare Tunnel (kredensial — JANGAN commit/sync) ====
+.cloudflared/
+cloudflared*.json
+cert.pem

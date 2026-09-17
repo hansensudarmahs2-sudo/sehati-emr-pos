@@ -95,6 +95,32 @@ class Settings(BaseSettings):
     session_idle_minutes: int = Field(default=60)
     session_idle_warn_minutes: int = Field(default=2)
 
+    # ----- Security headers: CSP + HSTS (backlog S1, ASVS V14.4.1) -----
+    # CSP: default AKTIF dengan 'unsafe-inline' (app pakai banyak inline script/style;
+    # DEC-073 self-host tanpa CDN). Menutup origin luar (anti-exfil/CDN nyasar),
+    # clickjacking (frame-ancestors), dan form-hijack (form-action). report_only=true
+    # → kirim header Content-Security-Policy-Report-Only (tidak menegakkan; untuk uji).
+    security_csp_enabled: bool = Field(default=True)
+    security_csp_report_only: bool = Field(default=False)
+    security_csp_policy: str = Field(
+        default=(
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none'; "
+            "form-action 'self'; "
+            "img-src 'self' data:; "
+            "font-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "connect-src 'self'"
+        )
+    )
+    # HSTS: default NONAKTIF (aktifkan di .env prod saat HTTPS konsisten, mis. via Cloudflare).
+    # SENGAJA TANPA includeSubDomains → jangan paksa HTTPS ke photodex.joderma.id (LAN HTTP).
+    security_hsts_enabled: bool = Field(default=False)
+    security_hsts_max_age: int = Field(default=31536000)
+
     # ----- Helpers -----
     @property
     def is_production(self) -> bool:

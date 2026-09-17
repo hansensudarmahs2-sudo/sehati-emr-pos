@@ -59,9 +59,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----- Middleware: Security headers (audit ASVS V14.4.1 — subset murah, no-HTTPS) -----
+# ----- Middleware: Security headers (audit ASVS V14.4.1) -----
 # PURE ASGI (bukan BaseHTTPMiddleware) supaya TIDAK membuang Set-Cookie CSRF
 # (BaseHTTPMiddleware punya bug body/cookie-consumption di Starlette). Hanya append header.
+# Header dasar (nosniff/frame/referrer/permissions) selalu; CSP + HSTS config-driven (backlog S1).
 class SecurityHeadersMiddleware:
     def __init__(self, app):
         self.app = app
@@ -75,12 +76,28 @@ class SecurityHeadersMiddleware:
             if message["type"] == "http.response.start":
                 headers = message.setdefault("headers", [])
                 have = {k.lower() for k, _ in headers}
-                for name, value in (
+                extra = [
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
                     (b"referrer-policy", b"strict-origin-when-cross-origin"),
                     (b"permissions-policy", b"geolocation=(), microphone=(), camera=()"),
-                ):
+                ]
+                # CSP (backlog S1) — config-driven; report-only opsional untuk uji dulu.
+                if settings.security_csp_enabled and settings.security_csp_policy:
+                    csp_name = (
+                        b"content-security-policy-report-only"
+                        if settings.security_csp_report_only
+                        else b"content-security-policy"
+                    )
+                    extra.append((csp_name, settings.security_csp_policy.encode("latin-1")))
+                # HSTS — hanya bermakna via HTTPS; SENGAJA tanpa includeSubDomains
+                # (lindungi photodex.joderma.id yang LAN-nya HTTP). Aktifkan di .env prod.
+                if settings.security_hsts_enabled:
+                    extra.append((
+                        b"strict-transport-security",
+                        f"max-age={settings.security_hsts_max_age}".encode("latin-1"),
+                    ))
+                for name, value in extra:
                     if name not in have:
                         headers.append((name, value))
             await send(message)

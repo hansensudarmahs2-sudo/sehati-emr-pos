@@ -1844,3 +1844,15 @@ masuk bucket approved/pending/processing -> otomatis hilang dari tampilan (sesua
 utk koreksi teks kecil (pilih field + isi nilai; angka read-only + cek guardrail). Test: tests/test_reject.py
 (5) + verifikasi sandbox state/display_status. Uji manual: buka review draft -> Tolak -> status Ditolak,
 tak muncul di Sehati.
+
+## B-KOMISI-1 — [NOTED / NO-FIX 2026-09-17] Eksekutor Superadmin/Owner tak dapat komisi (by design)
+Ditemukan 2026-09-17 saat audit komisi tindakan (dr. Hansen). Sempat diduga bug: tindakan (termasuk
+Basic Acne dari KUOTA membership, juga VVIP tanpa kuota) tidak memunculkan komisi dokter/perawat di
+laporan. FALSE ALARM. Akar: (1) master treatment sempat belum di-set komisi dokter 40% (config, bukan
+kode) -> setelah di-set ulang, komisi keluar benar; (2) atribusi butuh id_dokter_pelaksana /
+id_perawat_pelaksana terisi. Verifikasi ulang di member VVIP dgn komisi + assignment benar: komisi keluar
+sesuai, TERMASUK tindakan dari kuota (kuota tetap menghitung komisi; basis = master price, independen
+kuota/diskon — sesuai DEC-087/088).
+TEMUAN NYATA (tidak perlu diperbaiki): bila tindakan dieksekusi oleh Superadmin/Owner (bukan dokter/perawat
+pelaksana), tidak ada komisi karena tak ada pelaksana untuk diatribusikan. Ini wajar/by design. Catatan
+operasional: pastikan pelaksana dokter+perawat ter-assign benar agar kedua komisi tercatat.
