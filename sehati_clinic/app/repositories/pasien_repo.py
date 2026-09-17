@@ -65,6 +65,25 @@ class PasienRepository:
         )
         return list(self.db.execute(stmt).scalars().all())
 
+    # ----- Deteksi duplikat (identitas) -----
+    def find_by_nik(self, nik: str):
+        """Cari pasien dgn NIK/KTP sama persis (non-kosong). None kalau tak ada."""
+        nik = (nik or "").strip()
+        if not nik:
+            return None
+        return self.db.query(Pasien).filter(Pasien.nomor_ktp == nik).first()
+
+    def find_by_dob_gender(self, tgl_lahir, jenis_kelamin) -> list[Pasien]:
+        """Kandidat utk cek nama-sama: pasien dgn tgl_lahir + jenis_kelamin sama.
+        Filter nama (normalisasi) dilakukan di service. [] kalau tgl_lahir None."""
+        if tgl_lahir is None:
+            return []
+        return (
+            self.db.query(Pasien)
+            .filter(Pasien.tgl_lahir == tgl_lahir, Pasien.jenis_kelamin == jenis_kelamin)
+            .all()
+        )
+
     def create(self, pasien: Pasien) -> Pasien:
         self.db.add(pasien)
         self.db.flush()  # assign id_pasien

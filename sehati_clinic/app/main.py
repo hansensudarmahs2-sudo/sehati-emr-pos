@@ -28,6 +28,7 @@ from app.api.v1 import finance as finance_router  # Phase 0 skeleton — DEC-064
 from app.config import settings
 from app.core.csrf import CSRFMiddleware
 from app.web.router import router as web_router
+from app.web.routes import pwa as pwa_router
 
 
 @asynccontextmanager
@@ -116,6 +117,7 @@ app.include_router(reports_router.router, prefix="/api/v1")
 app.include_router(finance_router.router)  # /api/v1/finance/* — Phase 0 skeleton (returns 501)
 
 # ----- Web UI router (no /api/v1 prefix — Jinja2 + HTMX) -----
+app.include_router(pwa_router.router)  # /manifest.webmanifest (dinamis)
 app.include_router(web_router)
 
 

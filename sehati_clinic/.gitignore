@@ -98,3 +98,6 @@ node_modules/
 
 # DB backup dumps (dir)
 backups/
+
+# Dump skema hasil bootstrap deploy (artefak, jangan commit)
+deploy/schema_only.sql

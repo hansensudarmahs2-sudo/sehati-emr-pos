@@ -1,0 +1,22 @@
+# JANGAN masukkan ini ke build context / image:
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!deploy/.env.sehati.example
+# PHI / backup DB — TIDAK BOLEH masuk image
+*.sql
+backups/
+backup_*.sql
+# artefak lokal
+logs/
+exports/
+outputs/
+tools/
+tests/
+migrations_sql/
+*.zip
+.git/

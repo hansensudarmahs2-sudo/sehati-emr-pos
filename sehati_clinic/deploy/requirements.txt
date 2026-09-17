@@ -1,0 +1,17 @@
+# Runtime deps Sehati (mirror pyproject.toml [project.dependencies]).
+# Dev deps (pytest/ruff/ipython) sengaja TIDAK disertakan di image produksi.
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+sqlalchemy>=2.0.27
+alembic>=1.13.1
+pymysql>=1.1.0
+cryptography>=42.0.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+email-validator>=2.1.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.1.0
+python-multipart>=0.0.9
+jinja2>=3.1.3
+python-dotenv>=1.0.1
+structlog>=24.1.0

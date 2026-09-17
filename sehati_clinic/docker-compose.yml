@@ -1,0 +1,62 @@
+# Sehati eMR-POS — stack Docker produksi (mini PC klinik).
+# Berdiri SENDIRI, terpisah total dari Photodex. Akses via Tailscale serve:
+#   tailscale serve --bg --https=8443 http://127.0.0.1:8001
+# Jalankan dari folder ini:  docker compose up -d --build
+name: sehati
+
+services:
+  sehati-db:
+    image: mysql:8.0
+    container_name: sehati-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: Asia/Jakarta
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - sehati_db_data:/var/lib/mysql
+    networks:
+      - sehati-net
+    # TIDAK publish port ke host — hanya diakses sehati-app via jaringan internal.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  sehati-app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: sehati-app:latest
+    container_name: sehati-app
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      # Override: di dalam Docker, DB diakses lewat nama service, bukan localhost.
+      DB_HOST: sehati-db
+      DB_PORT: "3306"
+    depends_on:
+      sehati-db:
+        condition: service_healthy
+    ports:
+      # Loopback saja. Tailscale serve yang membuka ke tailnet (port 8443).
+      - "127.0.0.1:8001:8000"
+    volumes:
+      # Upload (logo klinik dll) persist lintas rebuild image.
+      - sehati_uploads:/app/static/uploads
+    networks:
+      - sehati-net
+
+volumes:
+  sehati_db_data:
+  sehati_uploads:
+
+networks:
+  sehati-net:
+    driver: bridge

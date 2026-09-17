@@ -26,7 +26,7 @@ from app.schemas.pasien import (
     PasienBaruRequest,
     PenyakitKronisCreate,
 )
-from app.services.pasien_service import PasienService
+from app.services.pasien_service import PasienService, DuplikatPasienError
 from app.services.master_membership_service import MasterMembershipService
 from app.web.routes._shared import (
     build_shell_context,
@@ -118,8 +118,9 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
         return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
 
     form_data = await request.form()
+    konfirmasi_duplikat = (form_data.get("konfirmasi_duplikat") == "1")
 
-    def _re_render(error_msg: str):
+    def _re_render(error_msg=None, duplikat=None, prefill_alergi=None, prefill_penyakit=None):
         ctx = build_shell_context(
             user,
             db=db,
@@ -128,6 +129,9 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             form=dict(form_data),
             error=error_msg,
             success=None,
+            duplikat=duplikat,
+            prefill_alergi=prefill_alergi or [],
+            prefill_penyakit=prefill_penyakit or [],
             dokter_list=get_dokter_aktif_list(db),
         )
         return templates.TemplateResponse(request, "pendaftaran_pasien.html", ctx)
@@ -239,6 +243,38 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             id_staf_fo=user.id_staf,
             request=request,
             buat_kunjungan=(action == "daftar-sekarang"),
+            konfirmasi_duplikat=konfirmasi_duplikat,
+        )
+    except DuplikatPasienError as dup:
+        kandidat = [
+            {
+                "id_pasien": c.id_pasien,
+                "no_rm": c.no_rm,
+                "nama": c.nama,
+                "jenis_kelamin": (c.jenis_kelamin.value if hasattr(c.jenis_kelamin, "value") else (c.jenis_kelamin or "")),
+                "alamat": c.alamat or "",
+                "tgl_lahir": (c.tgl_lahir.isoformat() if c.tgl_lahir else ""),
+                "nomor_ktp": c.nomor_ktp or "",
+                "nomor_telepon": c.nomor_telepon or "",
+            }
+            for c in dup.candidates
+        ]
+        prefill_alergi = [
+            {
+                "alergen": a.alergen,
+                "gejala": a.gejala or "",
+                "tingkat": (a.tingkat_keparahan.value if hasattr(a.tingkat_keparahan, "value") else str(a.tingkat_keparahan)),
+            }
+            for a in alergi_list
+        ]
+        prefill_penyakit = [
+            {"nama_penyakit": pk.nama_penyakit, "catatan": pk.catatan or ""}
+            for pk in penyakit_list
+        ]
+        return _re_render(
+            duplikat={"kind": dup.kind, "kandidat": kandidat, "action": action},
+            prefill_alergi=prefill_alergi,
+            prefill_penyakit=prefill_penyakit,
         )
     except HTTPException as e:
         return _re_render(e.detail)

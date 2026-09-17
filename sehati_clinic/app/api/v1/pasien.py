@@ -17,7 +17,7 @@ RBAC:
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from app.core.deps import CurrentUser, DbSession, role_required
 from app.db.models import StafRoleEnum
@@ -31,7 +31,7 @@ from app.schemas.pasien import (
     RiwayatPasienResponse,
 )
 from app.schemas.staf import GenericSuccessResponse
-from app.services.pasien_service import PasienService
+from app.services.pasien_service import PasienService, DuplikatPasienError
 
 
 router = APIRouter(prefix="/pasien", tags=["Pasien (FO)"])
@@ -180,6 +180,7 @@ def register_pasien_baru(
     current_user: CurrentUser,
     request: Request,
     _: Annotated[object, Depends(_REGISTER_ROLES)],
+    konfirmasi_duplikat: bool = False,
 ):
     """
     Register pasien baru lengkap dengan kunjungan pertama.
@@ -195,11 +196,27 @@ def register_pasien_baru(
     Kalau ada error di tengah, SEMUA di-rollback.
     """
     service = PasienService(db)
-    return service.register_pasien_baru(
-        payload=payload,
-        id_staf_fo=current_user.id_staf,
-        request=request,
-    )
+    try:
+        return service.register_pasien_baru(
+            payload=payload,
+            id_staf_fo=current_user.id_staf,
+            request=request,
+            konfirmasi_duplikat=konfirmasi_duplikat,
+        )
+    except DuplikatPasienError as dup:
+        ringkas = "; ".join(f"{c.nama} (RM {c.no_rm})" for c in dup.candidates)
+        if dup.kind == "nik":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"NIK sudah terdaftar atas: {ringkas}. Tidak boleh duplikat.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Pasien dengan identitas mirip ditemukan: {ringkas}. "
+                f"Kirim ulang dengan ?konfirmasi_duplikat=true bila memang pasien baru."
+            ),
+        )
 
 
 # =============================================================================

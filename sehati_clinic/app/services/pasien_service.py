@@ -33,6 +33,21 @@ from app.schemas.pasien import (
 from app.services.audit_service import AuditService
 
 
+class DuplikatPasienError(Exception):
+    """Duplikat pasien terdeteksi saat registrasi.
+
+    kind = "nik"  -> NIK/KTP sama persis (BLOK keras, tak bisa override).
+    kind = "soft" -> nama+jenis_kelamin+tgl_lahir sama (peringatan; bisa lanjut
+                     dgn konfirmasi_duplikat=True).
+    candidates    -> list[Pasien] yang cocok.
+    """
+
+    def __init__(self, kind: str, candidates: list):
+        self.kind = kind
+        self.candidates = candidates or []
+        super().__init__(f"Duplikat pasien terdeteksi ({kind})")
+
+
 class PasienService:
     def __init__(self, db: Session):
         self.db = db
@@ -68,7 +83,43 @@ class PasienService:
                 ),
             )
 
-    def register_pasien_baru(self, payload: PasienBaruRequest, id_staf_fo: int, request: Optional[Request] = None, buat_kunjungan: bool = True) -> dict:
+    @staticmethod
+    def _norm_nama(nama: str) -> str:
+        """Normalisasi nama utk banding: huruf kecil + spasi ganda diringkas."""
+        return " ".join((nama or "").split()).lower()
+
+    def find_duplicate_candidates(self, nama, jenis_kelamin, tgl_lahir, nomor_ktp, exclude_id=None):
+        """Return (nik_match | None, soft_matches: list[Pasien]).
+
+        nik_match  : NIK/KTP sama persis (non-kosong) -> blok keras.
+        soft_matches: nama(normalisasi) + jenis_kelamin + tgl_lahir sama -> peringatan.
+        """
+        nik = (nomor_ktp or "").strip()
+        nik_match = None
+        if nik:
+            cand = self.pasien_repo.find_by_nik(nik)
+            if cand is not None and cand.id_pasien != exclude_id:
+                nik_match = cand
+        soft = []
+        if tgl_lahir is not None:
+            target = self._norm_nama(nama)
+            for cand in self.pasien_repo.find_by_dob_gender(tgl_lahir, jenis_kelamin):
+                if cand.id_pasien == exclude_id:
+                    continue
+                if self._norm_nama(cand.nama) == target:
+                    soft.append(cand)
+        return nik_match, soft
+
+    def register_pasien_baru(self, payload: PasienBaruRequest, id_staf_fo: int, request: Optional[Request] = None, buat_kunjungan: bool = True, konfirmasi_duplikat: bool = False) -> dict:
+        # ---- Deteksi duplikat (SEBELUM membuat apa pun) ----
+        nik_match, soft_matches = self.find_duplicate_candidates(
+            payload.nama, payload.jenis_kelamin, payload.tgl_lahir, payload.nomor_ktp
+        )
+        if nik_match is not None:
+            raise DuplikatPasienError(kind="nik", candidates=[nik_match])
+        if not konfirmasi_duplikat and soft_matches:
+            raise DuplikatPasienError(kind="soft", candidates=soft_matches)
+
         try:
             # #362C - Validate tier aktif sebelum register
             self._validate_tier_active(payload.tipe_membership)
@@ -311,7 +362,19 @@ class PasienService:
                 data_baru_audit["nomor_telepon_last4"] = tel[-4:] if len(tel) >= 4 else "***"
                 fields_changed.append("nomor_telepon")
             if payload.nomor_ktp is not None:
-                pasien.nomor_ktp = (payload.nomor_ktp or "").strip() or None
+                _new_nik = (payload.nomor_ktp or "").strip() or None
+                if _new_nik:
+                    _other = self.pasien_repo.find_by_nik(_new_nik)
+                    if _other is not None and _other.id_pasien != id_pasien:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"NIK sudah terdaftar atas pasien lain "
+                                f"(RM {_other.no_rm}, {_other.nama}). "
+                                f"Perbaiki data yang benar, jangan buat duplikat."
+                            ),
+                        )
+                pasien.nomor_ktp = _new_nik
                 # Audit: KTP NEVER logged raw — just flag change occurred
                 data_baru_audit["nomor_ktp_changed"] = True
                 fields_changed.append("nomor_ktp")
