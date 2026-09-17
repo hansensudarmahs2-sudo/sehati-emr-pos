@@ -86,7 +86,7 @@ class KunjunganAntrianItem(BaseModel):
     nama_pasien: str
     jenis_kelamin: Optional[GenderEnum] = None
     tgl_lahir: Optional[date] = None
-    tipe_membership: Optional[MembershipTierEnum] = None
+    tipe_membership: Optional[str] = None
 
     # FO-ASSIGN-DOKTER (Task #329 FIX-1): dokter yang di-assign FO
     id_staf_dokter_assigned: Optional[int] = None

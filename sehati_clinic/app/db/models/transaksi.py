@@ -42,6 +42,16 @@ class TransaksiKasir(Base):
     id_staf_kasir: Mapped[int] = mapped_column(
         ForeignKey("master_staf.id_staf"), nullable=False
     )
+    # M2: link langsung ke pasien (utk transaksi berdiri-sendiri spt MEMBERSHIP
+    # yang id_kunjungan=NULL). Transaksi klinis tetap punya id_kunjungan.
+    id_pasien: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("pasien.id_pasien"), nullable=True,
+    )
+    # M2: KLINIS (default) | MEMBERSHIP. Penanda jenis transaksi utk laporan/label.
+    jenis_transaksi: Mapped[str] = mapped_column(
+        String(20), default="KLINIS", server_default="KLINIS", nullable=False,
+        comment="KLINIS (tindakan/produk via kunjungan) atau MEMBERSHIP (aktivasi/renewal berdiri sendiri)",
+    )
 
     rincian_tagihan: Mapped[str] = mapped_column(
         Text, nullable=False,

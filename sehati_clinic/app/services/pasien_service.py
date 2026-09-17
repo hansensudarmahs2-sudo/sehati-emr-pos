@@ -129,7 +129,7 @@ class PasienService:
                 alamat=payload.alamat or None, tgl_lahir=payload.tgl_lahir,
                 nomor_telepon=payload.nomor_telepon or None, nomor_ktp=payload.nomor_ktp or None,
                 email_address=payload.email_address or None, sumber_referensi=payload.sumber_referensi or None,
-                tipe_membership=payload.tipe_membership, id_staf=id_staf_fo,
+                tipe_membership=(getattr(payload.tipe_membership, "value", payload.tipe_membership) or "REGULAR"), id_staf=id_staf_fo,
             )
             self.pasien_repo.create(pasien)
             id_pasien_baru = pasien.id_pasien

@@ -85,6 +85,20 @@
     </a>
     {% endif %}
 
+    {# M4: Membership Menunggu Aktivasi — kartu alert #}
+    {% if can_membership_aktivasi is defined and can_membership_aktivasi and membership_aktivasi is defined and membership_aktivasi.total and membership_aktivasi.total > 0 %}
+    <a href="/web/membership-aktivasi" class="block bg-white border border-blue-200 rounded-xl p-4 hover:shadow-md transition mb-4">
+        <div class="flex items-center gap-3">
+            <div class="text-3xl">🎖️</div>
+            <div class="flex-1">
+                <div class="text-xs text-slate-500 uppercase">Membership menunggu aktivasi</div>
+                <div class="text-2xl font-bold text-blue-700">{{ membership_aktivasi.total }}</div>
+            </div>
+            <div class="text-slate-400">→</div>
+        </div>
+    </a>
+    {% endif %}
+
     {# Antrian per Stage (Owner/Admin/FO) #}
     {% if stats.antrian_per_stage %}
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">

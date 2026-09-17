@@ -631,6 +631,21 @@ def build_shell_context(user: MasterStaf, db=None, current_path: str = "", **ext
             obat_tertunda = {"total": 0, "overdue": 0}
     ctx["obat_tertunda"] = obat_tertunda
     ctx["can_obat_tertunda"] = role_str in {"Owner", "Superadmin", "Admin", "Kasir", "FO", "Apoteker"}
+    # M4: Membership menunggu aktivasi (PAID) — kartu dashboard + badge header.
+    membership_aktivasi = {"total": 0}
+    if db is not None:
+        try:
+            from app.core import ttl_cache as _tc
+
+            def _ma():
+                from app.services.membership_service import MembershipService as _MS
+                return {"total": _MS(db).count_awaiting_activation()}
+
+            membership_aktivasi = _tc.get_or_set("membership:aktivasi", 30.0, _ma)
+        except Exception:
+            membership_aktivasi = {"total": 0}
+    ctx["membership_aktivasi"] = membership_aktivasi
+    ctx["can_membership_aktivasi"] = role_str in {"Owner", "Superadmin", "Admin", "Kasir", "FO"}
     ctx.update(extra)
     return ctx
 

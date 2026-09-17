@@ -179,6 +179,14 @@ def dashboard(request: Request, db: DbSession):
     }
     _can_obat_tertunda = role_value in {"Owner", "Superadmin", "Admin", "Kasir", "FO", "Apoteker"}
 
+    # M4: Membership menunggu aktivasi (PAID) — badge header + kartu dashboard.
+    try:
+        from app.services.membership_service import MembershipService as _MS_dash
+        _membership_aktivasi = {"total": _MS_dash(db).count_awaiting_activation()}
+    except Exception:
+        _membership_aktivasi = {"total": 0}
+    _can_membership_aktivasi = role_value in {"Owner", "Superadmin", "Admin", "Kasir", "FO"}
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -202,6 +210,8 @@ def dashboard(request: Request, db: DbSession):
             "app_name": APP_NAME,
             "obat_tertunda": _obat_tertunda,
             "can_obat_tertunda": _can_obat_tertunda,
+            "membership_aktivasi": _membership_aktivasi,
+            "can_membership_aktivasi": _can_membership_aktivasi,
         },
     )
 

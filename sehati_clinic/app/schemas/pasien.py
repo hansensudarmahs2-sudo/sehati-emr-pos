@@ -120,7 +120,7 @@ class PasienResponse(BaseModel):
     nomor_ktp: Optional[str] = None
     email_address: Optional[str] = None
     sumber_referensi: Optional[str] = None
-    tipe_membership: Optional[MembershipTierEnum] = None
+    tipe_membership: Optional[str] = None
     status_verifikasi: Optional[VerifikasiEnum] = None
     tgl_verifikasi: Optional[datetime] = None
     created_at: Optional[datetime] = None
@@ -171,7 +171,7 @@ class PasienUpdateRequest(BaseModel):
     nomor_ktp: Optional[str] = Field(default=None, max_length=30)
     email_address: Optional[str] = Field(default=None, max_length=100)
     sumber_referensi: Optional[str] = Field(default=None, max_length=100)
-    tipe_membership: Optional[MembershipTierEnum] = None
+    tipe_membership: Optional[str] = None
 
 
 class AlergiUpdateRequest(BaseModel):

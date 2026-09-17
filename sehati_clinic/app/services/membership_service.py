@@ -43,45 +43,63 @@ class MembershipService:
     # =========================================================================
     # READ
     # =========================================================================
+    def list_awaiting_activation(self):
+        """M4: daftar membership PAID (menunggu aktivasi CS). List dict."""
+        from app.db.models import StatusAktivasiEnum as _SA
+        rows = self.db.execute(
+            select(PasienMembershipHistory, MasterMembership, Pasien)
+            .join(MasterMembership, MasterMembership.id_membership == PasienMembershipHistory.id_membership)
+            .join(Pasien, Pasien.id_pasien == PasienMembershipHistory.id_pasien)
+            .where(PasienMembershipHistory.status_aktivasi == _SA.PAID)
+            .where(PasienMembershipHistory.is_active.is_(False))
+            .order_by(PasienMembershipHistory.id_history.desc())
+        ).all()
+        return [
+            {
+                "id_history": h.id_history,
+                "id_pasien": p.id_pasien,
+                "no_rm": p.no_rm,
+                "nama_pasien": p.nama,
+                "nama_tier": m.nama_tier,
+                "harga": float(h.harga_bayar or m.harga_aktivasi or 0),
+                "id_transaksi": h.id_transaksi_aktivasi,
+            }
+            for h, m, p in rows
+        ]
+
+    def count_awaiting_activation(self) -> int:
+        """M4: jumlah membership PAID menunggu aktivasi (utk badge)."""
+        from app.db.models import StatusAktivasiEnum as _SA
+        from sqlalchemy import func as _f
+        return int(self.db.execute(
+            select(_f.count()).select_from(PasienMembershipHistory)
+            .where(PasienMembershipHistory.status_aktivasi == _SA.PAID)
+            .where(PasienMembershipHistory.is_active.is_(False))
+        ).scalar() or 0)
+
     def get_diskon_for_pasien(self, id_pasien: int) -> DiskonMembership:
         """Lookup diskon berdasarkan tier pasien + ACTIVE history."""
         pasien = self.db.get(Pasien, id_pasien)
         if pasien is None:
             return DiskonMembership(Decimal("0"), Decimal("0"), "UNKNOWN", False)
 
-        tier_value = (
-            pasien.tipe_membership.value
-            if hasattr(pasien.tipe_membership, "value")
-            else str(pasien.tipe_membership) if pasien.tipe_membership else "REGULAR"
-        )
-
-        if tier_value.upper() == "REGULAR":
-            return DiskonMembership(Decimal("0"), Decimal("0"), tier_value, False)
-
-        stmt = (
-            select(MasterMembership)
-            .where(MasterMembership.nama_tier == tier_value)
-            .where(MasterMembership.is_active.is_(True))
-            .limit(1)
-        )
-        tier = self.db.execute(stmt).scalar_one_or_none()
-        if tier is None:
-            return DiskonMembership(Decimal("0"), Decimal("0"), tier_value, False)
-
-        # #362D - Require ACTIVE history (sudah dibayar)
-        active_hist_stmt = (
-            select(PasienMembershipHistory)
+        # M3-FIX: diskon dibaca dari HISTORY ACTIVE (sumber kebenaran), BUKAN dari
+        # enum pasien.tipe_membership — supaya tier custom (mis. "Platinum") yg tak
+        # ada di MembershipTierEnum tetap dapat diskon. ACTIVE = is_active True +
+        # sudah dibayar (id_transaksi_aktivasi) + belum kedaluwarsa.
+        row = self.db.execute(
+            select(PasienMembershipHistory, MasterMembership)
+            .join(MasterMembership, MasterMembership.id_membership == PasienMembershipHistory.id_membership)
             .where(PasienMembershipHistory.id_pasien == id_pasien)
-            .where(PasienMembershipHistory.id_membership == tier.id_membership)
             .where(PasienMembershipHistory.is_active.is_(True))
             .where(PasienMembershipHistory.id_transaksi_aktivasi.is_not(None))
             .where(PasienMembershipHistory.tgl_expired >= date.today())
+            .order_by(PasienMembershipHistory.tgl_aktif.desc())
             .limit(1)
-        )
-        active_hist = self.db.execute(active_hist_stmt).scalar_one_or_none()
-        if active_hist is None:
-            return DiskonMembership(Decimal("0"), Decimal("0"), tier_value, False)
-
+        ).first()
+        if row is None:
+            return DiskonMembership(Decimal("0"), Decimal("0"), "REGULAR", False)
+        _hist, tier = row
         return DiskonMembership(
             persen_treatment=Decimal(str(tier.diskon_treatment_persen or 0)),
             persen_produk=Decimal(str(tier.diskon_produk_persen or 0)),
@@ -122,6 +140,19 @@ class MembershipService:
             .where(PasienMembershipHistory.id_pasien == id_pasien)
             .where(PasienMembershipHistory.is_active.is_(False))
             .where(PasienMembershipHistory.id_transaksi_aktivasi.is_(None))
+            .order_by(PasienMembershipHistory.id_history.desc())
+            .limit(1)
+        ).first()
+
+        # Paid history (sudah dibayar, menunggu aktivasi CS) — M2/M3
+        from app.db.models import StatusAktivasiEnum as _SA_stat
+        paid_hist = self.db.execute(
+            select(PasienMembershipHistory, MasterMembership)
+            .join(MasterMembership, MasterMembership.id_membership == PasienMembershipHistory.id_membership)
+            .where(PasienMembershipHistory.id_pasien == id_pasien)
+            .where(PasienMembershipHistory.is_active.is_(False))
+            .where(PasienMembershipHistory.id_transaksi_aktivasi.is_not(None))
+            .where(PasienMembershipHistory.status_aktivasi == _SA_stat.PAID)
             .order_by(PasienMembershipHistory.id_history.desc())
             .limit(1)
         ).first()
@@ -185,6 +216,14 @@ class MembershipService:
                 "harga_bayar": float(pending_hist[0].harga_bayar) if pending_hist else 0,
                 "catatan": pending_hist[0].catatan if pending_hist else None,
             } if pending_hist else None,
+            "paid": {
+                "id_history": paid_hist[0].id_history if paid_hist else None,
+                "id_membership": paid_hist[0].id_membership if paid_hist else None,
+                "nama_tier": paid_hist[1].nama_tier if paid_hist else None,
+                "harga_bayar": float(paid_hist[0].harga_bayar) if paid_hist else 0,
+                "id_transaksi_aktivasi": paid_hist[0].id_transaksi_aktivasi if paid_hist else None,
+                "catatan": paid_hist[0].catatan if paid_hist else None,
+            } if paid_hist else None,
             "history_list": [
                 {
                     "id_history": h.id_history,
@@ -196,9 +235,12 @@ class MembershipService:
                     "is_active": h.is_active,
                     "catatan": h.catatan,
                     "status_label": (
-                        "ACTIVE" if h.is_active and h.id_transaksi_aktivasi
-                        else "PENDING" if not h.is_active and h.id_transaksi_aktivasi is None
-                        else "EXPIRED/CANCELLED"
+                        getattr(h.status_aktivasi, "value", h.status_aktivasi)
+                        or (
+                            "ACTIVE" if h.is_active and h.id_transaksi_aktivasi
+                            else "PENDING" if not h.is_active and h.id_transaksi_aktivasi is None
+                            else "EXPIRED/CANCELLED"
+                        )
                     ),
                 }
                 for h, m in all_history
@@ -377,10 +419,7 @@ class MembershipService:
             pasien_rev = self.db.get(Pasien, id_pasien)
             if pasien_rev is not None:
                 target_tier = prev_active[1].nama_tier if prev_active else "REGULAR"
-                try:
-                    pasien_rev.tipe_membership = MembershipTierEnum(target_tier)
-                except ValueError:
-                    pass
+                pasien_rev.tipe_membership = target_tier
             self.audit.log_delete(
                 id_staf=actor_id_staf,
                 tabel="pasien_membership_history",
@@ -395,6 +434,273 @@ class MembershipService:
         except Exception as e:
             self.db.rollback()
             raise HTTPException(500, f"Gagal cancel pending: {e!s}")
+
+    def bayar_membership(self, id_history, pembayaran, id_staf_kasir,
+                         request=None, idempotency_key=None):
+        """M2: bayar aktivasi/renewal membership sbg TRANSAKSI BERDIRI SENDIRI
+        (id_kunjungan=NULL, jenis=MEMBERSHIP). Set status_aktivasi=PAID.
+
+        TIDAK mengaktifkan: is_active tetap False, pasien.tipe_membership & kuota
+        TIDAK diubah, no_member belum diberi. Aktivasi dilakukan CS (M3).
+        `pembayaran` = list objek dgn .metode_bayar & .nominal (PembayaranItem).
+        """
+        from decimal import Decimal as _Dec
+        from app.db.models import (
+            TransaksiKasir as _TK,
+            TransaksiPembayaran as _TP,
+            PasienMembershipHistory as _PMH,
+            MasterMembership as _MM,
+            StatusAktivasiEnum as _SA,
+        )
+        hist = self.db.get(_PMH, id_history)
+        if hist is None:
+            raise HTTPException(404, f"History membership #{id_history} tidak ditemukan.")
+        # Harus PENDING (belum dibayar): is_active False + belum ada transaksi aktivasi.
+        if hist.is_active or hist.id_transaksi_aktivasi is not None:
+            raise HTTPException(
+                400, "Membership ini bukan status PENDING (sudah dibayar/aktif). "
+                     "Tidak bisa dibayar ulang.",
+            )
+        tier = self.db.get(_MM, hist.id_membership)
+        if tier is None:
+            raise HTTPException(404, "Tier membership tidak ditemukan.")
+        harga = _Dec(str(tier.harga_aktivasi or 0))
+        total_bayar = sum((_Dec(str(p.nominal)) for p in pembayaran), _Dec("0"))
+        if harga > 0 and total_bayar < harga:
+            raise HTTPException(
+                400, f"Pembayaran kurang dari tagihan membership. "
+                     f"Tagihan: {harga}, dibayar: {total_bayar}.",
+            )
+        try:
+            trx = _TK(
+                id_kunjungan=None,
+                id_pasien=hist.id_pasien,
+                id_staf_kasir=id_staf_kasir,
+                jenis_transaksi="MEMBERSHIP",
+                rincian_tagihan=f"Aktivasi membership {tier.nama_tier}: {harga}",
+                subtotal=harga,
+                nominal_diskon=_Dec("0"),
+                total_tagihan=harga,
+                id_membership_aktivasi=tier.id_membership,
+                nominal_aktivasi_membership=(harga if harga > 0 else None),
+                idempotency_key=idempotency_key or None,
+            )
+            self.db.add(trx)
+            self.db.flush()
+            for p in pembayaran:
+                self.db.add(_TP(
+                    id_transaksi=trx.id_transaksi,
+                    metode_bayar=p.metode_bayar,
+                    nominal=_Dec(str(p.nominal)),
+                ))
+            # PAID — belum aktif (aktivasi = CS/M3).
+            hist.id_transaksi_aktivasi = trx.id_transaksi
+            hist.status_aktivasi = _SA.PAID
+            self.db.flush()
+            self.audit.log(
+                aksi="MEMBERSHIP_PAID",
+                id_staf=id_staf_kasir,
+                tabel_target="pasien_membership_history",
+                id_target=id_history,
+                data_lama={"status_aktivasi": "PENDING"},
+                data_baru={
+                    "status_aktivasi": "PAID",
+                    "id_transaksi_aktivasi": trx.id_transaksi,
+                    "tier": tier.nama_tier,
+                    "nominal": float(harga),
+                },
+                keterangan=(
+                    f"Bayar membership {tier.nama_tier} (Rp {harga}) via trx "
+                    f"#{trx.id_transaksi}. Menunggu aktivasi CS."
+                ),
+                request=request,
+            )
+            self.db.commit()
+            return {
+                "status": "success",
+                "id_transaksi": trx.id_transaksi,
+                "id_history": id_history,
+                "status_aktivasi": "PAID",
+                "nominal": float(harga),
+                "nama_tier": tier.nama_tier,
+            }
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(500, f"Gagal bayar membership: {e!s}")
+
+    def _generate_no_member(self) -> str:
+        """Generate nomor member sekuensial format M-000123 (6 digit)."""
+        import re as _re
+        rows = self.db.execute(
+            select(Pasien.no_member).where(Pasien.no_member.is_not(None))
+        ).scalars().all()
+        maxn = 0
+        for nm in rows:
+            m = _re.search(r"(\d+)$", nm or "")
+            if m:
+                maxn = max(maxn, int(m.group(1)))
+        return f"M-{maxn + 1:06d}"
+
+    def activate_membership(self, id_history, actor_id_staf, request=None):
+        """M3: CS mengaktifkan membership berstatus PAID → ACTIVE.
+
+        - Masa berlaku di-anchor ke tanggal aktivasi (durasi tier).
+        - Set is_active=True, status_aktivasi=ACTIVE, id_staf_aktivasi.
+        - Deactivate history aktif lain (replace/upgrade). RENEWAL = carry-over.
+        - Set pasien.tipe_membership + assign no_member (M-000123) bila belum ada.
+        - Buat kuota benefit (reuse KasirService._create_kuota_from_benefit).
+        """
+        from datetime import date as _date, timedelta as _td
+        from app.db.models import (
+            StatusAktivasiEnum as _SA, MembershipTierEnum as _MTE,
+        )
+        hist = self.db.get(PasienMembershipHistory, id_history)
+        if hist is None:
+            raise HTTPException(404, f"History membership #{id_history} tidak ditemukan.")
+        _st = getattr(hist.status_aktivasi, "value", hist.status_aktivasi)
+        if hist.is_active or hist.id_transaksi_aktivasi is None or _st != "PAID":
+            raise HTTPException(
+                400, "Hanya membership berstatus PAID (sudah dibayar, menunggu "
+                     "aktivasi) yang bisa diaktifkan.",
+            )
+        tier = self.db.get(MasterMembership, hist.id_membership)
+        if tier is None:
+            raise HTTPException(404, "Tier membership tidak ditemukan.")
+        try:
+            today = _date.today()
+            durasi_days = int(tier.durasi_bulan or 12) * 30
+            catatan = hist.catatan or ""
+            action = ("RENEWAL" if "RENEWAL" in catatan
+                      else "UPGRADE" if "UPGRADE" in catatan else "ACTIVATION")
+
+            # Membership aktif lain (utk carry-over renewal + replace)
+            prev_active = self.db.execute(
+                select(PasienMembershipHistory)
+                .where(PasienMembershipHistory.id_pasien == hist.id_pasien)
+                .where(PasienMembershipHistory.id_history != id_history)
+                .where(PasienMembershipHistory.is_active.is_(True))
+                .where(PasienMembershipHistory.id_transaksi_aktivasi.is_not(None))
+                .order_by(PasienMembershipHistory.tgl_aktif.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if action == "RENEWAL" and prev_active is not None:
+                base = max(prev_active.tgl_expired, today)
+                hist.tgl_expired = base + _td(days=durasi_days)
+                hist.tgl_aktif = prev_active.tgl_aktif  # preserve original start
+            else:
+                hist.tgl_aktif = today
+                hist.tgl_expired = today + _td(days=durasi_days)
+
+            # Deactivate history aktif lain (tier baru replace lama)
+            others = self.db.execute(
+                select(PasienMembershipHistory)
+                .where(PasienMembershipHistory.id_pasien == hist.id_pasien)
+                .where(PasienMembershipHistory.id_history != id_history)
+                .where(PasienMembershipHistory.is_active.is_(True))
+            ).scalars().all()
+            for o in others:
+                o.is_active = False
+                o.status_aktivasi = _SA.EXPIRED
+                o.catatan = f"REPLACED oleh {tier.nama_tier} (aktivasi #{id_history}). {o.catatan or ''}"
+
+            # Aktifkan history ini
+            hist.is_active = True
+            hist.status_aktivasi = _SA.ACTIVE
+            hist.id_staf_aktivasi = actor_id_staf
+            hist.catatan = f"ACTIVE (CS) - diaktifkan staf #{actor_id_staf}. {catatan}"
+
+            # Pasien tier + no_member
+            pasien = self.db.get(Pasien, hist.id_pasien)
+            if pasien is not None:
+                pasien.tipe_membership = tier.nama_tier
+                if not pasien.no_member:
+                    pasien.no_member = self._generate_no_member()
+            self.db.flush()
+
+            # Kuota benefit (reuse logic kasir_service; local import cegah circular)
+            from app.services.kasir_service import KasirService as _KS
+            _KS(self.db)._create_kuota_from_benefit(
+                id_pasien=hist.id_pasien, id_history=id_history,
+                id_membership=hist.id_membership, expired_at=hist.tgl_expired,
+                action_type=action,
+            )
+
+            self.audit.log(
+                aksi="MEMBERSHIP_ACTIVATE",
+                id_staf=actor_id_staf,
+                tabel_target="pasien_membership_history",
+                id_target=id_history,
+                data_lama={"status_aktivasi": "PAID", "is_active": False},
+                data_baru={
+                    "status_aktivasi": "ACTIVE", "is_active": True,
+                    "tier": tier.nama_tier,
+                    "no_member": pasien.no_member if pasien else None,
+                    "tgl_aktif": str(hist.tgl_aktif), "tgl_expired": str(hist.tgl_expired),
+                },
+                keterangan=(
+                    f"Aktivasi membership {tier.nama_tier} oleh CS #{actor_id_staf}. "
+                    f"no_member={pasien.no_member if pasien else '-'}, "
+                    f"berlaku s/d {hist.tgl_expired}."
+                ),
+                request=request,
+            )
+            self.db.commit()
+            return {
+                "status": "success",
+                "id_history": id_history,
+                "nama_tier": tier.nama_tier,
+                "no_member": pasien.no_member if pasien else None,
+                "tgl_expired": str(hist.tgl_expired),
+            }
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(500, f"Gagal aktivasi membership: {e!s}")
+
+    def revert_paid_to_pending(self, id_transaksi, actor_id_staf, request=None):
+        """M2: void transaksi MEMBERSHIP yg masih PAID (belum diaktifkan CS) →
+        history balik PENDING (batalkan pembayaran). is_active tetap False.
+        Returns id_history / None. Dipanggil dari void_transaksi (setelah
+        revert_active_to_pending; hanya satu yang match untuk 1 transaksi)."""
+        from app.db.models import StatusAktivasiEnum as _SA
+        hist = self.db.execute(
+            select(PasienMembershipHistory)
+            .where(PasienMembershipHistory.id_transaksi_aktivasi == id_transaksi)
+            .where(PasienMembershipHistory.is_active.is_(False))
+            .limit(1)
+        ).scalar_one_or_none()
+        if hist is None:
+            return None
+        try:
+            id_hist = hist.id_history
+            hist.id_transaksi_aktivasi = None
+            hist.status_aktivasi = _SA.PENDING
+            hist.catatan = (
+                f"REVERTED PAID->PENDING - transaksi #{id_transaksi} di-void. "
+                f"Catatan lama: {hist.catatan or ''}"
+            )
+            self.db.flush()
+            self.audit.log(
+                aksi="MEMBERSHIP_REVERT_PENDING",
+                id_staf=actor_id_staf,
+                tabel_target="pasien_membership_history",
+                id_target=id_hist,
+                data_lama={"status_aktivasi": "PAID", "id_transaksi_aktivasi": id_transaksi},
+                data_baru={"status_aktivasi": "PENDING", "id_transaksi_aktivasi": None},
+                keterangan=f"Void transaksi membership #{id_transaksi} -> history balik PENDING.",
+                request=request,
+            )
+            return id_hist
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"Gagal revert PAID->PENDING: {e!s}")
 
     def revert_active_to_pending(
         self,
@@ -432,6 +738,8 @@ class MembershipService:
             hist.is_active = False
             hist.id_transaksi_aktivasi = None
             hist.id_staf_aktivasi = None
+            from app.db.models import StatusAktivasiEnum as _SA_rev
+            hist.status_aktivasi = _SA_rev.PENDING
             hist.catatan = (
                 f"REVERTED TO PENDING - transaksi #{id_transaksi} di-void. "
                 f"Catatan lama: {hist.catatan or ''}"
@@ -453,10 +761,7 @@ class MembershipService:
             pasien_rev = self.db.get(Pasien, id_pasien_for_revert)
             if pasien_rev is not None:
                 target_tier = prev_active[1].nama_tier if prev_active else "REGULAR"
-                try:
-                    pasien_rev.tipe_membership = MembershipTierEnum(target_tier)
-                except ValueError:
-                    pass
+                pasien_rev.tipe_membership = target_tier
             self.db.flush()
             self.audit.log(
                 aksi="MEMBERSHIP_REVERT_PENDING",

@@ -1,0 +1,48 @@
+{% extends "_app.html" %}
+{% block title %}Pembayaran Membership Berhasil{% endblock %}
+{% block page_title %}Pembayaran Membership Berhasil{% endblock %}
+
+{% block page_content %}
+<div class="max-w-2xl">
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center mb-4">
+        <div class="text-4xl mb-2">✅</div>
+        <div class="text-lg font-semibold text-emerald-800">Pembayaran membership berhasil</div>
+        <p class="text-sm text-emerald-700 mt-1">
+            Transaksi #{{ sukses.id_transaksi }} — <strong>{{ sukses.nama_pasien }}</strong> (RM {{ sukses.no_rm }})
+        </p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <dl class="space-y-2 text-sm">
+            <div class="flex justify-between">
+                <dt class="text-slate-500">Tier</dt>
+                <dd class="font-medium text-slate-800">{{ sukses.nama_tier }}</dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-slate-500">Nominal</dt>
+                <dd class="font-bold text-slate-800">Rp {{ "{:,.0f}".format(sukses.nominal|float).replace(",", ".") }}</dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-slate-500">Status</dt>
+                <dd><span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">MENUNGGU AKTIVASI CS</span></dd>
+            </div>
+        </dl>
+        <p class="text-xs text-amber-700 mt-3 border-t border-slate-100 pt-3">
+            ℹ️ Membership belum aktif. Lakukan <strong>Aktifkan</strong> di Kelola Membership setelah verifikasi identitas pasien — benefit & nomor member berlaku setelah aktivasi.
+        </p>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+        <a href="/web/kasir/nota/{{ sukses.id_transaksi }}/cetak?paper=a5" target="_blank"
+           class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">🖨 Cetak Nota A5</a>
+        <a href="/web/kasir/nota/{{ sukses.id_transaksi }}/cetak?paper=thermal" target="_blank"
+           class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium">🖨 Nota Thermal</a>
+        {% if sukses.id_pasien %}
+        <a href="/web/pasien/{{ sukses.id_pasien }}/membership"
+           class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">🎖️ Aktifkan / Kelola Membership →</a>
+        {% endif %}
+        <a href="/web/kasir/antrian"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">← Kembali ke Antrian</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "_app.html" %}
+{% block title %}Membership Menunggu Aktivasi — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Membership Menunggu Aktivasi{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+    {% if ok %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ ok }}</div>
+    {% endif %}
+    {% if err %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ err }}</div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white rounded-lg border border-blue-200 p-3 text-center">
+            <div class="text-xs text-blue-600 uppercase">Menunggu Aktivasi</div>
+            <div class="text-2xl font-bold text-blue-700">{{ items|length }}</div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+            <span>🎖️ Sudah Dibayar — Menunggu Aktivasi CS</span>
+            <span class="text-slate-500 normal-case">{{ items|length }} membership</span>
+        </div>
+        {% if items %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">No. RM</th>
+                    <th class="text-left px-4 py-2 font-medium">Nama Pasien</th>
+                    <th class="text-left px-4 py-2 font-medium">Tier</th>
+                    <th class="text-right px-4 py-2 font-medium">Nominal</th>
+                    <th class="text-left px-4 py-2 font-medium">Trx</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for m in items %}
+                <tr class="hover:bg-blue-50/30 transition">
+                    <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ m.no_rm }}</td>
+                    <td class="px-4 py-3 font-medium text-slate-800">
+                        <a href="/web/pasien/{{ m.id_pasien }}/membership" class="hover:text-blue-600">{{ m.nama_pasien }}</a>
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">{{ m.nama_tier }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-right font-medium text-slate-800 whitespace-nowrap">Rp {{ "{:,.0f}".format(m.harga|float).replace(",", ".") }}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-500">#{{ m.id_transaksi or "-" }}</td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <form method="POST"
+                              action="/web/pasien/{{ m.id_pasien }}/membership/{{ m.id_history }}/aktifkan?next=/web/membership-aktivasi"
+                              data-confirm="Aktifkan membership {{ m.nama_tier }} untuk {{ m.nama_pasien }}? Nomor member akan diberikan.">
+                            {{ csrf_input(request) }}
+                            <button type="submit"
+                                    class="inline-flex items-center px-3 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 transition font-medium">
+                                ✓ Aktifkan →
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-12 text-center text-slate-400">
+            <p class="text-sm">Tidak ada membership yang menunggu aktivasi. 🎉</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

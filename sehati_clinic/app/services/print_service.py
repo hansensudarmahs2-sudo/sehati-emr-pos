@@ -90,6 +90,16 @@ class PrintService:
         (trx, id_kunj, tgl_kunj, id_pasien, no_rm, nama_pasien, tgl_lahir_pasien,
          jenis_kelamin_pasien, id_kasir, nama_kasir, dokter_nama) = row
 
+        # M2/M3: transaksi MEMBERSHIP (id_kunjungan NULL) -> pasien via trx.id_pasien
+        if id_pasien is None and getattr(trx, "id_pasien", None):
+            _pm = self.db.get(Pasien, trx.id_pasien)
+            if _pm is not None:
+                id_pasien = _pm.id_pasien
+                no_rm = _pm.no_rm
+                nama_pasien = _pm.nama
+                tgl_lahir_pasien = _pm.tgl_lahir
+                jenis_kelamin_pasien = _pm.jenis_kelamin
+
         # Fallback tenaga medis: kalau tak ada dokter assigned, ambil dokter SOAP.
         if not dokter_nama and id_kunj:
             _soap = self.db.execute(
@@ -201,6 +211,19 @@ class PrintService:
                     "harga": hg,
                     "subtotal": round(qty * hg, 2),
                 })
+
+        # M2/M3: transaksi MEMBERSHIP -> baris "Aktivasi Membership <tier>"
+        if not items and getattr(trx, "id_membership_aktivasi", None):
+            from app.db.models import MasterMembership as _MM_nota
+            _tier_nota = self.db.get(_MM_nota, trx.id_membership_aktivasi)
+            _nom_nota = float(trx.nominal_aktivasi_membership or trx.total_tagihan or 0)
+            items.append({
+                "tipe": "MBR",
+                "label": f"Aktivasi Membership {_tier_nota.nama_tier if _tier_nota else ''}".strip(),
+                "qty": 1,
+                "harga": _nom_nota,
+                "subtotal": _nom_nota,
+            })
 
         # 4. Klinik config
         cfg = KlinikConfigService(self.db).get_config()

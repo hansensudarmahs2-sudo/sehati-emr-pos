@@ -25,6 +25,7 @@ from app.schemas.kasir import (
     VoidItemRequest,
 )
 from app.services.kasir_service import KasirService
+from app.services.membership_service import MembershipService
 from app.services.klinik_config_service import KlinikConfigService
 from app.services.print_service import PrintService
 from app.db.models import StafRoleEnum
@@ -233,6 +234,147 @@ async def kasir_bayar(id_kunjungan: int, request: Request, db: DbSession):
         url=f"/web/kasir/antrian?ok={quote(msg)}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+# =============================================================================
+# M2 — MEMBERSHIP: bayar aktivasi (transaksi berdiri sendiri, id_kunjungan=NULL)
+# =============================================================================
+@router.get("/kasir/membership/{id_history}/bayar", response_class=HTMLResponse)
+def kasir_bayar_membership_page(id_history: int, request: Request, db: DbSession):
+    from urllib.parse import quote
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    from app.db.models import (
+        PasienMembershipHistory as _PMH, Pasien as _P, MasterMembership as _MM,
+    )
+    hist = db.get(_PMH, id_history)
+    if hist is None or hist.is_active or hist.id_transaksi_aktivasi is not None:
+        return RedirectResponse(
+            url="/web/kasir/antrian?err=" + quote("Membership tidak ditemukan / bukan PENDING."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    pasien = db.get(_P, hist.id_pasien)
+    tier = db.get(_MM, hist.id_membership)
+    import secrets as _secrets
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/kasir",
+        page_subtitle=f"Bayar Membership - {pasien.nama if pasien else '-'}",
+        mship={
+            "id_history": id_history,
+            "id_pasien": hist.id_pasien,
+            "nama_pasien": pasien.nama if pasien else "-",
+            "no_rm": pasien.no_rm if pasien else "-",
+            "nama_tier": tier.nama_tier if tier else "-",
+            "harga": float(tier.harga_aktivasi or 0) if tier else 0.0,
+        },
+        idempotency_key=_secrets.token_urlsafe(24),
+        error=request.query_params.get("err"),
+    )
+    return templates.TemplateResponse(request, "kasir_bayar_membership.html", ctx)
+
+
+@router.post("/kasir/membership/{id_history}/bayar", response_class=HTMLResponse)
+async def kasir_bayar_membership(id_history: int, request: Request, db: DbSession):
+    from urllib.parse import quote
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    form_data = await request.form()
+    metode_list = form_data.getlist("metode_bayar")
+    nominal_list = form_data.getlist("nominal")
+    idempotency_key = (form_data.get("idempotency_key") or "").strip() or None
+
+    pembayaran_items = []
+    for i, metode in enumerate(metode_list):
+        metode_str = (metode or "").strip().upper()
+        if not metode_str:
+            continue
+        try:
+            nominal = Decimal(str(nominal_list[i] if i < len(nominal_list) else 0))
+        except Exception:
+            continue
+        if nominal <= 0:
+            continue
+        try:
+            pembayaran_items.append(PembayaranItem(metode_bayar=metode_str, nominal=nominal))
+        except Exception:
+            continue
+
+    if not pembayaran_items:
+        return RedirectResponse(
+            url=f"/web/kasir/membership/{id_history}/bayar?err=" + quote("Minimal 1 metode pembayaran wajib diisi."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    try:
+        result = MembershipService(db).bayar_membership(
+            id_history=id_history,
+            pembayaran=pembayaran_items,
+            id_staf_kasir=user.id_staf,
+            request=request,
+            idempotency_key=idempotency_key,
+        )
+    except HTTPException as e:
+        return RedirectResponse(
+            url=f"/web/kasir/membership/{id_history}/bayar?err=" + quote(str(e.detail)),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/web/kasir/membership/{id_history}/bayar?err=" + quote(f"Gagal: {e!s}"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    _id_trx = result.get("id_transaksi") if isinstance(result, dict) else None
+    if _id_trx:
+        return RedirectResponse(
+            url=f"/web/kasir/membership/sukses/{_id_trx}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        url="/web/kasir/antrian?ok=" + quote("Membership dibayar."),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.get("/kasir/membership/sukses/{id_transaksi}", response_class=HTMLResponse)
+def kasir_bayar_membership_sukses(id_transaksi: int, request: Request, db: DbSession):
+    from urllib.parse import quote
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    from app.db.models import (
+        TransaksiKasir as _TK, Pasien as _P, MasterMembership as _MM,
+    )
+    trx = db.get(_TK, id_transaksi)
+    if trx is None:
+        return RedirectResponse(
+            url="/web/kasir/antrian?err=" + quote("Transaksi tidak ditemukan."),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    pasien = db.get(_P, trx.id_pasien) if trx.id_pasien else None
+    tier = db.get(_MM, trx.id_membership_aktivasi) if trx.id_membership_aktivasi else None
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/kasir",
+        page_subtitle="Pembayaran Membership Berhasil",
+        sukses={
+            "id_transaksi": id_transaksi,
+            "id_pasien": trx.id_pasien,
+            "nama_pasien": pasien.nama if pasien else "-",
+            "no_rm": pasien.no_rm if pasien else "-",
+            "nama_tier": tier.nama_tier if tier else "-",
+            "nominal": float(trx.total_tagihan or 0),
+        },
+    )
+    return templates.TemplateResponse(request, "kasir_bayar_membership_sukses.html", ctx)
 
 
 # =============================================================================

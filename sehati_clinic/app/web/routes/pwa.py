@@ -12,6 +12,10 @@ from app.web.routes._shared import get_klinik_nama_safe
 
 router = APIRouter(tags=["PWA"])
 
+# Naikkan angka ini tiap kali gambar ikon diganti -> memaksa browser/HP
+# mengunduh ikon baru (cache PWA sangat keras). v3 = ikon JoDerma.
+ICON_VER = "3"
+
 
 @router.get("/manifest.webmanifest", include_in_schema=False)
 def manifest(db: DbSession):
@@ -26,8 +30,10 @@ def manifest(db: DbSession):
         "background_color": "#ffffff",
         "theme_color": "#0D5C63",
         "icons": [
-            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            {"src": f"/static/icon-192.png?v={ICON_VER}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": f"/static/icon-512.png?v={ICON_VER}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": f"/static/icon-192.png?v={ICON_VER}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": f"/static/icon-512.png?v={ICON_VER}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
     }
     return JSONResponse(data, media_type="application/manifest+json")

@@ -57,10 +57,11 @@ class Pasien(Base):
     sumber_referensi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # ----- Membership (snapshot — source of truth tier ada di master_membership) -----
-    tipe_membership: Mapped[Optional[MembershipTierEnum]] = mapped_column(
-        Enum(MembershipTierEnum, values_callable=lambda x: [e.value for e in x]),
-        default=MembershipTierEnum.REGULAR,
-        server_default=MembershipTierEnum.REGULAR.value,
+    tipe_membership: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        default="REGULAR",
+        server_default="REGULAR",
+        comment="Nama tier aktif (bebas: REGULAR/VIP/VVIP/Platinum/dst). Sumber kebenaran benefit = history ACTIVE.",
         nullable=True,
     )
 

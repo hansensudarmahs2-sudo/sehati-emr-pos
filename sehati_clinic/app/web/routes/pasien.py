@@ -31,6 +31,7 @@ from app.web.routes._shared import (
     get_dokter_aktif_list,
     get_user_from_cookie,
     require_antrian_mgmt_role,
+    require_kasir_role,
     templates,
 )
 
@@ -659,10 +660,25 @@ def pasien_beli_produk_form(
         current_path="/web/pasien",
         page_subtitle=f"Beli Produk - {pasien.nama}",
     )
+    # M2: warning lunak kalau pasien punya membership BELUM aktif (PENDING/PAID) →
+    # produk dibayar tanpa diskon member. Tidak memblok (SOP/training).
+    from app.db.models import PasienMembershipHistory as _PMH, StatusAktivasiEnum as _SA
+    _pend_mship = (
+        db.query(_PMH)
+        .filter(_PMH.id_pasien == id_pasien)
+        .filter(_PMH.status_aktivasi.in_([_SA.PENDING, _SA.PAID]))
+        .first()
+    )
+    membership_warning = (
+        "Pasien punya membership yang BELUM diaktifkan. Produk ini dibayar TANPA "
+        "diskon member sampai membership dibayar & diaktifkan CS."
+    ) if _pend_mship is not None else None
+
     ctx.update({
         "pasien": pasien,
         "master_produks": master_produks,
         "error": request.query_params.get("err"),
+        "membership_warning": membership_warning,
     })
     return templates.TemplateResponse(request, "pasien_beli_produk.html", ctx)
 
@@ -1284,27 +1300,52 @@ def pasien_membership_create_billing(
         return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
     if not require_antrian_mgmt_role(user):
         return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    # M2: TIDAK lagi membuat kunjungan kosong. Membership PENDING otomatis muncul di
+    # Antrian Kasir (seksi "Membership — Menunggu Pembayaran"). Route dipertahankan
+    # sebagai no-op (kompat tombol/bookmark lama) → arahkan balik dgn info.
+    return RedirectResponse(
+        url=(
+            f"/web/pasien/{id_pasien}/membership"
+            f"?ok=Pending%20sudah%20otomatis%20muncul%20di%20Antrian%20Kasir%20(seksi%20Membership)."
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post("/pasien/{id_pasien}/membership/{id_history}/aktifkan", response_class=HTMLResponse)
+def pasien_membership_aktifkan(
+    id_pasien: int, id_history: int, request: Request, db: DbSession,
+):
+    """M3: CS aktivasi membership PAID -> ACTIVE (+ no_member + kuota).
+    Role §9: FO+Kasir+Admin+Owner+Superadmin."""
+    from urllib.parse import quote
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not (require_antrian_mgmt_role(user) or require_kasir_role(user)):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
     try:
-        id_kunjungan_baru = MembershipService(db).create_kunjungan_billing(
-            id_pasien=id_pasien, actor_id_staf=user.id_staf, request=request,
+        result = MembershipService(db).activate_membership(
+            id_history=id_history, actor_id_staf=user.id_staf, request=request,
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/pasien/{id_pasien}/membership?err={e.detail}",
+            url=f"/web/pasien/{id_pasien}/membership?err={quote(str(e.detail))}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
         return RedirectResponse(
-            url=f"/web/pasien/{id_pasien}/membership?err=Gagal:%20{e!s}",
+            url=f"/web/pasien/{id_pasien}/membership?err={quote(f'Gagal: {e!s}')}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
-    # FIX-362E-C: Redirect ke section membership dengan flash (kasir nanti akses via antrian sendiri)
-    # FO tidak punya akses /web/kasir/tagihan → 403. Better redirect ke page yang accessible.
+    _no = result.get("no_member") or "-"
+    _tier = result.get("nama_tier") or ""
+    msg = f"Membership {_tier} AKTIF. Nomor member: {_no}."
+    _next = (request.query_params.get("next") or "").strip()
+    _dest = _next if _next.startswith("/web/") else f"/web/pasien/{id_pasien}/membership"
+    _sep = "&" if "?" in _dest else "?"
     return RedirectResponse(
-        url=(
-            f"/web/pasien/{id_pasien}/membership"
-            f"?ok=Tagihan%20dibuat%20%23{id_kunjungan_baru}.%20Silakan%20kasir%20proses%20di%20Antrian%20Bayar."
-        ),
+        url=f"{_dest}{_sep}ok={quote(msg)}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

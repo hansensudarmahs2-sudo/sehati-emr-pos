@@ -53,6 +53,12 @@ MENU_OBAT_TERTUNDA = {
     "icon": "🚚",
     "active_when": "/web/obat-tertunda",
 }
+MENU_MEMBERSHIP_AKTIVASI = {
+    "label": "Aktivasi Membership",
+    "url": "/web/membership-aktivasi",
+    "icon": "🎖️",
+    "active_when": "/web/membership-aktivasi",
+}
 MENU_DOKTER_ANTRIAN = {
     "label": "Antrian Saya",
     "url": "/web/dokter/antrian",
@@ -201,7 +207,7 @@ MENU_PROFIL = {
 _MENU_BY_ROLE = {
     "Owner": [
         {"group": "Operasional", "items": [
-            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA,
+            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
             MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
@@ -223,7 +229,7 @@ _MENU_BY_ROLE = {
     ],
     "Superadmin": [
         {"group": "Operasional", "items": [
-            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA,
+            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
             MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
@@ -254,7 +260,7 @@ _MENU_BY_ROLE = {
     ],
     "Admin": [
         {"group": "Operasional", "items": [
-            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA,
+            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
             MENU_KASIR_CARI_TRANSAKSI,
         ]},
         {"group": "Manajemen", "items": [
@@ -284,7 +290,7 @@ _MENU_BY_ROLE = {
     ],
     "Kasir": [
         {"group": "Operasional", "items": [
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_PASIEN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_PASIEN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
         ]},
         # REPORTS-COMPART (#324): Kasir bisa akses Rekap Shift Saya
         {"group": "Laporan", "items": [
@@ -306,7 +312,7 @@ _MENU_BY_ROLE = {
     ],
     "FO": [
         {"group": "Operasional", "items": [
-            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA,
+            MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
         ]},
         {"group": "Akun", "items": [MENU_PROFIL]},
     ],

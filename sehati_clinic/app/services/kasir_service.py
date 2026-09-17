@@ -38,6 +38,7 @@ from app.repositories.staf_repo import StafRepository
 from app.schemas.kasir import (
     AntrianKasirItem,
     AntrianKasirResponse,
+    MembershipPendingItem,
     BayarRequest,
     RekapPerMetode,
     RekapShiftItem,
@@ -112,6 +113,7 @@ class KasirService:
             riwayat.append(RiwayatBayarItem(
                 id_transaksi=trx.id_transaksi,
                 id_kunjungan=trx.id_kunjungan,
+                jenis_transaksi=getattr(trx, "jenis_transaksi", "KLINIS"),
                 waktu_bayar=trx.waktu_bayar,
                 id_pasien=pasien.id_pasien,
                 no_rm=pasien.no_rm,
@@ -120,12 +122,33 @@ class KasirService:
                 nama_kasir=nama_kasir,
             ))
 
+        # ====== Membership PENDING (menunggu bayar) — transaksi terpisah ======
+        mship_rows = self.repo.list_membership_pending()
+        membership_pending: list[MembershipPendingItem] = []
+        for hist, pasien, tier in mship_rows:
+            tipe_now = (
+                pasien.tipe_membership.value
+                if hasattr(pasien.tipe_membership, "value")
+                else str(pasien.tipe_membership) if pasien.tipe_membership else None
+            )
+            membership_pending.append(MembershipPendingItem(
+                id_history=hist.id_history,
+                id_pasien=pasien.id_pasien,
+                no_rm=pasien.no_rm,
+                nama_pasien=pasien.nama,
+                tipe_membership_sekarang=tipe_now,
+                nama_tier=tier.nama_tier,
+                harga_aktivasi=Decimal(str(tier.harga_aktivasi or 0)),
+            ))
+
         return AntrianKasirResponse(
             tanggal=today,
             total=len(items),
             data=items,
             riwayat=riwayat,
             riwayat_total=len(riwayat),
+            membership_pending=membership_pending,
+            membership_pending_total=len(membership_pending),
         )
 
     # =========================================================================
@@ -359,33 +382,16 @@ class KasirService:
         nominal_diskon_p = (subtotal_produk * diskon.persen_produk / Decimal("100")).quantize(Decimal("0.01"))
         nominal_diskon_total = nominal_diskon_t + nominal_diskon_p
 
-        # #362D - Query pending membership history untuk pasien ini
-        # (is_active=False + id_transaksi_aktivasi=NULL = PENDING menunggu pembayaran)
-        from app.db.models import PasienMembershipHistory as _PMH
-        from app.db.models import MasterMembership as _MM
+        # M2: aktivasi membership TIDAK lagi ikut tagihan klinis. Membership kini
+        # transaksi berdiri sendiri (jenis=MEMBERSHIP, id_kunjungan=NULL) dibayar
+        # via /kasir/membership/{id_history}/bayar. Field di RingkasanBiaya
+        # dipertahankan (kompat) tapi selalu 0/None di tagihan klinis.
         subtotal_aktivasi = Decimal("0")
         nama_tier_pending = None
         id_mship_pending = None
         id_hist_pending = None
-        pending_hist_stmt = (
-            _sel(_PMH, _MM)
-            .join(_MM, _MM.id_membership == _PMH.id_membership)
-            .where(_PMH.id_pasien == pasien.id_pasien)
-            .where(_PMH.is_active.is_(False))
-            .where(_PMH.id_transaksi_aktivasi.is_(None))
-            .order_by(_PMH.id_history.desc())
-            .limit(1)
-        )
-        pending_row = self.db.execute(pending_hist_stmt).first()
-        if pending_row is not None:
-            hist_pending, tier_pending = pending_row
-            subtotal_aktivasi = Decimal(str(tier_pending.harga_aktivasi or 0))
-            nama_tier_pending = tier_pending.nama_tier
-            id_mship_pending = tier_pending.id_membership
-            id_hist_pending = hist_pending.id_history
 
-        subtotal = subtotal_tindakan + subtotal_produk + subtotal_aktivasi
-        # Aktivasi tidak kena diskon (sesuai DEC: tier baru active setelah dibayar)
+        subtotal = subtotal_tindakan + subtotal_produk
         total = subtotal - nominal_diskon_total
 
         # Tagihan tambahan: id_transaksi_existing dipopulate utk UI tahu ini reopen
@@ -554,30 +560,21 @@ class KasirService:
         kunjungan = self.kunjungan_repo.get_by_id(payload.id_kunjungan)
 
         try:
-            # 2. INSERT transaksi_kasir
-            # #362D - Membership activation snapshot kalau ada
-            _id_mship_act = tagihan.ringkasan_biaya.id_membership_aktivasi_pending
-            _nom_aktivasi = tagihan.ringkasan_biaya.subtotal_aktivasi_membership
-            _id_hist_pending = tagihan.ringkasan_biaya.id_history_pending
-            _nama_tier_pending = tagihan.ringkasan_biaya.nama_tier_aktivasi
-            _rincian_extra = ""
-            if _id_mship_act and _nom_aktivasi > 0:
-                _rincian_extra = f", Aktivasi {_nama_tier_pending}: {_nom_aktivasi}"
+            # 2. INSERT transaksi_kasir (KLINIS — tanpa membership; M2 memisah membership)
             trx = TransaksiKasir(
                 id_kunjungan=payload.id_kunjungan,
+                id_pasien=(kunjungan.id_pasien if kunjungan else None),
                 id_staf_kasir=id_staf_kasir,
+                jenis_transaksi="KLINIS",
                 rincian_tagihan=(
                     f"Tindakan: {tagihan.ringkasan_biaya.subtotal_tindakan}, "
                     f"Produk: {tagihan.ringkasan_biaya.subtotal_produk}, "
                     f"Diskon: {tagihan.ringkasan_biaya.nominal_diskon_total}"
-                    + _rincian_extra
                 ),
                 subtotal=tagihan.ringkasan_biaya.subtotal,
                 nominal_diskon=tagihan.ringkasan_biaya.nominal_diskon_total,
                 keterangan_promo=payload.keterangan_promo or None,
                 total_tagihan=total_tagihan,
-                id_membership_aktivasi=_id_mship_act,
-                nominal_aktivasi_membership=_nom_aktivasi if _nom_aktivasi > 0 else None,
                 idempotency_key=payload.idempotency_key or None,  # P0-2 backstop
             )
             self.repo.create_transaksi(trx)
@@ -637,83 +634,6 @@ class KasirService:
                 keterangan=f"Auto-transition setelah pembayaran. Resep di-DIBAYAR: {n_resep_updated}",
                 request=request,
             )
-
-            # #362D - ACTIVATE pending membership history kalau ada
-            if _id_hist_pending and _id_mship_act:
-                from app.db.models import PasienMembershipHistory as _PMH
-                from app.db.models import MasterMembership as _MM_act
-                from app.db.models import MembershipTierEnum as _MTE
-                hist = self.db.get(_PMH, _id_hist_pending)
-                if hist is not None and not hist.is_active:
-                    hist.is_active = True
-                    hist.id_transaksi_aktivasi = id_trx_baru
-                    hist.id_staf_aktivasi = id_staf_kasir
-                    hist.catatan = (
-                        f"ACTIVE - dibayar via trx #{id_trx_baru} oleh kasir #{id_staf_kasir}"
-                    )
-                    # FIX-362E-A: Update pasien.tipe_membership ke tier baru SAAT bayar
-                    # FIX-362E-C: Deactivate OTHER active history (UPGRADE semantic — tier baru replace lama)
-                    if kunjungan and kunjungan.id_pasien:
-                        from app.db.models import Pasien as _Pasien
-                        from sqlalchemy import select as _sel_act
-                        pasien_obj = self.db.get(_Pasien, kunjungan.id_pasien)
-                        if pasien_obj is not None and _nama_tier_pending:
-                            try:
-                                pasien_obj.tipe_membership = _MTE(_nama_tier_pending)
-                            except ValueError:
-                                pass  # tier nama tidak match enum, skip
-                            # Deactivate other active history (UPGRADE replaces previous tier)
-                            from app.db.models import PasienMembershipHistory as _PMH2
-                            other_active = list(self.db.execute(
-                                _sel_act(_PMH2)
-                                .where(_PMH2.id_pasien == kunjungan.id_pasien)
-                                .where(_PMH2.id_history != _id_hist_pending)
-                                .where(_PMH2.is_active.is_(True))
-                                .where(_PMH2.id_transaksi_aktivasi.is_not(None))
-                            ).scalars().all())
-                            for h in other_active:
-                                h.is_active = False
-                                h.catatan = (
-                                    f"REPLACED by tier {_nama_tier_pending} via trx #{id_trx_baru}. "
-                                    f"Catatan lama: {h.catatan or ''}"
-                                )
-                    self.db.flush()
-                    # Audit aktivasi membership
-                    self.audit.log(
-                        aksi="MEMBERSHIP_ACTIVATE",
-                        id_staf=id_staf_kasir,
-                        tabel_target="pasien_membership_history",
-                        id_target=_id_hist_pending,
-                        data_lama={"is_active": False, "id_transaksi_aktivasi": None},
-                        data_baru={
-                            "is_active": True,
-                            "id_transaksi_aktivasi": id_trx_baru,
-                            "tier": _nama_tier_pending,
-                            "nominal": float(_nom_aktivasi),
-                        },
-                        keterangan=(
-                            f"Aktivasi membership {_nama_tier_pending} via trx #{id_trx_baru} "
-                            f"(nominal Rp {_nom_aktivasi})"
-                        ),
-                        request=request,
-                    )
-                    # Auto-create kuota rows kalau ada benefit_treatment configured
-                    # Detect action_type dari catatan history (PENDING ACTIVATION / RENEWAL / UPGRADE)
-                    _action_detected = None
-                    _hist_catatan = hist.catatan or ""
-                    if "RENEWAL" in _hist_catatan:
-                        _action_detected = "RENEWAL"
-                    elif "UPGRADE" in _hist_catatan:
-                        _action_detected = "UPGRADE"
-                    else:
-                        _action_detected = "ACTIVATION"
-                    self._create_kuota_from_benefit(
-                        id_pasien=kunjungan.id_pasien if kunjungan else None,
-                        id_history=_id_hist_pending,
-                        id_membership=_id_mship_act,
-                        expired_at=hist.tgl_expired,
-                        action_type=_action_detected,
-                    )
 
             # K-L2 (DEC-087): catat komisi (snapshot) — ikut transaksi atomik.
             KomisiService(self.db).catat_komisi_transaksi(
@@ -1259,12 +1179,19 @@ class KasirService:
                 cascade_info = self._cascade_void_kunjungan(trx.id_kunjungan, actor_id_staf, request)
                 kuota_reverted = self._revert_kuota_per_tindakan(trx.id_kunjungan, actor_id_staf, request)
 
-            # #362E - Revert membership history kalau transaksi mengandung aktivasi
+            # #362E - Revert membership history kalau transaksi mengandung aktivasi.
+            # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.
             reverted_mship_history = self.membership.revert_active_to_pending(
                 id_transaksi=trx.id_transaksi,
                 actor_id_staf=actor_id_staf,
                 request=request,
             )
+            if reverted_mship_history is None:
+                reverted_mship_history = self.membership.revert_paid_to_pending(
+                    id_transaksi=trx.id_transaksi,
+                    actor_id_staf=actor_id_staf,
+                    request=request,
+                )
 
             self.audit.log(
                 aksi="VOID_TRANSAKSI",

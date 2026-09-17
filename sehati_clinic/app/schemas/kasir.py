@@ -43,7 +43,8 @@ class RiwayatBayarItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id_transaksi: int
-    id_kunjungan: int
+    id_kunjungan: Optional[int] = None  # M2: NULL utk transaksi MEMBERSHIP
+    jenis_transaksi: Optional[str] = "KLINIS"
     waktu_bayar: Optional[datetime] = None
 
     id_pasien: int
@@ -54,6 +55,19 @@ class RiwayatBayarItem(BaseModel):
     nama_kasir: Optional[str] = None
 
 
+class MembershipPendingItem(BaseModel):
+    """1 membership PENDING menunggu pembayaran (transaksi terpisah dari klinis)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id_history: int
+    id_pasien: int
+    no_rm: str
+    nama_pasien: str
+    tipe_membership_sekarang: Optional[str] = None  # tier aktif pasien saat ini
+    nama_tier: str                                   # tier yg dibeli (PENDING)
+    harga_aktivasi: Decimal = Decimal("0")
+
+
 class AntrianKasirResponse(BaseModel):
     status: str = "success"
     tanggal: date
@@ -62,6 +76,9 @@ class AntrianKasirResponse(BaseModel):
     # Riwayat transaksi hari ini — untuk akses tombol Cetak Nota pasca-bayar
     riwayat: list[RiwayatBayarItem] = Field(default_factory=list)
     riwayat_total: int = 0
+    # M2: membership PENDING menunggu bayar (transaksi terpisah)
+    membership_pending: list[MembershipPendingItem] = Field(default_factory=list)
+    membership_pending_total: int = 0
 
 
 # =============================================================================

@@ -76,6 +76,24 @@ class KasirRepository:
     # =========================================================================
     # RIWAYAT BAYAR HARI INI — untuk akses cetak nota pasca-bayar
     # =========================================================================
+    def list_membership_pending(self):
+        """M2: semua membership PENDING (belum dibayar) = is_active False + belum
+        ada transaksi aktivasi. Return list (history, pasien, tier)."""
+        from app.db.models import (
+            PasienMembershipHistory as _PMH,
+            Pasien as _P,
+            MasterMembership as _MM,
+        )
+        return (
+            self.db.query(_PMH, _P, _MM)
+            .join(_P, _P.id_pasien == _PMH.id_pasien)
+            .join(_MM, _MM.id_membership == _PMH.id_membership)
+            .filter(_PMH.is_active.is_(False))
+            .filter(_PMH.id_transaksi_aktivasi.is_(None))
+            .order_by(_PMH.id_history.desc())
+            .all()
+        )
+
     def list_riwayat_bayar_hari_ini(
         self, today: Optional[date] = None
     ) -> list[tuple[TransaksiKasir, Kunjungan, Pasien]]:
@@ -88,10 +106,12 @@ class KasirRepository:
         if today is None:
             today = date.today()
 
+        # M2: transaksi membership id_kunjungan=NULL → pasien via transaksi.id_pasien
+        # (sudah ter-backfill utk semua transaksi lama). Kunjungan outer join (bisa NULL).
         stmt = (
             select(TransaksiKasir, Kunjungan, Pasien)
-            .join(Kunjungan, TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan)
-            .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
+            .join(Pasien, TransaksiKasir.id_pasien == Pasien.id_pasien)
+            .join(Kunjungan, TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan, isouter=True)
             .where(func.date(TransaksiKasir.waktu_bayar) == today)
             .order_by(TransaksiKasir.waktu_bayar.desc())
         )

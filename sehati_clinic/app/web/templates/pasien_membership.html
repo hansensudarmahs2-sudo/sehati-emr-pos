@@ -93,31 +93,12 @@
                     Tagihan aktivasi: <strong>Rp {{ "{:,.0f}".format(status_data.pending.harga_bayar).replace(",", ".") }}</strong>
                 </div>
                 <div class="text-xs text-amber-700">
-                    Akan otomatis muncul di kasir saat pasien bayar tindakan/resep berikutnya.
-                    <br>Atau klik <strong>"Buat Tagihan Sekarang"</strong> untuk bayar langsung (tanpa konsul).
+                    Otomatis muncul di <strong>Antrian Kasir &rarr; seksi "Membership — Menunggu Pembayaran"</strong>
+                    untuk dibayar (transaksi terpisah dari tagihan produk/tindakan).
                 </div>
                 <div class="text-xs text-slate-500 italic">{{ status_data.pending.catatan or "" }}</div>
                 {% if can_manage %}
                 <div class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
-                    {# FIX-362E-B: Standalone billing — buat kunjungan ANTRI_BAYAR-only #}
-                    {# FIX-362E-D: Disable button after submit untuk cegah double-click #}
-                    {# #362B-D: Hide Buat Tagihan kalau sudah ada kunjungan ANTRI_BAYAR membership-only #}
-                    {% if status_data.existing_billing_kunjungan_id %}
-                    <div class="flex-1 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded text-center">
-                        ✓ Tagihan #{{ status_data.existing_billing_kunjungan_id }} sudah dibuat.
-                        <span class="text-blue-600 italic">Pasien sudah di antrian kasir.</span>
-                    </div>
-                    {% else %}
-                    <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/create-billing"
-                          data-confirm="Buat tagihan {{ status_data.pending.nama_tier }} sekarang? Pasien akan masuk antrian kasir tanpa kunjungan konsultasi."
-                          class="flex-1">
-                        {{ csrf_input(request) }}
-                        <button type="submit"
-                                class="w-full text-xs px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed font-medium">
-                            💰 Buat Tagihan Sekarang →
-                        </button>
-                    </form>
-                    {% endif %}
                     <form method="POST" action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/{{ status_data.pending.id_history }}/cancel"
                           data-confirm="Cancel pending {{ status_data.pending.nama_tier }}? History akan dihapus.">
                         {{ csrf_input(request) }}
@@ -137,6 +118,38 @@
             {% endif %}
         </div>
     </div>
+
+    {# ===== M3: Menunggu Aktivasi (sudah dibayar, belum diaktifkan CS) ===== #}
+    {% if status_data.paid %}
+    <div class="bg-white rounded-xl shadow-sm border border-blue-200 p-5 mb-6">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            <span class="text-blue-600">●</span> Menunggu Aktivasi (Sudah Dibayar)
+        </h3>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+            <div class="font-bold text-blue-700">{{ status_data.paid.nama_tier }}</div>
+            <div class="text-sm text-blue-700">
+                Sudah dibayar: <strong>Rp {{ "{:,.0f}".format(status_data.paid.harga_bayar).replace(",", ".") }}</strong>
+                (trx #{{ status_data.paid.id_transaksi_aktivasi }})
+            </div>
+            <div class="text-xs text-blue-700">
+                Membership belum aktif. Klik <strong>"Aktifkan"</strong> setelah verifikasi identitas pasien.
+                Nomor member diberikan saat aktivasi.
+            </div>
+            {% if can_manage %}
+            <form method="POST"
+                  action="/web/pasien/{{ status_data.pasien.id_pasien }}/membership/{{ status_data.paid.id_history }}/aktifkan"
+                  data-confirm="Aktifkan membership {{ status_data.paid.nama_tier }}? Nomor member akan diberikan & benefit berlaku."
+                  class="pt-2 border-t border-blue-200">
+                {{ csrf_input(request) }}
+                <button type="submit"
+                        class="text-xs px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 font-medium">
+                    ✓ Aktifkan Membership →
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 
     {# === P2-#2: KUOTA BENEFIT BREAKDOWN === #}
     {% if status_data.active and status_data.kuota_list and status_data.kuota_list|length > 0 %}

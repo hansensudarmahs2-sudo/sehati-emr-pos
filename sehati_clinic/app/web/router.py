@@ -25,6 +25,7 @@ from app.web.routes import (
     finance_export,
     followup,
     obat_tertunda,
+    membership_aktivasi,
     kasir,
     kasir_closing,
     kunjungan,
@@ -67,6 +68,7 @@ router.include_router(export.router)
 router.include_router(finance_export.router)
 router.include_router(followup.router)
 router.include_router(obat_tertunda.router)
+router.include_router(membership_aktivasi.router)
 router.include_router(settings.router)
 
 

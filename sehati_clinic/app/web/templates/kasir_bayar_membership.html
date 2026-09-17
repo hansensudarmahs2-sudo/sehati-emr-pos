@@ -1,0 +1,68 @@
+{% extends "_app.html" %}
+{% block title %}Bayar Membership — {{ mship.nama_pasien }}{% endblock %}
+{% block page_title %}Bayar Membership{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+    <a href="/web/kasir/antrian" class="text-sm text-slate-500 hover:text-slate-700">‹ Kembali ke Antrian</a>
+
+    {% if error %}
+    <div class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ error }}</div>
+    {% endif %}
+
+    <div class="mt-4 bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-lg font-semibold text-slate-800">{{ mship.nama_pasien }}</div>
+                <div class="text-xs text-slate-500 font-mono">{{ mship.no_rm }}</div>
+            </div>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-sm font-medium">Membership {{ mship.nama_tier }}</span>
+        </div>
+        <div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+            <span class="text-slate-600">Biaya Aktivasi {{ mship.nama_tier }}</span>
+            <span class="text-2xl font-bold text-slate-800">Rp {{ "{:,.0f}".format(mship.harga|float).replace(",", ".") }}</span>
+        </div>
+        <p class="mt-2 text-xs text-amber-700">ℹ️ Transaksi ini TERPISAH dari tagihan produk/tindakan. Setelah dibayar, status = <b>MENUNGGU AKTIVASI CS</b> (belum aktif — benefit belum berlaku).</p>
+    </div>
+
+    <form method="POST" action="/web/kasir/membership/{{ mship.id_history }}/bayar"
+          class="mt-4 bg-white rounded-xl border border-slate-200 p-5">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+        <div class="flex items-center justify-between mb-3">
+            <h4 class="text-sm font-semibold text-slate-700">Pembayaran</h4>
+            <button type="button"
+                    hx-get="/web/kasir/_pembayaran-row" hx-target="#pembayaran-rows" hx-swap="beforeend"
+                    class="text-xs px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">+ Tambah Metode</button>
+        </div>
+        <div id="pembayaran-rows" class="space-y-2">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end pembayaran-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="md:col-span-5">
+                    <label class="block text-xs text-slate-500 mb-1">Metode</label>
+                    <select name="metode_bayar" required
+                            class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="TUNAI">TUNAI</option>
+                        <option value="QRIS">QRIS</option>
+                        <option value="DEBIT">DEBIT</option>
+                        <option value="KREDIT">KREDIT</option>
+                        <option value="TRANSFER">TRANSFER</option>
+                    </select>
+                </div>
+                <div class="md:col-span-5">
+                    <label class="block text-xs text-slate-500 mb-1">Nominal</label>
+                    <input type="number" name="nominal" min="1" step="1" required value="{{ mship.harga|int }}"
+                           class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-2 text-right">
+                    <button type="button" onclick="this.closest('.pembayaran-row').remove()"
+                            class="px-2.5 py-1.5 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">🗑️</button>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+            <a href="/web/kasir/antrian" class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">Batal</a>
+            <button type="submit" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">Bayar Membership</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -60,18 +60,16 @@ class MasterMembershipService:
         actor_id_staf: int,
         request: Optional[Request] = None,
     ) -> MasterMembership:
-        nama_clean = payload.nama_tier.strip().upper()
+        nama_clean = payload.nama_tier.strip()
 
-        # ENUM sync validation
-        if nama_clean not in _VALID_TIER_NAMES:
+        # M3 tier-bebas: nama tier BEBAS (tak lagi dibatasi MembershipTierEnum).
+        # Hanya "REGULAR" yang dilarang (itu sentinel default non-member).
+        if not nama_clean:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nama tier wajib diisi.")
+        if nama_clean.upper() == "REGULAR":
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Nama tier '{nama_clean}' tidak valid. Harus salah satu dari: "
-                    f"{sorted(_VALID_TIER_NAMES)}. Untuk add tier baru, "
-                    f"tambah dulu enum value di app/db/models/_enums.py "
-                    f"(butuh redeploy)."
-                ),
+                status.HTTP_400_BAD_REQUEST,
+                "'REGULAR' adalah default non-member — tidak boleh dijadikan tier berbayar.",
             )
 
         # Unique check
@@ -136,14 +134,13 @@ class MasterMembershipService:
 
         # Validate new nama_tier kalau ganti
         if "nama_tier" in update_data:
-            nama_clean = update_data["nama_tier"].strip().upper()
-            if nama_clean not in _VALID_TIER_NAMES:
+            nama_clean = update_data["nama_tier"].strip()
+            if not nama_clean:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nama tier wajib diisi.")
+            if nama_clean.upper() == "REGULAR":
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"Nama tier '{nama_clean}' tidak valid. Harus: "
-                        f"{sorted(_VALID_TIER_NAMES)}."
-                    ),
+                    status.HTTP_400_BAD_REQUEST,
+                    "'REGULAR' adalah default non-member — tidak boleh dijadikan tier berbayar.",
                 )
             if nama_clean != tier.nama_tier:
                 existing = self.repo.get_by_nama_tier(nama_clean)
