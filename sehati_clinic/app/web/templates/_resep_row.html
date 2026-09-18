@@ -1,6 +1,7 @@
 {# Single row resep — di-append ke #resep-rows via HTMX #}
 {# TODO-NEW-3 #31: option carry data-cara-pakai → JS auto-fill input aturan_pakai #}
-<div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end resep-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+<div class="resep-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
     <div class="md:col-span-5">
         <label class="block text-xs text-slate-500 mb-1">Produk</label>
         <select name="id_produk" required
@@ -11,7 +12,9 @@
             {% for p in master_produks %}
             <option value="{{ p.id_produk }}"
                     data-harga="{{ p.harga_jual }}"
-                    data-cara-pakai="{{ p.default_cara_pakai or '' }}">
+                    data-cara-pakai="{{ p.default_cara_pakai or '' }}"
+                    data-kandungan="{{ p.kandungan or '' }}"
+                    {% if p.kandungan %}title="Kandungan: {{ p.kandungan }}"{% endif %}>
                 [{{ p.kode_produk }}] {{ p.nama_produk }} (Rp {{ "{:,.0f}".format(p.harga_jual|float).replace(",", ".") }})
             </option>
             {% endfor %}
@@ -37,6 +40,11 @@
             🗑️
         </button>
     </div>
+  </div>
+  {# Ghost note: kandungan krim (muncul setelah produk dipilih, full-width di bawah baris) #}
+  <div class="resep-kandungan-note mt-2 text-xs text-blue-600 hidden">
+      <span class="font-medium">🧴 Kandungan:</span> <span class="kandungan-text"></span>
+  </div>
 </div>
 
 <script>
@@ -53,6 +61,19 @@
             // Cari input aturan_pakai di row yang sama (resep-row terdekat)
             var row = selectEl.closest('.resep-row');
             if (!row) return;
+            // Ghost note kandungan — tampilkan isi krim biar dokter tahu
+            var kandungan = opt.getAttribute('data-kandungan') || '';
+            var note = row.querySelector('.resep-kandungan-note');
+            if (note) {
+                var txt = note.querySelector('.kandungan-text');
+                if (kandungan) {
+                    if (txt) txt.textContent = kandungan;
+                    note.classList.remove('hidden');
+                } else {
+                    if (txt) txt.textContent = '';
+                    note.classList.add('hidden');
+                }
+            }
             var input = row.querySelector('input.aturan-pakai-input, input[name="aturan_pakai"]');
             if (!input) return;
             // Jangan overwrite kalau user sudah ngetik manual.

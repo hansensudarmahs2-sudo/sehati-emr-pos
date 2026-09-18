@@ -28,6 +28,10 @@ class MasterProdukCreate(BaseModel):
     satuan: str = Field(..., min_length=1, max_length=20)
     harga_jual: Decimal = Field(default=Decimal("0"), ge=0)
 
+    # Produk topikal: kandungan boleh tampil; nama_dagang = merk asli (internal)
+    kandungan: Optional[str] = Field(default=None, max_length=255)
+    nama_dagang: Optional[str] = Field(default=None, max_length=100)
+
     # Stok awal (kalau langsung restock saat create)
     stok_terkini: float = Field(default=0, ge=0)
     stok_minimal: float = Field(default=5, ge=0)
@@ -65,6 +69,10 @@ class MasterProdukUpdate(BaseModel):
     satuan: Optional[str] = Field(default=None, min_length=1, max_length=20)
     harga_jual: Optional[Decimal] = Field(default=None, ge=0)
     stok_minimal: Optional[float] = Field(default=None, ge=0)
+
+    # Produk topikal: kandungan boleh tampil; nama_dagang = merk asli (internal)
+    kandungan: Optional[str] = Field(default=None, max_length=255)
+    nama_dagang: Optional[str] = Field(default=None, max_length=100)
 
     id_bahan_sumber: Optional[int] = Field(default=None, ge=1)
     qty_per_unit_produk: Optional[float] = Field(default=None, gt=0)
@@ -106,6 +114,8 @@ class MasterProdukResponse(BaseModel):
     default_iterasi: int = 0
     eligible_member_discount: bool = False
     default_cara_pakai: Optional[str] = None  # TODO-NEW-3 #31 auto-fill resep SOAP
+    kandungan: Optional[str] = None
+    nama_dagang: Optional[str] = None
     is_active: Optional[bool] = None
     updated_at: Optional[datetime] = None
 

@@ -48,6 +48,30 @@
             <input type="text" id="nama_produk" name="nama_produk" required maxlength="100"
                    value="{{ form.nama_produk or '' }}"
                    class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-slate-500 mt-1">Untuk produk topikal: isi dengan <b>kode sediaan</b> (yang tampil ke pasien), bukan merk asli.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            <div>
+                <label for="kandungan" class="block text-sm font-medium text-slate-700 mb-1">
+                    Kandungan
+                    <span class="text-xs text-slate-400 font-normal">(opsional, boleh tampil)</span>
+                </label>
+                <input type="text" id="kandungan" name="kandungan" maxlength="255"
+                       value="{{ form.kandungan or '' }}"
+                       placeholder="contoh: Niacinamide 5%, Retinol 0.5%"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label for="nama_dagang" class="block text-sm font-medium text-slate-700 mb-1">
+                    Merk Asli / Nama Dagang
+                    <span class="text-xs text-slate-400 font-normal">🔒 internal — tidak tampil ke pasien</span>
+                </label>
+                <input type="text" id="nama_dagang" name="nama_dagang" maxlength="100"
+                       value="{{ form.nama_dagang or '' }}"
+                       placeholder="untuk PO / pembelian"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">

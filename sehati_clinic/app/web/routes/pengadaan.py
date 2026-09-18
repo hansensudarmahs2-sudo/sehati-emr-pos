@@ -81,6 +81,7 @@ def _fetch_master_options(db, actor):
             "id_produk": p.id_produk,
             "kode_produk": p.kode_produk,
             "nama_produk": p.nama_produk,
+            "nama_dagang": p.nama_dagang,  # merk asli utk PO (internal)
             "tipe_produk": tipe,
             "satuan": p.satuan,
         })

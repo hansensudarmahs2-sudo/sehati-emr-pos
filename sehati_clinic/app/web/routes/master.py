@@ -376,6 +376,8 @@ def master_produk_list(request: Request, db: DbSession, q: str = "", tipe: str =
             "id_produk": p.id_produk,
             "kode_produk": p.kode_produk,
             "nama_produk": p.nama_produk,
+            "kandungan": p.kandungan,
+            "nama_dagang": p.nama_dagang,
             "tipe_produk": p.tipe_produk,
             "satuan": p.satuan,
             "harga_jual": float(p.harga_jual),
@@ -425,6 +427,9 @@ def master_produk_tambah_submit(
     harga_jual: float = Form(..., ge=0),
     stok_terkini: float = Form(default=0, ge=0),
     stok_minimal: float = Form(default=5, ge=0),
+    # Produk topikal: kandungan (boleh tampil) + nama_dagang (merk asli, internal)
+    kandungan: str = Form(default=""),
+    nama_dagang: str = Form(default=""),
     # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP (opsional)
     default_cara_pakai: str = Form(default=""),
     # DEC-060 Komisi Hybrid Produk (single dokter)
@@ -450,6 +455,8 @@ def master_produk_tambah_submit(
             harga_jual=Decimal(str(harga_jual)),
             stok_terkini=stok_terkini,
             stok_minimal=stok_minimal,
+            kandungan=(kandungan.strip() or None),
+            nama_dagang=(nama_dagang.strip() or None),
             default_cara_pakai=(dcp_clean if dcp_clean else None),
             hpp_per_unit=Decimal(str(hpp_per_unit)),
             pajak_persen=Decimal(str(pajak_persen)),
@@ -500,6 +507,9 @@ def master_produk_edit_form(id_produk: int, request: Request, db: DbSession):
         "stok_terkini": float(p.stok_terkini or 0),
         "stok_minimal": float(p.stok_minimal or 0),
         "is_active": bool(p.is_active),
+        # Produk topikal: kandungan (boleh tampil) + nama_dagang (merk asli, internal)
+        "kandungan": p.kandungan or "",
+        "nama_dagang": p.nama_dagang or "",
         # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP
         "default_cara_pakai": p.default_cara_pakai or "",
         # DEC-060 Komisi Hybrid Produk
@@ -529,6 +539,9 @@ def master_produk_edit_submit(
     satuan: str = Form(...),
     harga_jual: float = Form(..., ge=0),
     stok_minimal: float = Form(..., ge=0),
+    # Produk topikal: kandungan (boleh tampil) + nama_dagang (merk asli, internal)
+    kandungan: str = Form(default=""),
+    nama_dagang: str = Form(default=""),
     # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP (opsional)
     default_cara_pakai: str = Form(default=""),
     # DEC-060 Komisi Hybrid Produk
@@ -554,6 +567,8 @@ def master_produk_edit_submit(
             satuan=satuan.strip(),
             harga_jual=Decimal(str(harga_jual)),
             stok_minimal=stok_minimal,
+            kandungan=(kandungan.strip() or None),
+            nama_dagang=(nama_dagang.strip() or None),
             default_cara_pakai=(dcp_clean if dcp_clean else None),
             hpp_per_unit=Decimal(str(hpp_per_unit)),
             pajak_persen=Decimal(str(pajak_persen)),

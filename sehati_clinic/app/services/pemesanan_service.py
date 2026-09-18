@@ -139,8 +139,11 @@ class PemesananService:
                         f"Item #{idx+1}: Apoteker hanya boleh PO produk tipe RETAIL, "
                         f"bukan {tipe_produk}.",
                     )
-                # Snapshot
+                # Snapshot — untuk PO, sertakan merk asli (nama_dagang) supaya
+                # bagian pembelian tahu barang yang dimaksud (kode sediaan saja tidak cukup).
                 nama_snap = produk.nama_produk
+                if getattr(produk, "nama_dagang", None):
+                    nama_snap = f"{produk.nama_produk} — {produk.nama_dagang}"[:100]
                 satuan_snap = produk.satuan
             elif tipe_value == "BAHAN":
                 if it.id_bahan is None:

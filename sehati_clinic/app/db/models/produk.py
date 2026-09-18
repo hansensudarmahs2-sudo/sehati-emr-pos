@@ -103,3 +103,8 @@ class MasterProduk(Base):
     komisi_dokter_value: Mapped[Optional[float]] = mapped_column(
         DECIMAL(12, 2), default=0, server_default="0", nullable=True
     )
+
+    # Produk topikal: nama_produk = KODE SEDIAAN (yang tampil). kandungan boleh ditampilkan.
+    # nama_dagang = merk asli (internal, untuk PO/pembelian — TIDAK tampil ke pasien).
+    kandungan: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    nama_dagang: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

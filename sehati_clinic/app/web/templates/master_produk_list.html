@@ -60,7 +60,11 @@
                 {% for p in data %}
                 <tr class="hover:bg-blue-50/30 transition">
                     <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ p.kode_produk }}</td>
-                    <td class="px-4 py-3 font-medium text-slate-800">{{ p.nama_produk }}</td>
+                    <td class="px-4 py-3 font-medium text-slate-800">
+                        {{ p.nama_produk }}
+                        {% if p.kandungan %}<div class="text-xs font-normal text-slate-500">{{ p.kandungan }}</div>{% endif %}
+                        {% if p.nama_dagang %}<div class="text-xs font-normal text-slate-400">🔒 {{ p.nama_dagang }}</div>{% endif %}
+                    </td>
                     <td class="px-4 py-3 text-xs">
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 font-medium">{{ p.tipe_produk }}</span>
                     </td>

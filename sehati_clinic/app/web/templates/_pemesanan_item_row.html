@@ -23,7 +23,7 @@
                 {% for p in master_produk %}
                 <option value="{{ p.id_produk }}" data-satuan="{{ p.satuan or '' }}"
                         {% if pf and pf.id_produk == p.id_produk %}selected{% endif %}>
-                    {{ p.kode_produk }} — {{ p.nama_produk }} [{{ p.tipe_produk }}]
+                    {{ p.kode_produk }}{% if p.nama_dagang %} · {{ p.nama_dagang }}{% else %} — {{ p.nama_produk }}{% endif %} [{{ p.tipe_produk }}]
                 </option>
                 {% endfor %}
             </select>
