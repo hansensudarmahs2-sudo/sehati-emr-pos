@@ -1,0 +1,13 @@
+{# Terapkan kartu saran → baris lengkap (OOB) + kosongkan panel saran.
+   Context: paket_tindakan, paket_resep (prefill), master_treatments, master_produks, kuota_map. #}
+{% for pf in paket_tindakan %}{% with prefill=pf, oob_target='#tindakan-rows' %}{% include '_tindakan_row.html' %}{% endwith %}{% endfor %}
+{% for pf in paket_resep %}{% with prefill=pf, oob_target='#resep-rows' %}{% include '_resep_row.html' %}{% endwith %}{% endfor %}
+
+<script>
+(function() {
+    // Saran sudah dipakai → kosongkan panel (atributnya tetap, jadi masih bisa render ulang nanti).
+    var p = document.getElementById('dx-saran-panel');
+    if (p) p.innerHTML = '';
+    if (window.initTomSelect) window.initTomSelect(document);
+})();
+</script>

@@ -198,6 +198,7 @@ class MasterProdukService:
                 # Produk topikal: kandungan (boleh tampil) + nama_dagang (merk asli, internal)
                 kandungan=(getattr(payload, "kandungan", None) or None),
                 nama_dagang=(getattr(payload, "nama_dagang", None) or None),
+                golongan=(getattr(payload, "golongan", None) or None),
                 is_active=True,
                 # KOMISI SYSTEM HYBRID (#361, DEC-060)
                 hpp_per_unit=max(0, (getattr(payload, "hpp_per_unit", 0) or 0)),

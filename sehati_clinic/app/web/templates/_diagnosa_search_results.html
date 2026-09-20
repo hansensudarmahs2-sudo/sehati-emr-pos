@@ -7,6 +7,8 @@
             hx-get="/web/dokter/_diagnosa-add/{{ d.id_diagnosa }}"
             hx-target="#diagnosa-list"
             hx-swap="beforeend"
+            hx-include="[name='fill_mode']"
+            hx-params="fill_mode"
             class="w-full text-left px-3 py-2 hover:bg-blue-50 transition flex items-center gap-2">
         {% if (d.sistem.value if d.sistem.value is defined else d.sistem) == 'ICD10' %}
         <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 font-medium shrink-0">ICD-10</span>

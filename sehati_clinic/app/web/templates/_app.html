@@ -199,7 +199,8 @@
                 new TomSelect(el, {
                     create: false,
                     placeholder: el.getAttribute("data-placeholder") || "Cari atau pilih...",
-                    searchField: ["text"],
+                    // Cari juga berdasarkan kandungan (active ingredient) & golongan bila option punya data-* itu.
+                    searchField: ["text", "kandungan", "golongan"],
                     sortField: { field: "text", direction: "asc" },
                     maxOptions: 500,
                     // Filter out placeholder option (value="") dari hasil search/list

@@ -46,7 +46,7 @@ class MasterProdukRepository:
         """
         List produk dengan filter optional.
 
-        - keyword: cari di kode_produk OR nama_produk (case-insensitive)
+        - keyword: cari di kode_produk / nama_produk / kandungan / golongan (case-insensitive)
         - tipe: RETAIL / CABIN / ALAT
         - only_active: hanya is_active=True
         """
@@ -57,6 +57,8 @@ class MasterProdukRepository:
                 or_(
                     MasterProduk.kode_produk.ilike(term),
                     MasterProduk.nama_produk.ilike(term),
+                    MasterProduk.kandungan.ilike(term),
+                    MasterProduk.golongan.ilike(term),
                 )
             )
         if tipe:

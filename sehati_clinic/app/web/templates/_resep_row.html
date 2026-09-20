@@ -17,9 +17,10 @@
                     data-harga="{{ p.harga_jual }}"
                     data-cara-pakai="{{ p.default_cara_pakai or '' }}"
                     data-kandungan="{{ p.kandungan or '' }}"
+                    data-golongan="{{ p.golongan or '' }}"
                     {% if pf and pf.id_produk == p.id_produk %}selected{% endif %}
                     {% if p.kandungan %}title="Kandungan: {{ p.kandungan }}"{% endif %}>
-                [{{ p.kode_produk }}] {{ p.nama_produk }} (Rp {{ "{:,.0f}".format(p.harga_jual|float).replace(",", ".") }})
+                [{{ p.kode_produk }}] {{ p.nama_produk }}{% if p.kandungan %} — {{ p.kandungan }}{% endif %} (Rp {{ "{:,.0f}".format(p.harga_jual|float).replace(",", ".") }})
             </option>
             {% endfor %}
         </select>

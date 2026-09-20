@@ -1,0 +1,92 @@
+{# Panel saran (Smart Fill) — dirender ULANG tiap diagnosa/mode berubah.
+   Gaya ikut di dalam fragmen supaya tidak bergantung cache halaman.
+   Context: tindakan[], produk[], total. #}
+<style>
+  .sr-box{border:1px solid #fcd34d;background:#fffbeb;border-radius:10px;padding:10px;margin-bottom:12px}
+  .sr-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .sr-title{font-size:13px;font-weight:600;color:#1e293b}
+  .sr-sub{font-size:11px;font-weight:400;color:#64748b}
+  .sr-btns{display:flex;align-items:center;gap:6px}
+  .sr-btn{font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer;border:1px solid #cbd5e1;background:#fff;color:#475569}
+  .sr-btn:hover{background:#f8fafc}
+  .sr-apply{border:0;background:#d97706;color:#fff;font-weight:600}
+  .sr-apply:hover{background:#b45309}
+  .sr-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:700px){.sr-cols{grid-template-columns:1fr}}
+  .sr-col{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px}
+  .sr-head{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#64748b;margin-bottom:6px}
+  .sr-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#f8fafc;margin-bottom:5px}
+  .sr-item:last-child{margin-bottom:0}
+  .sr-name{flex:1;min-width:0;font-size:13px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sr-from{flex:none;font-size:10px;color:#94a3b8}
+  .sr-x{flex:none;width:22px;height:22px;border:0;border-radius:6px;cursor:pointer;
+        background:#fee2e2;color:#b91c1c;font-size:12px;font-weight:700;line-height:1}
+  .sr-x:hover{background:#fecaca}
+  .sr-none{font-size:12px;color:#94a3b8;padding:4px 2px}
+</style>
+
+<div class="sr-box">
+  <div class="sr-top">
+    <div class="sr-title">⚡ Saran dari diagnosa
+      <span class="sr-sub">— buang ✕ yang tak perlu, lalu Terapkan</span>
+    </div>
+    <div class="sr-btns">
+      <button type="button" class="sr-btn"
+              onclick="this.closest('.sr-box').querySelectorAll('.sr-item').forEach(function(i){i.remove();}); window.srCount && window.srCount();">
+        Buang semua
+      </button>
+      <button type="button" class="sr-btn sr-apply" id="dx-apply-btn"
+              hx-get="/web/dokter/_paket-apply"
+              hx-include="#dx-saran-panel"
+              hx-params="sel"
+              hx-target="#dx-apply-sink"
+              hx-swap="innerHTML">
+        ✓ Terapkan (<span id="sr-count">{{ total }}</span>)
+      </button>
+    </div>
+  </div>
+
+  <div class="sr-cols">
+    <div class="sr-col">
+      <div class="sr-head">💉 Tindakan</div>
+      {% for c in tindakan %}
+      <div class="sr-item">
+        <input type="hidden" name="sel" value="{{ c.tipe }}|{{ c.id }}|{{ c.qty }}|{{ c.aturan }}">
+        <span class="sr-name" title="{{ c.nama }}">{{ c.nama }}</span>
+        <span class="sr-from">{{ c.dari }}</span>
+        <button type="button" class="sr-x" aria-label="Buang"
+                onclick="this.closest('.sr-item').remove(); window.srCount && window.srCount();">✕</button>
+      </div>
+      {% else %}
+      <div class="sr-none">— tidak ada —</div>
+      {% endfor %}
+    </div>
+
+    <div class="sr-col">
+      <div class="sr-head">💊 Produk</div>
+      {% for c in produk %}
+      <div class="sr-item">
+        <input type="hidden" name="sel" value="{{ c.tipe }}|{{ c.id }}|{{ c.qty }}|{{ c.aturan }}">
+        <span class="sr-name" title="{{ c.nama }}">{{ c.nama }}</span>
+        <span class="sr-from">{{ c.dari }}</span>
+        <button type="button" class="sr-x" aria-label="Buang"
+                onclick="this.closest('.sr-item').remove(); window.srCount && window.srCount();">✕</button>
+      </div>
+      {% else %}
+      <div class="sr-none">— tidak ada —</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+// Hitung ulang jumlah saran yang tersisa + sembunyikan panel kalau habis.
+window.srCount = function() {
+    var p = document.getElementById('dx-saran-panel');
+    if (!p) return;
+    var n = p.querySelectorAll('.sr-item').length;
+    var c = document.getElementById('sr-count');
+    if (c) c.textContent = n;
+    if (n === 0) { p.innerHTML = ''; }
+};
+</script>

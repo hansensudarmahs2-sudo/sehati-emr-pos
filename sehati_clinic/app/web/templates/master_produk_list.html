@@ -62,6 +62,7 @@
                     <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ p.kode_produk }}</td>
                     <td class="px-4 py-3 font-medium text-slate-800">
                         {{ p.nama_produk }}
+                        {% if p.golongan %}<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-amber-50 text-amber-700 font-medium align-middle ml-1">{{ p.golongan }}</span>{% endif %}
                         {% if p.kandungan %}<div class="text-xs font-normal text-slate-500">{{ p.kandungan }}</div>{% endif %}
                         {% if p.nama_dagang %}<div class="text-xs font-normal text-slate-400">🔒 {{ p.nama_dagang }}</div>{% endif %}
                     </td>

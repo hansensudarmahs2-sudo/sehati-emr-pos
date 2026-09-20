@@ -1,0 +1,75 @@
+kode_produk,nama_produk,golongan,kandungan,satuan,harga_jual
+OBM-001,"Aclam 500mg",ANTIBIOTIK,"Amoxicillin & Potassium Clavulnate",tablet,25000
+OBM-002,"Azithromycin 500mg",ANTIBIOTIK,"Azithromycin",tablet,10000
+OBM-003,"Cefixime 200mg",ANTIBIOTIK,"Cefixime",tablet,7000
+OBM-004,"Clarolid 500mg",ANTIBIOTIK,"Claritromycin",tablet,32000
+OBM-005,"Doxicor 100mg",ANTIBIOTIK,"Doxixyclin",tablet,9000
+OBM-006,"Indanox 300mg",ANTIBIOTIK,"Clyndamicyn",tablet,10000
+OBM-007,"Interdoxin 50mg",ANTIBIOTIK,"Doxixyclin",tablet,7000
+OBM-008,"Interdoxin 100mg",ANTIBIOTIK,"Doxixyclin",tablet,13000
+OBM-009,"Lefos 500mg",ANTIBIOTIK,"Levofloxacin",tablet,59000
+OBM-010,"Levofloxacin 500mg",ANTIBIOTIK,"Levofloxacin",tablet,5000
+OBM-011,"Moxibat 400mg",ANTIBIOTIK,"Moxifloxacin",tablet,65000
+OBM-012,"Nomika 100mg",ANTIBIOTIK,"Minocycline",tablet,18000
+OBM-013,"Nucef 100mg",ANTIBIOTIK,"Cefixime",tablet,30000
+OBM-014,"Nucef 200mg",ANTIBIOTIK,"Cefixime",tablet,44000
+OBM-015,"Zibramax 500mg (tab)",ANTIBIOTIK,"Azithromycin",tablet,57000
+OBM-016,"Zibramax 500mg (syr)",ANTIBIOTIK,"Azithromycin",botol,163000
+OBM-017,"Cetirizine 10mg",ANTIHISTAMIN,"Cetirizine",tablet,1000
+OBM-018,"Oxtin 30mg",ANTIHISTAMIN,"Oxatomide",tablet,6000
+OBM-019,"Rydian 10mg",ANTIHISTAMIN,"Cetirizine",tablet,7000
+OBM-020,"Histrine Levo 5mg",ANTIHISTAMIN,"Levocetirizine Dihydrocloride",tablet,8000
+OBM-021,"Destavell 5mg",ANTIHISTAMIN,"Desloratadine",tablet,15000
+OBM-022,"Inclarin 10mg",ANTIHISTAMIN,"Loratadine",tablet,9000
+OBM-023,"Methylprednisolone 8mg",KORTIKOSTEROID,"Methylpredinosolone",tablet,1000
+OBM-024,"Stenirol 8 mg",KORTIKOSTEROID,"Methylpredinosolone",tablet,8000
+OBM-025,"Stenirol 16 mg",KORTIKOSTEROID,"Methylpredinosolone",tablet,12000
+OBM-026,"Triamcort 4mg",KORTIKOSTEROID,"Triamcinolone",tablet,6000
+OBM-027,"Rafacort 4mg",KORTIKOSTEROID,"Triamcinolone",tablet,6000
+OBM-028,"Exaflam 50mg",NSAID,"Diclofenac Potasium",tablet,4000
+OBM-029,"Keren 25mg",NSAID,"Dexketoprofen Trometamol",tablet,9000
+OBM-030,"Maganol 500mg",NSAID,"Paracetamol",tablet,1000
+OBM-031,"Acyclovir 400mg",ANTIVIRUS,"Acyclovir",tablet,2000
+OBM-032,"Inclovir 500mg",ANTIVIRUS,"Valacyclovir Hydrochloride",tablet,31000
+OBM-033,"Nuprinol 500mg",ANTIVIRUS,"Methisoprinol",tablet,11000
+OBM-034,"PEP (DLT)",ANTIVIRUS,"Dolutegravir, Lamivudin, Tenofovir",tablet,600000
+OBM-035,"PREP (Tenof EM)",ANTIVIRUS,"tenofovir, Emtricitabine",tablet,450000
+OBM-036,"Ivermectin",ANTIPARASIT,"Ivermectin",tablet,80000
+OBM-037,"Combantrin 250mg",ANTIPARASIT,"Pirantel Pamoat",tablet,24000
+OBM-038,"Dazoline Supp",ANTIJAMUR,"Metronidazole & Nystatin",tablet,22000
+OBM-039,"Flucomax150mg",ANTIJAMUR,"Fluconazole",tablet,80000
+OBM-040,"Fungasol 200mg",ANTIJAMUR,"Ketoconazole",tablet,8000
+OBM-041,"Govazole 150mg",ANTIJAMUR,"Fluconazole",tablet,110000
+OBM-042,"Interbi 250mg",ANTIJAMUR,"Terbinafine HCL",tablet,55000
+OBM-043,"Nulyn 75mg",NEUROPATI,"Pregabalin",tablet,13000
+OBM-044,"Tineuron 300mg",NEUROPATI,"Gabapentin",tablet,18000
+OBM-045,"Neoral 100mg",NEUROPATI,"Cyclosporin",tablet,90000
+OBM-046,"My Fortic 360mg",NEUROPATI,"Mycophenolat sodium",tablet,39000
+OBM-047,"Interlac Chew Tab + D3",PROBIOTIK,"Probiotik + D3 400IU",tablet,18000
+OBM-048,"Interlac (sachet)",PROBIOTIK,"Probiotik",tablet,16000
+OBM-049,"Lansoprazole 30mg",LAMBUNG, MUAL & MUNTAH,"Lansoprazole",tablet,2000
+OBM-050,"Lanpepsa (syr) 500mg/5ml",LAMBUNG, MUAL & MUNTAH,"Sucralfate Micronized",botol,120000
+OBM-051,"Nucral (syr) 500mg/5ml",LAMBUNG, MUAL & MUNTAH,"Sucralfate Micronized",botol,83000
+OBM-052,"Nuzole 30mg",LAMBUNG, MUAL & MUNTAH,"Lansoprazole",tablet,19000
+OBM-053,"Pantopump 40mg",LAMBUNG, MUAL & MUNTAH,"Pantoprazole",tablet,35000
+OBM-054,"Ranitidine 150mg",LAMBUNG, MUAL & MUNTAH,"Ranitidine Hcl",tablet,3000
+OBM-055,"Stromag",LAMBUNG, MUAL & MUNTAH,"Al(OH), Mg(OH), Dimeticone",tablet,2000
+OBM-056,"Tilidon 10mg",LAMBUNG, MUAL & MUNTAH,"Domperidone",tablet,8000
+OBM-057,"Daily D3 1000",VITAMIN,"Cholacalciferol",tablet,4000
+OBM-058,"Dermapro",VITAMIN,"Astaxanthin 4 mg, BetaCarotene 15 mg",tablet,12000
+OBM-059,"Forti D-5000",VITAMIN,"Cholacalciferol",tablet,5000
+OBM-060,"Forti D-100 Syr",VITAMIN,"Cholacalciferol",botol,95000
+OBM-061,"Vitamin A 10mg",VITAMIN,"Isotretinoin",tablet,15000
+OBM-062,"Vitamin A 20mg",VITAMIN,"Isotretinoin",tablet,20000
+OBM-063,"Vitamin Flek (Nutranex)",VITAMIN,"Nutranex 125 mg",tablet,300000
+OBM-064,"Vitamin HG1 (Prosentials)",VITAMIN,"Keratin 250 mg, Biotin 0.15 mg, Zinc 7.5 mg, Copper 0.825 mg, kombinasi vitamin B 13.68 mg.",tablet,300000
+OBM-065,"Vitamin HG2 / F (Finpro 1,25mg)",VITAMIN,"Finasteride",tablet,300000
+OBM-066,"Vitamin HG3 (Minoxidil 1/2 tab)",VITAMIN,"Minoxidil",tablet,450000
+OBM-067,"Vitamin HG4 (Finpro 1,25mg + Minoxidil 0,5tab)",VITAMIN,"Finasteride+ Minoxidil",tablet,600000
+OBM-068,"Tab SR (stenirol, rydian, metcor)",RACIKAN,"Stenirol 8 mg + rydian 7 mg + metcor 2mg",tablet,12000
+OBM-069,"Tab SR 2 (stenirol, rydian, metcor)",RACIKAN,"Stenirol 4 mg + rydian 5 mg + metcor 2mg",tablet,9000
+OBM-070,"Tab SRO (stenirol, rydian, metcor, Oxtin)",RACIKAN,"SR + oxtin ½ tab",tablet,14000
+OBM-071,"Tab STR (stenirol, triamcort, rydian)",RACIKAN,"Stenirol 6mg, Triamcort 2mg, Rydian 7mg",tablet,15000
+OBM-072,"Maxlis 5mg",LAIN-LAIN,"Tadalafil",tablet,27000
+OBM-073,"MTX 2,5mg",LAIN-LAIN,"Rheuthrex",tablet,12000
+OBM-074,"Vistat 120mg",LAIN-LAIN,"Orlistat",tablet,15000

@@ -316,24 +316,113 @@ def dokter_diagnosa_add(id_diagnosa: int, request: Request, db: DbSession):
         ref = svc.get_ref(id_diagnosa)
     except HTTPException:
         return HTMLResponse("", status_code=404)
-    paket = svc.list_paket(id_diagnosa)
-    paket_tindakan = [
-        {"id_treatment": it["id_treatment"], "jumlah_sesi": int(it["qty_default"] or 1), "catatan": ""}
-        for it in paket if it["tipe_item"] == "TREATMENT" and it["id_treatment"]
-    ]
-    paket_resep = [
-        {"id_produk": it["id_produk"], "qty": it["qty_default"] or 1, "aturan": it["aturan_pakai_default"] or ""}
-        for it in paket if it["tipe_item"] == "PRODUK" and it["id_produk"]
-    ]
-    treatments, produks = _fetch_master_lists(db)
     dx = {
         "id_diagnosa": ref.id_diagnosa,
         "sistem": ref.sistem.value if hasattr(ref.sistem, "value") else ref.sistem,
         "kode": ref.kode, "nama": ref.nama,
         "default_kontrol_hari": ref.default_kontrol_hari,
     }
-    return templates.TemplateResponse(request, "_diagnosa_add.html", {
-        "dx": dx,
+    return templates.TemplateResponse(request, "_diagnosa_add.html", {"dx": dx})
+
+
+@router.get("/dokter/_saran", response_class=HTMLResponse)
+def dokter_saran(request: Request, db: DbSession):
+    """Panel saran = turunan dari daftar diagnosa saat ini + mode.
+
+    Dirender ULANG setiap diagnosa berubah / mode berganti (event `dx-changed`),
+    jadi tidak pernah basi atau menumpuk.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    qp = request.query_params
+    mode = (qp.get("fill_mode") or "SMART").upper()
+    if mode == "MANUAL":
+        return HTMLResponse("")
+
+    ids = []
+    for raw in qp.getlist("dx_id_diagnosa"):
+        try:
+            v = int(raw)
+        except (ValueError, TypeError):
+            continue
+        if v not in ids:
+            ids.append(v)
+    if not ids:
+        return HTMLResponse("")
+
+    svc = DiagnosaService(db)
+    tindakan, produk, seen = [], [], set()
+    for did in ids:
+        try:
+            kode = svc.get_ref(did).kode
+        except HTTPException:
+            continue
+        for it in svc.list_paket(did):
+            if it["tipe_item"] == "TREATMENT" and it["id_treatment"]:
+                key = ("T", it["id_treatment"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                tindakan.append({
+                    "tipe": "TREATMENT", "id": it["id_treatment"], "nama": it["nama"],
+                    "qty": int(it["qty_default"] or 1), "aturan": "", "dari": kode,
+                })
+            elif it["tipe_item"] == "PRODUK" and it["id_produk"]:
+                key = ("P", it["id_produk"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                label = (f"[{it['kode_produk']}] " if it.get("kode_produk") else "") + it["nama"]
+                produk.append({
+                    "tipe": "PRODUK", "id": it["id_produk"], "nama": label,
+                    "qty": it["qty_default"] or 1, "aturan": it["aturan_pakai_default"] or "",
+                    "dari": kode,
+                })
+    if not tindakan and not produk:
+        return HTMLResponse("")
+    return templates.TemplateResponse(request, "_saran_panel.html", {
+        "tindakan": tindakan, "produk": produk, "total": len(tindakan) + len(produk),
+    })
+
+
+@router.get("/dokter/_paket-apply", response_class=HTMLResponse)
+def dokter_paket_apply(request: Request, db: DbSession):
+    """Terapkan kartu saran terpilih → baris lengkap Tindakan/Resep (OOB) + kosongkan panel saran."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    # Tiap kartu = 1 checkbox `sel` bernilai "TIPE|ID|QTY|ATURAN".
+    # Toggle OFF → checkbox tidak terkirim → otomatis tidak diterapkan.
+    paket_tindakan, paket_resep = [], []
+    for raw in request.query_params.getlist("sel"):
+        parts = (raw or "").split("|", 3)
+        if len(parts) < 2:
+            continue
+        t = parts[0]
+        try:
+            _id = int(parts[1]) if str(parts[1]).strip() else None
+        except (ValueError, TypeError):
+            _id = None
+        if not _id:
+            continue
+        raw_qty = parts[2] if len(parts) > 2 and str(parts[2]).strip() else "1"
+        at = parts[3] if len(parts) > 3 else ""
+        if (t or "").upper() == "TREATMENT":
+            try:
+                sesi = int(float(raw_qty))
+            except (ValueError, TypeError):
+                sesi = 1
+            paket_tindakan.append({"id_treatment": _id, "jumlah_sesi": max(1, sesi), "catatan": ""})
+        else:
+            try:
+                q = float(raw_qty)
+            except (ValueError, TypeError):
+                q = 1.0
+            paket_resep.append({"id_produk": _id, "qty": q, "aturan": at})
+
+    treatments, produks = _fetch_master_lists(db)
+    return templates.TemplateResponse(request, "_paket_apply.html", {
         "paket_tindakan": paket_tindakan,
         "paket_resep": paket_resep,
         "master_treatments": treatments,

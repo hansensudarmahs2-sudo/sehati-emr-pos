@@ -252,7 +252,7 @@
 
             <div id="diagnosa-list" class="flex flex-wrap gap-2 mt-2">
                 {% for d in existing_diagnosa %}
-                <div class="dx-chip flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white" data-kontrol-hari="0">
+                <div class="dx-chip flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white" data-dx-id="{{ d.id_diagnosa or '' }}" data-kontrol-hari="0">
                     <input type="hidden" name="dx_id_diagnosa" value="{{ d.id_diagnosa or '' }}">
                     <input type="hidden" name="dx_sistem" value="{{ d.sistem or '' }}">
                     <input type="hidden" name="dx_kode" value="{{ d.kode or '' }}">
@@ -284,11 +284,31 @@
 
         {# P — Plan: Tindakan + Resep #}
         <div class="border-t border-slate-100 pt-5">
-            <div class="text-sm font-semibold text-slate-800 mb-1">P — Plan: Tindakan & Resep</div>
+            <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                <div class="text-sm font-semibold text-slate-800">P — Plan: Tindakan & Resep</div>
+                {# Mode pengisian: Smart Fill (saran dari diagnosa) vs Manual #}
+                <input type="hidden" name="fill_mode" id="fill-mode" value="SMART">
+                <div class="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+                    <button type="button" id="mode-smart" onclick="window.dxSetMode('SMART')"
+                            class="px-3 py-1 bg-blue-600 text-white font-medium">⚡ Smart Fill</button>
+                    <button type="button" id="mode-manual" onclick="window.dxSetMode('MANUAL')"
+                            class="px-3 py-1 bg-white text-slate-600 hover:bg-slate-50">✍️ Manual</button>
+                </div>
+            </div>
             <p class="text-xs text-slate-500 mb-3">
                 Pilih treatment yang dikerjakan perawat + produk yang diresepkan.
-                Catatan per-row untuk perawat (treatment) dan aturan pakai (produk).
+                <b>Smart Fill</b>: memilih diagnosa memunculkan saran ringkas di bawah — buang ✕ yang tak perlu lalu klik Terapkan.
+                <b>Manual</b>: tanpa saran, tambah sendiri lewat tombol “+ Tambah”.
             </p>
+
+            {# Panel saran: seluruh isinya dirender server tiap diagnosa/mode berubah (event dx-changed). #}
+            <div id="dx-saran-panel"
+                 hx-get="/web/dokter/_saran"
+                 hx-trigger="dx-changed from:body"
+                 hx-include="#diagnosa-list, [name='fill_mode']"
+                 hx-params="dx_id_diagnosa,fill_mode"
+                 hx-swap="innerHTML"></div>
+            <div id="dx-apply-sink" class="hidden"></div>
         </div>
 
         {# Tindakan (multi-row) #}
@@ -517,7 +537,33 @@
             var first = list && list.querySelector('.dx-chip .dx-primer-btn');
             if (first) window.dxSetPrimer(first);
         }
+        window.dxChanged();   // diagnosa berubah → panel saran dirender ulang
     };
+
+    // Picu render ulang panel saran (panel mengambil sendiri daftar diagnosa + mode terkini).
+    window.dxChanged = function() {
+        document.body.dispatchEvent(new CustomEvent('dx-changed'));
+    };
+    window.dxSetMode = function(mode) {
+        var inp = document.getElementById('fill-mode');
+        var bs = document.getElementById('mode-smart');
+        var bm = document.getElementById('mode-manual');
+        if (inp) inp.value = mode;
+        if (bs && bm) {
+            if (mode === 'MANUAL') {
+                bm.className = 'px-3 py-1 bg-blue-600 text-white font-medium';
+                bs.className = 'px-3 py-1 bg-white text-slate-600 hover:bg-slate-50';
+            } else {
+                bs.className = 'px-3 py-1 bg-blue-600 text-white font-medium';
+                bm.className = 'px-3 py-1 bg-white text-slate-600 hover:bg-slate-50';
+            }
+        }
+        window.dxChanged();   // MANUAL → panel dikosongkan server; SMART → saran dibangun ulang
+    };
+    // Mode ubah: kalau sudah ada diagnosa tersimpan, tampilkan sarannya saat halaman dibuka.
+    document.addEventListener('DOMContentLoaded', function() {
+        if (document.querySelector('#diagnosa-list .dx-chip')) window.dxChanged();
+    });
 })();
 </script>
 {% endblock %}

@@ -108,3 +108,6 @@ class MasterProduk(Base):
     # nama_dagang = merk asli (internal, untuk PO/pembelian — TIDAK tampil ke pasien).
     kandungan: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     nama_dagang: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Golongan/kelas obat (mis. ANTIBIOTIK, NSAID) — untuk obat minum. Nullable.
+    golongan: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
