@@ -1,0 +1,73 @@
+sistem,kode,nama,nama_en,kategori,default_kontrol_hari
+ICD10,L70.0,Akne vulgaris,Acne vulgaris,Akne,7
+ICD10,L70.1,Akne konglobata,Acne conglobata,Akne,7
+ICD10,L70.4,Akne infantil,Infantile acne,Akne,7
+ICD10,L70.5,Akne ekskoriasi,Acne excoriee,Akne,7
+ICD10,L70.8,Akne lainnya,Other acne,Akne,7
+ICD10,L70.9,Akne tidak spesifik,Acne unspecified,Akne,7
+ICD10,L71.0,Dermatitis perioral,Perioral dermatitis,Rosasea,7
+ICD10,L71.1,Rinofima,Rhinophyma,Rosasea,7
+ICD10,L71.9,Rosasea tidak spesifik,Rosacea unspecified,Rosasea,7
+ICD10,L73.2,Hidradenitis supurativa,Hidradenitis suppurativa,Folikel,7
+ICD10,L73.9,Gangguan folikel rambut tidak spesifik,Follicular disorder unspecified,Folikel,7
+ICD10,L20.9,Dermatitis atopik tidak spesifik,Atopic dermatitis unspecified,Dermatitis,7
+ICD10,L21.0,Seborea kapitis (ketombe),Seborrhoea capitis,Dermatitis,7
+ICD10,L21.9,Dermatitis seboroik tidak spesifik,Seborrhoeic dermatitis unspecified,Dermatitis,7
+ICD10,L23.9,Dermatitis kontak alergi tidak spesifik,Allergic contact dermatitis unspecified,Dermatitis,7
+ICD10,L24.9,Dermatitis kontak iritan tidak spesifik,Irritant contact dermatitis unspecified,Dermatitis,7
+ICD10,L30.9,Dermatitis tidak spesifik,Dermatitis unspecified,Dermatitis,7
+ICD10,L40.0,Psoriasis vulgaris,Psoriasis vulgaris,Psoriasis,7
+ICD10,L40.9,Psoriasis tidak spesifik,Psoriasis unspecified,Psoriasis,7
+ICD10,L50.0,Urtikaria alergika,Allergic urticaria,Urtikaria,7
+ICD10,L50.9,Urtikaria tidak spesifik,Urticaria unspecified,Urtikaria,7
+ICD10,L80,Vitiligo,Vitiligo,Pigmentasi,7
+ICD10,L81.0,Hiperpigmentasi pasca-inflamasi,Postinflammatory hyperpigmentation,Pigmentasi,7
+ICD10,L81.1,Melasma (kloasma),Chloasma,Pigmentasi,7
+ICD10,L81.4,Hiperpigmentasi melanin lain (lentigo),Other melanin hyperpigmentation,Pigmentasi,7
+ICD10,L81.8,Gangguan pigmentasi lain (efelid/freckles),Other specified pigmentation disorders,Pigmentasi,7
+ICD10,L81.9,Gangguan pigmentasi tidak spesifik,Pigmentation disorder unspecified,Pigmentasi,7
+ICD10,L82,Keratosis seboroik,Seborrhoeic keratosis,Tumor jinak,7
+ICD10,L83,Akantosis nigrikans,Acanthosis nigricans,Pigmentasi,7
+ICD10,L57.0,Keratosis aktinik,Actinic keratosis,Foto-penuaan,7
+ICD10,L57.8,Perubahan kulit akibat paparan UV kronis (photoaging),Skin changes due to chronic UV exposure,Foto-penuaan,7
+ICD10,L90.5,Jaringan parut dan fibrosis kulit,Scar conditions and fibrosis of skin,Parut,7
+ICD10,L90.6,Striae atrofik (stretch mark),Striae atrophicae,Parut,7
+ICD10,L91.0,Parut hipertrofik (keloid),Hypertrophic scar keloid,Parut,7
+ICD10,L60.0,Kuku tumbuh ke dalam,Ingrowing nail,Kuku,7
+ICD10,L60.9,Gangguan kuku tidak spesifik,Nail disorder unspecified,Kuku,7
+ICD10,L63.9,Alopesia areata tidak spesifik,Alopecia areata unspecified,Rambut,7
+ICD10,L64.9,Alopesia androgenik tidak spesifik,Androgenic alopecia unspecified,Rambut,7
+ICD10,L65.0,Telogen efluvium,Telogen effluvium,Rambut,7
+ICD10,L65.9,Kerontokan rambut non-parut tidak spesifik,Nonscarring hair loss unspecified,Rambut,7
+ICD10,L66.9,Alopesia sikatrikal tidak spesifik,Cicatricial alopecia unspecified,Rambut,7
+ICD10,L68.0,Hirsutisme,Hirsutism,Rambut,7
+ICD10,L74.5,Hiperhidrosis fokal,Focal hyperhidrosis,Kelenjar keringat,7
+ICD10,L72.0,Kista epidermal,Epidermal cyst,Tumor jinak,7
+ICD10,L72.1,Kista trikilemal (pilar),Trichilemmal cyst,Tumor jinak,7
+ICD10,L98.0,Granuloma piogenik,Pyogenic granuloma,Tumor jinak,7
+ICD10,L85.9,Penebalan epidermal tidak spesifik,Epidermal thickening unspecified,Lain-lain,7
+ICD10,L98.8,Gangguan kulit lain yang spesifik,Other specified disorders of skin,Lain-lain,7
+ICD10,L98.9,Gangguan kulit tidak spesifik,Disorder of skin unspecified,Lain-lain,7
+ICD10,D22.9,Nevus melanositik tidak spesifik,Melanocytic naevus unspecified,Tumor jinak,7
+ICD10,D23.9,Neoplasma jinak kulit lain tidak spesifik,Other benign neoplasm of skin unspecified,Tumor jinak,7
+ICD10,D17.9,Lipoma tidak spesifik,Benign lipomatous neoplasm unspecified,Tumor jinak,7
+ICD10,B07,Veruka viral (kutil),Viral warts,Infeksi,7
+ICD10,B00.9,Infeksi herpes simpleks tidak spesifik,Herpesviral infection unspecified,Infeksi,7
+ICD10,B02.9,Herpes zoster tanpa komplikasi,Zoster without complication,Infeksi,7
+ICD10,B35.1,Tinea unguium (onikomikosis),Tinea unguium,Infeksi,7
+ICD10,B35.3,Tinea pedis,Tinea pedis,Infeksi,7
+ICD10,B35.4,Tinea korporis,Tinea corporis,Infeksi,7
+ICD10,B36.0,Pitiriasis versikolor (panu),Pityriasis versicolor,Infeksi,7
+ICD10,B86,Skabies,Scabies,Infeksi,7
+ICD10,L01.0,Impetigo,Impetigo,Infeksi,7
+ICD10,L02.9,Abses/furunkel/karbunkel kulit tidak spesifik,Cutaneous abscess unspecified,Infeksi,7
+ICD10,L03.9,Selulitis tidak spesifik,Cellulitis unspecified,Infeksi,7
+ICD10,L08.9,Infeksi lokal kulit tidak spesifik,Local infection of skin unspecified,Infeksi,7
+ESTETIK,JD-001,Peremajaan kulit (rejuvenasi),,Estetik,14
+ESTETIK,JD-002,Perawatan anti-penuaan,,Estetik,14
+ESTETIK,JD-003,Pencerahan kulit (brightening),,Estetik,14
+ESTETIK,JD-004,Perawatan pori besar,,Estetik,14
+ESTETIK,JD-005,Pengencangan/kontur wajah,,Estetik,14
+ESTETIK,JD-006,Perawatan bekas jerawat (estetik),,Estetik,14
+ESTETIK,JD-007,Hidrasi & glowing,,Estetik,14
+ESTETIK,JD-008,Perawatan kulit kusam,,Estetik,14

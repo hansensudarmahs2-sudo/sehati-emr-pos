@@ -1,0 +1,187 @@
+{% extends "_app.html" %}
+{% block title %}{% if is_edit %}Edit{% else %}Tambah{% endif %} Diagnosa{% endblock %}
+{% block page_title %}{% if is_edit %}Edit{% else %}Tambah{% endif %} Diagnosa{% endblock %}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    <a href="/web/master/diagnosa" class="text-sm text-slate-500 hover:underline">← Kembali ke daftar</a>
+
+    {# ===== Form data diagnosa ===== #}
+    <form method="POST"
+          action="{% if is_edit %}/web/master/diagnosa/{{ form.id_diagnosa }}{% else %}/web/master/diagnosa/tambah{% endif %}"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4 mt-3">
+        {{ csrf_input(request) }}
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Sistem</label>
+                {% if is_edit %}
+                <div class="px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg">{{ form.sistem }}</div>
+                {% else %}
+                <select name="sistem" class="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                    {% for s in sistem_opts %}
+                    <option value="{{ s }}" {% if form.sistem == s %}selected{% endif %}>{{ 'ICD-10' if s == 'ICD10' else 'Estetik (JD)' }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Kode</label>
+                {% if is_edit %}
+                <div class="px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg font-mono">{{ form.kode }}</div>
+                {% else %}
+                <input type="text" name="kode" required maxlength="20" value="{{ form.kode or '' }}"
+                       placeholder="mis. L70.0 / JD-001"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                {% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Default Kontrol (hari)</label>
+                <input type="number" name="default_kontrol_hari" min="0" max="365"
+                       value="{{ form.default_kontrol_hari or 7 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Nama (Indonesia)</label>
+            <input type="text" name="nama" required maxlength="255" value="{{ form.nama or '' }}"
+                   class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Nama Inggris <span class="text-xs text-slate-400 font-normal">(untuk klaim/SatuSehat, opsional)</span>
+                </label>
+                <input type="text" name="nama_en" maxlength="255" value="{{ form.nama_en or '' }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Kategori <span class="text-xs text-slate-400 font-normal">(opsional)</span></label>
+                <input type="text" name="kategori" maxlength="100" value="{{ form.kategori or '' }}"
+                       placeholder="mis. Akne, Pigmentasi"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-slate-100">
+            <button type="submit" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                💾 {% if is_edit %}Simpan Perubahan{% else %}Buat Diagnosa{% endif %}
+            </button>
+        </div>
+    </form>
+
+    {# ===== Editor Paket (hanya mode edit) ===== #}
+    {% if is_edit %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-4">
+        <div class="text-sm font-semibold text-slate-800 mb-1">📦 Paket Tindakan & Produk</div>
+        <p class="text-xs text-slate-500 mb-3">
+            Item di sini akan <b>auto-mengisi</b> baris Tindakan/Resep di SOAP saat diagnosa ini dipilih. Dokter tetap bisa edit/hapus sebelum simpan.
+        </p>
+
+        {% if paket and paket|length > 0 %}
+        <table class="w-full text-sm mb-4">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-3 py-2 font-medium">Tipe</th>
+                    <th class="text-left px-3 py-2 font-medium">Item</th>
+                    <th class="text-right px-3 py-2 font-medium">Qty</th>
+                    <th class="text-left px-3 py-2 font-medium">Aturan Pakai</th>
+                    <th class="text-right px-3 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for it in paket %}
+                <tr>
+                    <td class="px-3 py-2">
+                        {% if it.tipe_item == 'TREATMENT' %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">💉 Treatment</span>
+                        {% else %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700">💊 Produk</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-slate-800">{% if it.kode_produk %}<span class="font-mono text-xs text-slate-500">[{{ it.kode_produk }}]</span> {% endif %}{{ it.nama }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ it.qty_default }}</td>
+                    <td class="px-3 py-2 text-slate-600">{{ it.aturan_pakai_default or '—' }}</td>
+                    <td class="px-3 py-2 text-right">
+                        <form method="POST" action="/web/master/diagnosa/{{ form.id_diagnosa }}/paket/{{ it.id_paket_item }}/hapus" class="inline">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100">🗑 Hapus</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-sm text-slate-400 mb-4">Belum ada item paket.</div>
+        {% endif %}
+
+        {# Form tambah item paket #}
+        <form method="POST" action="/web/master/diagnosa/{{ form.id_diagnosa }}/paket/tambah"
+              class="border-t border-slate-100 pt-4 grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+            {{ csrf_input(request) }}
+            <div class="md:col-span-2">
+                <label class="block text-xs text-slate-500 mb-1">Tipe</label>
+                <select name="tipe_item" id="paket-tipe" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+                    <option value="TREATMENT">💉 Treatment</option>
+                    <option value="PRODUK">💊 Produk</option>
+                </select>
+            </div>
+            <div class="md:col-span-5" id="paket-treatment-panel">
+                <label class="block text-xs text-slate-500 mb-1">Treatment</label>
+                <select name="id_treatment" class="searchable-dropdown w-full px-2 py-1.5 text-sm border border-slate-300 rounded" data-placeholder="Cari treatment...">
+                    <option value="">— pilih —</option>
+                    {% for t in master_treatments %}
+                    <option value="{{ t.id_treatment }}">{{ t.nama_treatment }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-5 hidden" id="paket-produk-panel">
+                <label class="block text-xs text-slate-500 mb-1">Produk</label>
+                <select name="id_produk" class="searchable-dropdown w-full px-2 py-1.5 text-sm border border-slate-300 rounded" data-placeholder="Cari produk...">
+                    <option value="">— pilih —</option>
+                    {% for p in master_produks %}
+                    <option value="{{ p.id_produk }}">[{{ p.kode_produk }}] {{ p.nama_produk }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-xs text-slate-500 mb-1">Qty</label>
+                <input type="number" name="qty_default" min="0.1" step="0.1" value="1"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="md:col-span-3">
+                <label class="block text-xs text-slate-500 mb-1">Aturan Pakai (produk)</label>
+                <input type="text" name="aturan_pakai_default" maxlength="100" placeholder="mis. oles malam"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="md:col-span-2">
+                <button type="submit" class="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">+ Tambah</button>
+            </div>
+        </form>
+        <script>
+        (function() {
+            var tipe = document.getElementById('paket-tipe');
+            var tp = document.getElementById('paket-treatment-panel');
+            var pp = document.getElementById('paket-produk-panel');
+            if (!tipe) return;
+            tipe.addEventListener('change', function() {
+                if (this.value === 'PRODUK') { pp.classList.remove('hidden'); tp.classList.add('hidden'); }
+                else { tp.classList.remove('hidden'); pp.classList.add('hidden'); }
+            });
+        })();
+        </script>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

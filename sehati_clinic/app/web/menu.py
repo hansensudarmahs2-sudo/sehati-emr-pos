@@ -117,6 +117,12 @@ MENU_TREATMENT = {
     "icon": "💉",
     "active_when": "/web/master/treatment",
 }
+MENU_DIAGNOSA = {
+    "label": "Master Diagnosa",
+    "url": "/web/master/diagnosa",
+    "icon": "🩺",
+    "active_when": "/web/master/diagnosa",
+}
 MENU_BAHAN = {
     "label": "Master Bahan Klinik",
     "url": "/web/master/bahan",
@@ -217,7 +223,7 @@ _MENU_BY_ROLE = {
             MENU_PEMESANAN, MENU_OPNAME, MENU_RETUR, MENU_MUTASI,
         ]},
         {"group": "Master Data", "items": [
-            MENU_TREATMENT, MENU_BAHAN, MENU_PRODUK, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
+            MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
             MENU_STAF, MENU_REPORTS, MENU_EXPORT, MENU_FINANCE_EXPORT,
@@ -239,7 +245,7 @@ _MENU_BY_ROLE = {
             MENU_PEMESANAN, MENU_OPNAME, MENU_RETUR, MENU_MUTASI,
         ]},
         {"group": "Master Data", "items": [
-            MENU_TREATMENT, MENU_BAHAN, MENU_PRODUK, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
+            MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
             MENU_STAF, MENU_REPORTS, MENU_FINANCE_EXPORT,

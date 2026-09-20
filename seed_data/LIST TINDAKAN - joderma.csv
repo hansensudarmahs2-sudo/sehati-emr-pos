@@ -1,0 +1,115 @@
+﻿kategori,nama_treatment,harga,catatan
+Facial & Basic Skin Care,Basic Treatment,500000,
+Facial & Basic Skin Care,Hydra Facial,800000,
+Facial & Basic Skin Care,Silk Peel,1000000,
+Acne Scar Treatment,CRT (Collagen Remodelling Therapy),1500000,
+Acne Scar Treatment,Subcision,1000000,
+Acne Scar Treatment,TCA + Subcision,1500000,
+Acne Scar Treatment,Scar Therapy by Rejuran,5000000,
+Acne Scar Treatment,Scar Therapy by Restylane,5000000,
+Chemical Peeling,Special Peel,650000,
+Chemical Peeling,Face Peeling,400000,
+Chemical Peeling,Body Peel,500000,per area
+Chemical Peeling,TCA Cross,1000000,
+Chemical Peeling,TCA A,350000,
+Chemical Peeling,TCA B,500000,
+Hair & Scalp,Hair Injection,500000,
+Hair & Scalp,Hair Injection + Phototherapy,500000,
+Hair & Scalp,Scalp Therapy,500000,
+Hair & Scalp,Hair Removal,500000,
+Skin Booster,Special Cocktail - A,2000000,rentang 2.000.000-2.500.000
+Skin Booster,Special Cocktail - B,2250000,rentang 2.000.000-2.500.000
+Skin Booster,Special Cocktail - C,2500000,rentang 2.000.000-2.500.000
+Skin Booster,Skin Booster,1500000,
+Skin Booster,Skin Booster Device,2000000,
+Skin Booster,Skintox,2000000,
+Skin Booster,Special Skintox,2500000,
+Skin Booster,Acne Booster,1500000,
+Skin Booster,Acne Booster Device,2000000,
+Skin Booster,Profhilo,6500000,
+Skin Booster,Nucleofill,3500000,
+Skin Booster,Juvelook,9000000,
+Skin Booster,XelaRederm,5500000,
+Rejuran Series,Rejuran I,3500000,
+Rejuran Series,Rejuran S,3500000,
+Rejuran Series,Rejuran Healer,5500000,
+Regenerative,Growth Factor,2500000,
+Regenerative,PRP,1500000,
+Regenerative,Growth Factor Injection - A,1500000,rentang 1.500.000-2.500.000
+Regenerative,Growth Factor Injection - B,2000000,rentang 1.500.000-2.500.000
+Regenerative,Growth Factor Injection - C,2500000,rentang 1.500.000-2.500.000
+Acne & Esthetic Injection,Acne Injection - A,200000,rentang 200.000-400.000
+Acne & Esthetic Injection,Acne Injection - B,300000,rentang 200.000-400.000
+Acne & Esthetic Injection,Acne Injection - C,400000,rentang 200.000-400.000
+Acne & Esthetic Injection,Infus Acne Booster,750000,
+Acne & Esthetic Injection,Pigment Reducer Injection,750000,
+Acne & Esthetic Injection,Diet Injection,1000000,
+Acne & Esthetic Injection,Colstim Injection,8000000,
+Acne & Esthetic Injection,Collagen Stimulator,9000000,
+Botox,Botox Korea,50000,per unit
+Botox,Botox Eropa,100000,per unit
+Botox,Botox Upper Face,2500000,
+Botox,Botox Axilla,2500000,
+Botox,Botox Full Face,5000000,
+Botox,Botox Upper Face Premium,5000000,
+Botox,Botox Axilla Premium,8000000,
+Botox,Botox Full Face Premium,10000000,
+Filler,Filler Korea,2500000,
+Filler,Filler Eropa,6000000,
+Filler,Filler Premium,8000000,
+Threadlift,Threadlift,1500000,
+Threadlift,Threadlift APTOS,2500000,
+Threadlift,Noselift,1500000,
+Threadlift,Noselift APTOS,2500000,
+Body Contouring,Mesolipo,1000000,
+Body Contouring,Liposuction,20000000,
+Body Contouring,Fat Transfer,15000000,
+Laser,Laser PICO - A,1000000,rentang 1.000.000-5.000.000
+Laser,Laser PICO - B,3000000,rentang 1.000.000-5.000.000
+Laser,Laser PICO - C,5000000,rentang 1.000.000-5.000.000
+Laser,Laser CO2 - A,1000000,rentang 1.000.000-5.000.000
+Laser,Laser CO2 - B,3000000,rentang 1.000.000-5.000.000
+Laser,Laser CO2 - C,5000000,rentang 1.000.000-5.000.000
+Laser,Laser Fractional CO2 - A,1000000,rentang 1.000.000-3.000.000
+Laser,Laser Fractional CO2 - B,2000000,rentang 1.000.000-3.000.000
+Laser,Laser Fractional CO2 - C,3000000,rentang 1.000.000-3.000.000
+Laser,Vascular Laser,2000000,
+Laser,IPL,500000,
+Laser,IPL Adv,750000,
+Special Surgery,Upper Blepharoplasty,20000000,
+Special Surgery,Lower Blepharoplasty,20000000,
+Special Surgery,Mini Facelift,20000000,
+Special Surgery,Eyebag Removal,15000000,
+Special Surgery,Bromhidrosis Curatage,15000000,
+Infusion,Immune Booster,500000,
+Infusion,Immune Booster Premium,750000,
+Infusion,Acne Infusion,750000,
+Consultation,Specialist Consultation,200000,
+Consultation,Home Visit,500000,
+Consultation,Home Visit + Nurse,600000,
+Medical Procedures,KOH,,harga TBD
+Medical Procedures,Kolposkopi,,harga TBD
+Medical Procedures,Injeksi Antibiotik,,harga TBD
+Medical Procedures,Infus Antibiotik,,harga TBD
+Medical Procedures,Infus Alergi,,harga TBD
+Medical Procedures,Skin USG,,harga TBD
+Medical Procedures,Vaginal Toilet,,harga TBD
+Medical Procedures,AFF Hecting,,harga TBD
+Medical Procedures,Electrocuter / RF,,harga TBD
+Medical Procedures,Rawat Luka (Semprot / Oles),,harga TBD
+Medical Procedures,Injeksi Keloid,,harga TBD
+Medical Procedures,Phototherapy (UVB),,harga TBD
+Skin Surgery,Skin Surgery (Cyst Removal / Excision),,harga TBD
+Skin Surgery,Nail Surgery,,harga TBD
+Skin Surgery,Skin Biopsy,,harga TBD
+Skin Surgery,Skin Flap,,harga TBD
+Medical Test,Tes HIV,,harga TBD
+Medical Test,Tes Panel IMS,,harga TBD
+Medical Test,Tes Panel HSV,,harga TBD
+Medical Test,Pemeriksaan Histo PA,,harga TBD
+Medical Test,Pemeriksaan Mikrobiologi,,harga TBD
+Medical Test,Combo Test Flour Albus,,harga TBD
+Medical Test,Nutrigenomic Test,,harga TBD
+Vaccine,Vaksin Herpes Zoster,,harga TBD
+Vaccine,Vaksin Gardasil 9 HPV,,harga TBD
+Vaccine,Vaksin Gardasil HPV,,harga TBD

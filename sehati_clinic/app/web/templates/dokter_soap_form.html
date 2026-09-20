@@ -229,13 +229,56 @@
                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.pemeriksaan_fisik or "" }}</textarea>
         </div>
 
-        {# 3. Diagnosa (Assessment) #}
+        {# 3. Diagnosa (Assessment) — terstruktur (ICD/estetik) + naratif #}
         <div>
-            <label for="diagnosa" class="block text-sm font-semibold text-slate-800 mb-1">
+            <label class="block text-sm font-semibold text-slate-800 mb-1">
                 A — Assessment (Diagnosa)
             </label>
-            <p class="text-xs text-slate-500 mb-1">Kesimpulan klinis, working diagnosis, differential diagnosis.</p>
-            <textarea name="diagnosa" id="diagnosa" rows="3"
+            <p class="text-xs text-slate-500 mb-2">
+                Cari diagnosa ICD-10 / estetik — bisa lebih dari satu (satu ditandai <b>Primer</b>).
+                Memilih diagnosa akan <b>auto-mengisi</b> paket tindakan/produk & tanggal kontrol (bila diatur).
+            </p>
+
+            <div class="relative">
+                <input type="text" id="dx-search" name="q" autocomplete="off"
+                       hx-get="/web/dokter/_diagnosa-search"
+                       hx-trigger="keyup changed delay:300ms"
+                       hx-target="#dx-results"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();}"
+                       placeholder="Ketik kode/nama diagnosa... (mis. akne, L70.0, melasma)"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div id="dx-results" class="absolute z-20 left-0 right-0 mt-1"></div>
+            </div>
+
+            <div id="diagnosa-list" class="flex flex-wrap gap-2 mt-2">
+                {% for d in existing_diagnosa %}
+                <div class="dx-chip flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white" data-kontrol-hari="0">
+                    <input type="hidden" name="dx_id_diagnosa" value="{{ d.id_diagnosa or '' }}">
+                    <input type="hidden" name="dx_sistem" value="{{ d.sistem or '' }}">
+                    <input type="hidden" name="dx_kode" value="{{ d.kode or '' }}">
+                    <input type="hidden" name="dx_nama" value="{{ d.nama }}">
+                    <input type="hidden" name="dx_is_primer" value="{{ '1' if d.is_primer else '0' }}" class="dx-primer-flag">
+                    {% if d.sistem == 'ICD10' %}
+                    <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 font-medium">ICD-10</span>
+                    {% elif d.sistem == 'ESTETIK' %}
+                    <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-pink-50 text-pink-700 font-medium">Estetik</span>
+                    {% endif %}
+                    {% if d.kode %}<span class="font-mono text-xs text-slate-500">{{ d.kode }}</span>{% endif %}
+                    <span class="text-sm text-slate-800">{{ d.nama }}</span>
+                    <button type="button" onclick="window.dxSetPrimer(this)"
+                            class="dx-primer-btn ml-1 text-[11px] px-1.5 py-0.5 rounded border {% if d.is_primer %}border-amber-300 bg-amber-100 text-amber-800 font-medium{% else %}border-slate-300 text-slate-500 hover:bg-amber-50{% endif %}">
+                        {% if d.is_primer %}★ Primer{% else %}☆ Primer{% endif %}
+                    </button>
+                    <button type="button" onclick="window.dxRemoveChip(this)"
+                            class="text-red-500 hover:text-red-700 text-sm leading-none">✕</button>
+                </div>
+                {% endfor %}
+            </div>
+
+            <label for="diagnosa" class="block text-xs font-medium text-slate-600 mt-3 mb-1">
+                Diagnosa naratif <span class="text-slate-400 font-normal">(opsional — kesimpulan klinis / differential)</span>
+            </label>
+            <textarea name="diagnosa" id="diagnosa" rows="2"
                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">{{ form.diagnosa or "" }}</textarea>
         </div>
 
@@ -425,6 +468,56 @@
 (function(){
   function sync(){var h=document.getElementById('soap-sticky-header');if(h){document.documentElement.style.setProperty('--soap-hdr',(h.offsetHeight+14)+'px');}}
   window.addEventListener('load',sync);window.addEventListener('resize',sync);setTimeout(sync,150);
+})();
+</script>
+
+{# Fungsi chip diagnosa — didefinisikan di halaman supaya chip existing (mode ubah) langsung berfungsi.
+   Fragment _diagnosa_add.html memakai guard (if !window.dxSetPrimer) → tidak redefine. #}
+<script>
+(function() {
+    if (window.dxSetPrimer) return;
+    window.dxFmtDate = function(days) {
+        var d = new Date();
+        d.setDate(d.getDate() + (parseInt(days) || 0));
+        var m = ('0' + (d.getMonth() + 1)).slice(-2);
+        var day = ('0' + d.getDate()).slice(-2);
+        return d.getFullYear() + '-' + m + '-' + day;
+    };
+    window.dxApplyKontrol = function(chip) {
+        try {
+            var hari = chip.getAttribute('data-kontrol-hari');
+            var inp = document.querySelector('input[name="tgl_kontrol_selanjutnya"]');
+            if (inp && !inp.value && hari && parseInt(hari) > 0) {
+                inp.value = window.dxFmtDate(hari);
+            }
+        } catch (e) {}
+    };
+    window.dxSetPrimer = function(btn) {
+        var chip = btn.closest('.dx-chip');
+        if (!chip) return;
+        document.querySelectorAll('.dx-chip').forEach(function(c) {
+            var f = c.querySelector('.dx-primer-flag');
+            var b = c.querySelector('.dx-primer-btn');
+            if (f) f.value = '0';
+            if (b) { b.textContent = '☆ Primer'; b.className = 'dx-primer-btn ml-1 text-[11px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-amber-50'; }
+        });
+        var flag = chip.querySelector('.dx-primer-flag');
+        var b2 = chip.querySelector('.dx-primer-btn');
+        if (flag) flag.value = '1';
+        if (b2) { b2.textContent = '★ Primer'; b2.className = 'dx-primer-btn ml-1 text-[11px] px-1.5 py-0.5 rounded border border-amber-300 bg-amber-100 text-amber-800 font-medium'; }
+        window.dxApplyKontrol(chip);
+    };
+    window.dxRemoveChip = function(btn) {
+        var chip = btn.closest('.dx-chip');
+        if (!chip) return;
+        var wasPrimer = chip.querySelector('.dx-primer-flag') && chip.querySelector('.dx-primer-flag').value === '1';
+        var list = chip.parentNode;
+        chip.remove();
+        if (wasPrimer) {
+            var first = list && list.querySelector('.dx-chip .dx-primer-btn');
+            if (first) window.dxSetPrimer(first);
+        }
+    };
 })();
 </script>
 {% endblock %}

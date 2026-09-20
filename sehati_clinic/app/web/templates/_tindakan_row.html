@@ -1,5 +1,9 @@
-{# Single row tindakan — di-append ke #tindakan-rows via HTMX #}
-<div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end tindakan-row p-3 rounded-lg bg-slate-50 border border-slate-200">
+{# Single row tindakan — di-append ke #tindakan-rows via HTMX.
+   Optional context: `prefill` (dict id_treatment/jumlah_sesi/catatan) untuk auto-fill paket diagnosa;
+   `oob_target` (mis. '#tindakan-rows') untuk out-of-band append saat diagnosa dipilih. #}
+{% set pf = prefill if prefill is defined and prefill else none %}
+<div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end tindakan-row p-3 rounded-lg bg-slate-50 border border-slate-200"
+     {% if oob_target is defined and oob_target %}hx-swap-oob="beforeend:{{ oob_target }}"{% endif %}>
     <div class="md:col-span-5">
         <label class="block text-xs text-slate-500 mb-1">Treatment</label>
         <select name="id_treatment" required
@@ -11,6 +15,7 @@
             {% set _kuota = kuota_map.get(t.id_treatment) if kuota_map else None %}
             <option value="{{ t.id_treatment }}"
                     data-harga="{{ t.harga }}"
+                    {% if pf and pf.id_treatment == t.id_treatment %}selected{% endif %}
                     {% if _kuota %}data-kuota-sisa="{{ _kuota.sisa }}" data-kuota-total="{{ _kuota.kuota_total }}" data-kuota-periode="{{ _kuota.periode }}"{% endif %}>
                 {{ t.nama_treatment }} (Rp {{ "{:,.0f}".format(t.harga|float).replace(",", ".") }} · {{ t.durasi_menit }}m){% if _kuota %} 🎁 {{ _kuota.sisa }}/{{ _kuota.kuota_total }} kuota{% endif %}
             </option>
@@ -47,18 +52,21 @@
     </script>
     <div class="md:col-span-2">
         <label class="block text-xs text-slate-500 mb-1">
-            <input type="checkbox" name="is_series" value="1" class="mr-1 align-middle">
+            <input type="checkbox" name="is_series" value="1" class="mr-1 align-middle"
+                   {% if pf and pf.jumlah_sesi and pf.jumlah_sesi > 1 %}checked{% endif %}>
             Series?
         </label>
     </div>
     <div class="md:col-span-1">
         <label class="block text-xs text-slate-500 mb-1">Sesi</label>
-        <input type="number" name="jumlah_sesi" min="1" max="20" value="1"
+        <input type="number" name="jumlah_sesi" min="1" max="20"
+               value="{% if pf and pf.jumlah_sesi %}{{ pf.jumlah_sesi }}{% else %}1{% endif %}"
                class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
     </div>
     <div class="md:col-span-3">
         <label class="block text-xs text-slate-500 mb-1">Catatan untuk Perawat</label>
         <input type="text" name="catatan_dokter" maxlength="255"
+               value="{% if pf and pf.catatan %}{{ pf.catatan }}{% endif %}"
                class="w-full px-2.5 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
     </div>
     <div class="md:col-span-1 text-right">

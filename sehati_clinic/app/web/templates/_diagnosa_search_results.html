@@ -1,0 +1,25 @@
+{# Hasil autocomplete diagnosa — dropdown di bawah kotak cari SOAP.
+   Context: results (list RefDiagnosa), q (string). #}
+{% if results %}
+<div class="border border-slate-200 rounded-lg bg-white shadow-sm divide-y divide-slate-100 max-h-64 overflow-auto">
+    {% for d in results %}
+    <button type="button"
+            hx-get="/web/dokter/_diagnosa-add/{{ d.id_diagnosa }}"
+            hx-target="#diagnosa-list"
+            hx-swap="beforeend"
+            class="w-full text-left px-3 py-2 hover:bg-blue-50 transition flex items-center gap-2">
+        {% if (d.sistem.value if d.sistem.value is defined else d.sistem) == 'ICD10' %}
+        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 font-medium shrink-0">ICD-10</span>
+        {% else %}
+        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-pink-50 text-pink-700 font-medium shrink-0">Estetik</span>
+        {% endif %}
+        <span class="font-mono text-xs text-slate-500 shrink-0">{{ d.kode }}</span>
+        <span class="text-sm text-slate-800">{{ d.nama }}</span>
+    </button>
+    {% endfor %}
+</div>
+{% elif q %}
+<div class="border border-slate-200 rounded-lg bg-white px-3 py-2 text-sm text-slate-400">
+    Tidak ada diagnosa cocok untuk "{{ q }}". Bisa tulis di kolom naratif di bawah.
+</div>
+{% endif %}

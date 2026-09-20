@@ -281,3 +281,22 @@ class StatusAktivasiEnum(str, enum.Enum):
     ACTIVE = "ACTIVE"        # diaktifkan CS
     EXPIRED = "EXPIRED"
     CANCELLED = "CANCELLED"
+
+
+# ---------------------------------------------------------------------------
+# Diagnosa (ICD-10 + Estetik internal) — modul #24–#27
+# ---------------------------------------------------------------------------
+class SistemDiagnosaEnum(str, enum.Enum):
+    """Sistem kode diagnosa — ref_diagnosa.sistem.
+
+    ICD10   = WHO ICD-10 (dermatologi/estetik subset; kompatibel SatuSehat).
+    ESTETIK = kamus internal JoDerma (kode JD-xxx), tidak dikirim ke SatuSehat.
+    """
+    ICD10 = "ICD10"
+    ESTETIK = "ESTETIK"
+
+
+class TipeItemPaketEnum(str, enum.Enum):
+    """Tipe item di paket diagnosa — diagnosa_paket_item.tipe_item."""
+    TREATMENT = "TREATMENT"  # → master_treatment
+    PRODUK = "PRODUK"        # → master_produk

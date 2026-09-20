@@ -1,0 +1,96 @@
+{% extends "_app.html" %}
+{% block title %}Master Diagnosa{% endblock %}
+{% block page_title %}Master Diagnosa{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    <div class="flex items-center justify-between mb-4">
+        <form method="GET" class="flex items-center gap-2">
+            <input type="text" name="q" value="{{ keyword or '' }}" placeholder="Cari kode/nama..."
+                   class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <select name="sistem" class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg">
+                <option value="">Semua sistem</option>
+                <option value="ICD10" {% if sistem_filter == 'ICD10' %}selected{% endif %}>ICD-10</option>
+                <option value="ESTETIK" {% if sistem_filter == 'ESTETIK' %}selected{% endif %}>Estetik (JD)</option>
+            </select>
+            <button type="submit" class="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700">Filter</button>
+            {% if keyword or sistem_filter %}
+            <a href="/web/master/diagnosa" class="text-sm text-slate-500 hover:underline">Reset</a>
+            {% endif %}
+        </form>
+        <a href="/web/master/diagnosa/tambah"
+           class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1.5 font-medium">
+            ➕ Tambah Diagnosa
+        </a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            Total: {{ data|length }} diagnosa
+        </div>
+
+        {% if data %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Sistem</th>
+                    <th class="text-left px-4 py-2 font-medium">Kode</th>
+                    <th class="text-left px-4 py-2 font-medium">Nama</th>
+                    <th class="text-left px-4 py-2 font-medium">Kategori</th>
+                    <th class="text-right px-4 py-2 font-medium">Kontrol (hari)</th>
+                    <th class="text-center px-4 py-2 font-medium">Status</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for d in data %}
+                <tr class="hover:bg-blue-50/30 transition">
+                    <td class="px-4 py-3">
+                        {% if d.sistem == 'ICD10' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-medium">ICD-10</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-pink-50 text-pink-700 font-medium">Estetik</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ d.kode }}</td>
+                    <td class="px-4 py-3 font-medium text-slate-800">
+                        {{ d.nama }}
+                        {% if d.nama_en %}<div class="text-xs font-normal text-slate-400">{{ d.nama_en }}</div>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-slate-600">{{ d.kategori or '—' }}</td>
+                    <td class="px-4 py-3 text-right font-mono text-slate-700">{{ d.default_kontrol_hari }}</td>
+                    <td class="px-4 py-3 text-center">
+                        {% if d.is_active %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">● Aktif</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-500">Nonaktif</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <a href="/web/master/diagnosa/{{ d.id_diagnosa }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">✏️ Edit</a>
+                        <form method="POST" action="/web/master/diagnosa/{{ d.id_diagnosa }}/toggle-active" class="inline">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="inline-flex items-center px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50">
+                                {% if d.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="px-5 py-10 text-center text-slate-400 text-sm">Belum ada diagnosa. Klik "Tambah Diagnosa".</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

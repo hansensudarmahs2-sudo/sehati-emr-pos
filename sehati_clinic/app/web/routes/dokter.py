@@ -19,6 +19,7 @@ from app.schemas.pemeriksaan import (
 )
 from app.services.antropometri_service import AntropometriService
 from app.services.antro_report_service import AntroReportService
+from app.services.diagnosa_service import DiagnosaService
 from app.schemas.antropometri import AntropometriUpsertRequest
 from app.services.kunjungan_service import KunjunganService
 from app.services.master_produk_service import MasterProdukService
@@ -245,6 +246,7 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
         existing_tindakan=existing_tindakan,
         existing_resep=existing_resep,
         existing_series=existing_series,
+        existing_diagnosa=DiagnosaService(db).get_kunjungan_diagnosa(id_kunjungan),
         soap_history=soap_history,
         master_penyakit_list=PenyakitKronisService(db).list_master(),
     )
@@ -290,6 +292,54 @@ def dokter_resep_row(request: Request, db: DbSession):
         return HTMLResponse("", status_code=401)
     _, produks = _fetch_master_lists(db)
     return templates.TemplateResponse(request, "_resep_row.html", {"master_produks": produks})
+
+
+@router.get("/dokter/_diagnosa-search", response_class=HTMLResponse)
+def dokter_diagnosa_search(request: Request, db: DbSession):
+    """Autocomplete diagnosa (ICD + estetik) untuk picker SOAP."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    q = request.query_params.get("q", "")
+    results = DiagnosaService(db).search(q, limit=15)
+    return templates.TemplateResponse(request, "_diagnosa_search_results.html", {"results": results, "q": q})
+
+
+@router.get("/dokter/_diagnosa-add/{id_diagnosa}", response_class=HTMLResponse)
+def dokter_diagnosa_add(id_diagnosa: int, request: Request, db: DbSession):
+    """Tambah 1 diagnosa ke SOAP → chip + auto-fill paket (OOB) + auto tgl kontrol."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    svc = DiagnosaService(db)
+    try:
+        ref = svc.get_ref(id_diagnosa)
+    except HTTPException:
+        return HTMLResponse("", status_code=404)
+    paket = svc.list_paket(id_diagnosa)
+    paket_tindakan = [
+        {"id_treatment": it["id_treatment"], "jumlah_sesi": int(it["qty_default"] or 1), "catatan": ""}
+        for it in paket if it["tipe_item"] == "TREATMENT" and it["id_treatment"]
+    ]
+    paket_resep = [
+        {"id_produk": it["id_produk"], "qty": it["qty_default"] or 1, "aturan": it["aturan_pakai_default"] or ""}
+        for it in paket if it["tipe_item"] == "PRODUK" and it["id_produk"]
+    ]
+    treatments, produks = _fetch_master_lists(db)
+    dx = {
+        "id_diagnosa": ref.id_diagnosa,
+        "sistem": ref.sistem.value if hasattr(ref.sistem, "value") else ref.sistem,
+        "kode": ref.kode, "nama": ref.nama,
+        "default_kontrol_hari": ref.default_kontrol_hari,
+    }
+    return templates.TemplateResponse(request, "_diagnosa_add.html", {
+        "dx": dx,
+        "paket_tindakan": paket_tindakan,
+        "paket_resep": paket_resep,
+        "master_treatments": treatments,
+        "master_produks": produks,
+        "kuota_map": {},
+    })
 
 
 @router.post("/dokter/kunjungan/{id_kunjungan}/soap", response_class=HTMLResponse)
@@ -408,6 +458,35 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
             except ValueError:
                 _tgl_kontrol = None
         _catatan_kontrol = (form_data.get("catatan_kontrol") or "").strip() or None
+
+        # Diagnosa terstruktur (ICD + estetik, multi primer/sekunder) — modul #24–#27
+        _dx_ids = form_data.getlist("dx_id_diagnosa")
+        _dx_sis = form_data.getlist("dx_sistem")
+        _dx_kode = form_data.getlist("dx_kode")
+        _dx_nama = form_data.getlist("dx_nama")
+        _dx_primer = form_data.getlist("dx_is_primer")
+        _dx_entries = []
+        for _i, _nm in enumerate(_dx_nama):
+            if not (_nm or "").strip():
+                continue
+            try:
+                _idd = int(_dx_ids[_i]) if _i < len(_dx_ids) and str(_dx_ids[_i]).strip() else None
+            except (ValueError, TypeError):
+                _idd = None
+            _dx_entries.append({
+                "id_diagnosa": _idd,
+                "sistem": _dx_sis[_i] if _i < len(_dx_sis) else None,
+                "kode": _dx_kode[_i] if _i < len(_dx_kode) else None,
+                "nama": _nm,
+                "is_primer": (_i < len(_dx_primer) and str(_dx_primer[_i]) == "1"),
+            })
+        # Selalu simpan (replace) — supaya penghapusan semua diagnosa di mode ubah ikut tersimpan.
+        _primary_kontrol = DiagnosaService(db).save_kunjungan_diagnosa(id_kunjungan, _dx_entries)
+        # Auto-fill tgl kontrol dari diagnosa primer bila dokter tidak mengisi manual
+        if _tgl_kontrol is None and _primary_kontrol:
+            from datetime import timedelta as _td
+            _tgl_kontrol = _date.today() + _td(days=int(_primary_kontrol))
+
         _kj = db.get(_KjModel, id_kunjungan)
         if _kj is not None:
             _kj.tgl_kontrol_selanjutnya = _tgl_kontrol

@@ -21,6 +21,7 @@ from app.db.models._enums import (
     LokasiOpnameEnum,
     MembershipTierEnum,
     PeriodeKuotaEnum,
+    SistemDiagnosaEnum,
     StafRoleEnum,
     StatusAksiAuditEnum,
     StatusAntrianEnum,
@@ -36,6 +37,7 @@ from app.db.models._enums import (
     SumberRencanaEnum,
     TingkatKeparahanAlergiEnum,
     TipeItemEnum,
+    TipeItemPaketEnum,
     TipeProdukEnum,
     VerifikasiEnum,
     VoidApprovalMethodEnum,
@@ -110,6 +112,13 @@ from app.db.models.faktur import FakturPenerimaan
 from app.db.models.retur import ReturProduk, ReturProdukItem
 from app.db.models.stok_lot import StokLot, KunjunganLotTerpakai
 
+# Models — diagnosa (ICD-10 + estetik internal, modul #24–#27)
+from app.db.models.diagnosa import (
+    DiagnosaPaketItem,
+    KunjunganDiagnosa,
+    RefDiagnosa,
+)
+
 
 __all__ = [
     # ----- Enums -----
@@ -133,8 +142,10 @@ __all__ = [
     "StatusRencanaTreatmentEnum",
     "StatusTindakanEnum",
     "StatusTransaksiEnum",
+    "SistemDiagnosaEnum",
     "SumberRencanaEnum",
     "TipeItemEnum",
+    "TipeItemPaketEnum",
     "TingkatKeparahanAlergiEnum",
     "TipeProdukEnum",
     "VerifikasiEnum",
@@ -196,4 +207,8 @@ __all__ = [
     # ----- Inventory Lot -----
     "StokLot",
     "KunjunganLotTerpakai",
+    # ----- Diagnosa (ICD-10 + estetik, modul #24–#27) -----
+    "RefDiagnosa",
+    "DiagnosaPaketItem",
+    "KunjunganDiagnosa",
 ]
