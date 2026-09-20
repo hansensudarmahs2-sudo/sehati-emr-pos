@@ -109,5 +109,14 @@ class MasterProduk(Base):
     kandungan: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     nama_dagang: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    # Golongan/kelas obat (mis. ANTIBIOTIK, NSAID) — untuk obat minum. Nullable.
+    # Golongan/kelas obat (mis. ANTIBIOTIK, NSAID) — untuk obat minum & topikal. Nullable.
     golongan: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # --- Dasar hitung RACIKAN (modul racikan) ---
+    # Kekuatan sediaan per butir (mis. Stenirol = 8 mg) → mode MG/tablet:
+    #   butir = (dosis_per_unit × jumlah_unit) ÷ kekuatan_nilai, dibulatkan KE ATAS.
+    kekuatan_nilai: Mapped[Optional[float]] = mapped_column(DECIMAL(10, 3), nullable=True)
+    kekuatan_satuan: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    # Isi kemasan (mis. tube 10 gr) → mode GRAM/krim: harga per gram = harga_jual ÷ isi_kemasan (PRO-RATA).
+    isi_kemasan: Mapped[Optional[float]] = mapped_column(DECIMAL(10, 3), nullable=True)
+    satuan_isi: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)

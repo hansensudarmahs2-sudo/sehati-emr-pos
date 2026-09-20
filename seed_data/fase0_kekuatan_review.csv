@@ -1,0 +1,75 @@
+kode_produk,nama_produk,kekuatan_nilai,kekuatan_satuan,CEK?
+OBM-001,Aclam 500mg,500.0,mg,
+OBM-002,Azithromycin 500mg,500.0,mg,
+OBM-003,Cefixime 200mg,200.0,mg,
+OBM-004,Clarolid 500mg,500.0,mg,
+OBM-005,Doxicor 100mg,100.0,mg,
+OBM-006,Indanox 300mg,300.0,mg,
+OBM-007,Interdoxin 50mg,50.0,mg,
+OBM-008,Interdoxin 100mg,100.0,mg,
+OBM-009,Lefos 500mg,500.0,mg,
+OBM-010,Levofloxacin 500mg,500.0,mg,
+OBM-011,Moxibat 400mg,400.0,mg,
+OBM-012,Nomika 100mg,100.0,mg,
+OBM-013,Nucef 100mg,100.0,mg,
+OBM-014,Nucef 200mg,200.0,mg,
+OBM-015,Zibramax 500mg (tab),500.0,mg,
+OBM-016,Zibramax 500mg (syr),500.0,mg,
+OBM-017,Cetirizine 10mg,10.0,mg,
+OBM-018,Oxtin 30mg,30.0,mg,
+OBM-019,Rydian 10mg,10.0,mg,
+OBM-020,Histrine Levo 5mg,5.0,mg,
+OBM-021,Destavell 5mg,5.0,mg,
+OBM-022,Inclarin 10mg,10.0,mg,
+OBM-023,Methylprednisolone 8mg,8.0,mg,
+OBM-024,Stenirol 8 mg,8.0,mg,
+OBM-025,Stenirol 16 mg,16.0,mg,
+OBM-026,Triamcort 4mg,4.0,mg,
+OBM-027,Rafacort 4mg,4.0,mg,
+OBM-028,Exaflam 50mg,50.0,mg,
+OBM-029,Keren 25mg,25.0,mg,
+OBM-030,Maganol 500mg,500.0,mg,
+OBM-031,Acyclovir 400mg,400.0,mg,
+OBM-032,Inclovir 500mg,500.0,mg,
+OBM-033,Nuprinol 500mg,500.0,mg,
+OBM-034,PEP (DLT),,,PERLU DICEK
+OBM-035,PREP (Tenof EM),,,PERLU DICEK
+OBM-036,Ivermectin,,,PERLU DICEK
+OBM-037,Combantrin 250mg,250.0,mg,
+OBM-038,Dazoline Supp,,,PERLU DICEK
+OBM-039,Flucomax150mg,150.0,mg,
+OBM-040,Fungasol 200mg,200.0,mg,
+OBM-041,Govazole 150mg,150.0,mg,
+OBM-042,Interbi 250mg,250.0,mg,
+OBM-043,Nulyn 75mg,75.0,mg,
+OBM-044,Tineuron 300mg,300.0,mg,
+OBM-045,Neoral 100mg,100.0,mg,
+OBM-046,My Fortic 360mg,360.0,mg,
+OBM-047,Interlac Chew Tab + D3,,,PERLU DICEK
+OBM-048,Interlac (sachet),,,PERLU DICEK
+OBM-049,Lansoprazole 30mg,30.0,mg,
+OBM-050,Lanpepsa (syr) 500mg/5ml,500.0,mg,
+OBM-051,Nucral (syr) 500mg/5ml,500.0,mg,
+OBM-052,Nuzole 30mg,30.0,mg,
+OBM-053,Pantopump 40mg,40.0,mg,
+OBM-054,Ranitidine 150mg,150.0,mg,
+OBM-055,Stromag,,,PERLU DICEK
+OBM-056,Tilidon 10mg,10.0,mg,
+OBM-057,Daily D3 1000,,,PERLU DICEK
+OBM-058,Dermapro,,,PERLU DICEK
+OBM-059,Forti D-5000,,,PERLU DICEK
+OBM-060,Forti D-100 Syr,,,PERLU DICEK
+OBM-061,Vitamin A 10mg,10.0,mg,
+OBM-062,Vitamin A 20mg,20.0,mg,
+OBM-063,Vitamin Flek (Nutranex),,,PERLU DICEK
+OBM-064,Vitamin HG1 (Prosentials),,,PERLU DICEK
+OBM-065,"Vitamin HG2 / F (Finpro 1,25mg)",1.25,mg,
+OBM-066,Vitamin HG3 (Minoxidil 1/2 tab),,,PERLU DICEK
+OBM-067,"Vitamin HG4 (Finpro 1,25mg + Minoxidil 0,5tab)",1.25,mg,
+OBM-068,"Tab SR (stenirol, rydian, metcor)",,,PERLU DICEK
+OBM-069,"Tab SR 2 (stenirol, rydian, metcor)",,,PERLU DICEK
+OBM-070,"Tab SRO (stenirol, rydian, metcor, Oxtin)",,,PERLU DICEK
+OBM-071,"Tab STR (stenirol, triamcort, rydian)",,,PERLU DICEK
+OBM-072,Maxlis 5mg,5.0,mg,
+OBM-073,"MTX 2,5mg",2.5,mg,
+OBM-074,Vistat 120mg,120.0,mg,
