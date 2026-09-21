@@ -32,6 +32,11 @@ class MasterProdukCreate(BaseModel):
     kandungan: Optional[str] = Field(default=None, max_length=255)
     nama_dagang: Optional[str] = Field(default=None, max_length=100)
     golongan: Optional[str] = Field(default=None, max_length=50)
+    # Dasar hitung racikan
+    kekuatan_nilai: Optional[Decimal] = Field(default=None, ge=0)
+    kekuatan_satuan: Optional[str] = Field(default=None, max_length=10)
+    isi_kemasan: Optional[Decimal] = Field(default=None, ge=0)
+    satuan_isi: Optional[str] = Field(default=None, max_length=10)
 
     # Stok awal (kalau langsung restock saat create)
     stok_terkini: float = Field(default=0, ge=0)
@@ -75,6 +80,11 @@ class MasterProdukUpdate(BaseModel):
     kandungan: Optional[str] = Field(default=None, max_length=255)
     nama_dagang: Optional[str] = Field(default=None, max_length=100)
     golongan: Optional[str] = Field(default=None, max_length=50)
+    # Dasar hitung racikan
+    kekuatan_nilai: Optional[Decimal] = Field(default=None, ge=0)
+    kekuatan_satuan: Optional[str] = Field(default=None, max_length=10)
+    isi_kemasan: Optional[Decimal] = Field(default=None, ge=0)
+    satuan_isi: Optional[str] = Field(default=None, max_length=10)
 
     id_bahan_sumber: Optional[int] = Field(default=None, ge=1)
     qty_per_unit_produk: Optional[float] = Field(default=None, gt=0)
@@ -119,6 +129,10 @@ class MasterProdukResponse(BaseModel):
     kandungan: Optional[str] = None
     nama_dagang: Optional[str] = None
     golongan: Optional[str] = None
+    kekuatan_nilai: Optional[Decimal] = None
+    kekuatan_satuan: Optional[str] = None
+    isi_kemasan: Optional[Decimal] = None
+    satuan_isi: Optional[str] = None
     is_active: Optional[bool] = None
     updated_at: Optional[datetime] = None
 

@@ -31,6 +31,7 @@ from app.web.routes import (
     kunjungan,
     master,
     master_diagnosa,
+    master_racikan,
     opname,
     pasien,
     pendaftaran,
@@ -62,6 +63,7 @@ router.include_router(perawat.router)
 router.include_router(apotek.router)
 router.include_router(master.router)
 router.include_router(master_diagnosa.router)
+router.include_router(master_racikan.router)
 router.include_router(pengadaan.router)
 router.include_router(opname.router)
 router.include_router(retur.router)

@@ -1,0 +1,109 @@
+{% extends "_app.html" %}
+{% block title %}Formula Racikan{% endblock %}
+{% block page_title %}Formula Racikan{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    {# ===== Tarif ongkos racik (flat per racikan) ===== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+        <div class="text-sm font-semibold text-slate-800 mb-1">💰 Ongkos Racik</div>
+        <p class="text-xs text-slate-500 mb-3">Tarif <b>flat per racikan</b> (bukan per unit), ditambahkan ke total setelah biaya bahan.</p>
+        <div class="flex flex-wrap gap-3">
+            {% for b in biaya_racik %}
+            <form method="POST" action="/web/master/racikan/tarif/{{ b.id_biaya_racik }}"
+                  class="flex items-end gap-2 border border-slate-200 rounded-lg px-3 py-2">
+                {{ csrf_input(request) }}
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1">{{ b.nama }}</label>
+                    <input type="number" name="tarif" min="0" step="1000" value="{{ b.tarif|int }}"
+                           class="w-32 px-2 py-1 text-sm border border-slate-300 rounded">
+                </div>
+                <button type="submit" class="px-2 py-1 text-xs bg-slate-600 text-white rounded hover:bg-slate-700">Simpan</button>
+            </form>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="flex items-center justify-between mb-4">
+        <form method="GET" class="flex items-center gap-2">
+            <input type="text" name="q" value="{{ keyword or '' }}" placeholder="Cari nama formula..."
+                   class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <select name="jenis" class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg">
+                <option value="">Semua jenis</option>
+                {% for b in biaya_racik %}
+                <option value="{{ b.jenis_racik }}" {% if jenis_filter == b.jenis_racik %}selected{% endif %}>{{ b.nama }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700">Filter</button>
+            {% if keyword or jenis_filter %}
+            <a href="/web/master/racikan" class="text-sm text-slate-500 hover:underline">Reset</a>
+            {% endif %}
+        </form>
+        <a href="/web/master/racikan/tambah"
+           class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+            ➕ Tambah Formula
+        </a>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase">
+            Total: {{ data|length }} formula
+        </div>
+        {% if data %}
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-4 py-2 font-medium">Nama Formula</th>
+                    <th class="text-left px-4 py-2 font-medium">Jenis</th>
+                    <th class="text-right px-4 py-2 font-medium">Unit Default</th>
+                    <th class="text-right px-4 py-2 font-medium">Jumlah Bahan</th>
+                    <th class="text-center px-4 py-2 font-medium">Status</th>
+                    <th class="text-right px-4 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for f in data %}
+                <tr class="hover:bg-blue-50/30 transition">
+                    <td class="px-4 py-3 font-medium text-slate-800">{{ f.nama }}</td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 font-medium">{{ f.jenis_racik }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-right font-mono text-slate-700">{{ f.default_jumlah_unit }}</td>
+                    <td class="px-4 py-3 text-right font-mono {% if f.jumlah_bahan == 0 %}text-red-600 font-semibold{% else %}text-slate-700{% endif %}">
+                        {{ f.jumlah_bahan }}{% if f.jumlah_bahan == 0 %} ⚠{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% if f.is_active %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">● Aktif</span>
+                        {% else %}
+                        <span class="inline-flex px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-500">Nonaktif</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <a href="/web/master/racikan/{{ f.id_racikan }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">✏️ Edit</a>
+                        <form method="POST" action="/web/master/racikan/{{ f.id_racikan }}/toggle-active" class="inline">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="inline-flex items-center px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50">
+                                {% if f.is_active %}Nonaktifkan{% else %}Aktifkan{% endif %}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="px-5 py-10 text-center text-slate-400 text-sm">Belum ada formula racikan. Klik "Tambah Formula".</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

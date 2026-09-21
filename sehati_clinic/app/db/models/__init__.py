@@ -119,6 +119,13 @@ from app.db.models.diagnosa import (
     RefDiagnosa,
 )
 
+# Models — racikan (Formula + biaya racik, Fase 1)
+from app.db.models.racikan import (
+    MasterBiayaRacik,
+    MasterRacikan,
+    MasterRacikanBahan,
+)
+
 
 __all__ = [
     # ----- Enums -----
@@ -211,4 +218,8 @@ __all__ = [
     "RefDiagnosa",
     "DiagnosaPaketItem",
     "KunjunganDiagnosa",
+    # ----- Racikan (Formula + biaya racik) -----
+    "MasterBiayaRacik",
+    "MasterRacikan",
+    "MasterRacikanBahan",
 ]

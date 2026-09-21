@@ -199,6 +199,11 @@ class MasterProdukService:
                 kandungan=(getattr(payload, "kandungan", None) or None),
                 nama_dagang=(getattr(payload, "nama_dagang", None) or None),
                 golongan=(getattr(payload, "golongan", None) or None),
+                # Dasar hitung racikan
+                kekuatan_nilai=(getattr(payload, "kekuatan_nilai", None) or None),
+                kekuatan_satuan=(getattr(payload, "kekuatan_satuan", None) or None),
+                isi_kemasan=(getattr(payload, "isi_kemasan", None) or None),
+                satuan_isi=(getattr(payload, "satuan_isi", None) or None),
                 is_active=True,
                 # KOMISI SYSTEM HYBRID (#361, DEC-060)
                 hpp_per_unit=max(0, (getattr(payload, "hpp_per_unit", 0) or 0)),

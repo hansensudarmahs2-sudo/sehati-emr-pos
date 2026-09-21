@@ -1,0 +1,184 @@
+{% extends "_app.html" %}
+{% block title %}{% if is_edit %}Edit{% else %}Tambah{% endif %} Formula Racikan{% endblock %}
+{% block page_title %}{% if is_edit %}Formula Racikan{% else %}Tambah Formula Racikan{% endif %}{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+    {% if flash %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4 text-sm">✓ {{ flash }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">⚠ {{ error }}</div>
+    {% endif %}
+
+    <a href="/web/master/racikan" class="text-sm text-slate-500 hover:underline">← Kembali ke daftar formula</a>
+
+    {# ===== Data formula ===== #}
+    <form method="POST"
+          action="{% if is_edit %}/web/master/racikan/{{ form.id_racikan }}{% else %}/web/master/racikan/tambah{% endif %}"
+          class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4 mt-3">
+        {{ csrf_input(request) }}
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Nama Formula</label>
+                <input type="text" name="nama" required maxlength="100" value="{{ form.nama or '' }}"
+                       placeholder="mis. Tab SR"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Jenis Racik</label>
+                <select name="jenis_racik" class="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                    {% for b in jenis_opts %}
+                    <option value="{{ b.jenis_racik }}" {% if form.jenis_racik == b.jenis_racik %}selected{% endif %}>
+                        {{ b.nama }} (Rp {{ "{:,.0f}".format(b.tarif|float).replace(",", ".") }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Jumlah Unit Default</label>
+                <input type="number" name="default_jumlah_unit" min="1" max="500"
+                       value="{{ form.default_jumlah_unit or 1 }}"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-500 mt-1">Mis. 15 kapsul. Dokter tetap bisa mengubah saat meresepkan.</p>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Aturan Pakai Default <span class="text-xs text-slate-400 font-normal">(opsional)</span>
+                </label>
+                <input type="text" name="default_aturan_pakai" maxlength="100"
+                       value="{{ form.default_aturan_pakai or '' }}" placeholder="mis. 2 dd 1 kapsul"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Catatan <span class="text-xs text-slate-400 font-normal">(opsional)</span></label>
+            <textarea name="catatan" rows="2"
+                      class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">{{ form.catatan or '' }}</textarea>
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-slate-100">
+            <button type="submit" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                💾 {% if is_edit %}Simpan Perubahan{% else %}Buat Formula{% endif %}
+            </button>
+        </div>
+    </form>
+
+    {% if is_edit %}
+    {# ===== Komposisi bahan + pratinjau harga ===== #}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-4">
+        <div class="text-sm font-semibold text-slate-800 mb-1">⚗️ Komposisi Bahan</div>
+        <p class="text-xs text-slate-500 mb-3">
+            Dosis per <b>satu unit</b> racikan. Satuan <b>mg</b> → hitung butir tablet (dibulatkan <b>ke atas</b>, ditagih penuh).
+            Satuan <b>gr/ml</b> → krim, dihitung <b>pro-rata</b> per gram.
+        </p>
+
+        {% if hitung.masalah %}
+        <div class="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-lg mb-3 text-xs">
+            {% for m in hitung.masalah %}<div>⚠ {{ m }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if hitung.rincian %}
+        <table class="w-full text-sm mb-4">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left px-3 py-2 font-medium">Bahan</th>
+                    <th class="text-right px-3 py-2 font-medium">Dosis/unit</th>
+                    <th class="text-left px-3 py-2 font-medium">Basis</th>
+                    <th class="text-right px-3 py-2 font-medium">Dipakai ({{ hitung.jumlah_unit }} unit)</th>
+                    <th class="text-right px-3 py-2 font-medium">Subtotal</th>
+                    <th class="text-right px-3 py-2 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in hitung.rincian %}
+                <tr>
+                    <td class="px-3 py-2 text-slate-800">
+                        <span class="font-mono text-xs text-slate-500">[{{ r.kode_produk }}]</span> {{ r.nama }}
+                        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] ml-1 {% if r.mode == 'GRAM' %}bg-emerald-50 text-emerald-700{% else %}bg-blue-50 text-blue-700{% endif %}">{{ r.mode }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-right font-mono">{{ r.dosis_per_unit }} {{ r.satuan_dosis }}</td>
+                    <td class="px-3 py-2 text-xs text-slate-500">{{ r.basis }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ r.dipakai }} {{ r.satuan_dipakai }}</td>
+                    <td class="px-3 py-2 text-right font-semibold text-slate-800">Rp {{ "{:,.0f}".format(r.subtotal).replace(",", ".") }}</td>
+                    <td class="px-3 py-2 text-right">
+                        <form method="POST" action="/web/master/racikan/{{ form.id_racikan }}/bahan/{{ r.id_racikan_bahan }}/hapus" class="inline">
+                            {{ csrf_input(request) }}
+                            <button type="submit" class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100">🗑 Hapus</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {# Pratinjau total #}
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+            <form method="GET" class="flex items-center gap-2 mb-2 flex-wrap">
+                <label class="text-xs text-slate-600">Pratinjau untuk</label>
+                <input type="number" name="n" min="1" max="500" value="{{ preview_n }}"
+                       class="w-20 px-2 py-1 text-sm border border-slate-300 rounded">
+                <span class="text-xs text-slate-600">unit</span>
+                <button type="submit" class="px-2 py-1 text-xs bg-slate-600 text-white rounded hover:bg-slate-700">Hitung</button>
+            </form>
+            <div class="text-sm space-y-1">
+                <div class="flex justify-between"><span class="text-slate-600">Subtotal bahan</span>
+                    <span class="font-mono">Rp {{ "{:,.0f}".format(hitung.subtotal_bahan).replace(",", ".") }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-600">Ongkos racik ({{ hitung.jenis_racik }}, flat)</span>
+                    <span class="font-mono">Rp {{ "{:,.0f}".format(hitung.biaya_racik).replace(",", ".") }}</span></div>
+                <div class="flex justify-between border-t border-slate-300 pt-1 font-semibold text-slate-900">
+                    <span>TOTAL {{ hitung.jumlah_unit }} unit</span>
+                    <span class="font-mono">Rp {{ "{:,.0f}".format(hitung.total).replace(",", ".") }}</span></div>
+                <div class="flex justify-between text-xs text-slate-500">
+                    <span>≈ per unit</span>
+                    <span class="font-mono">Rp {{ "{:,.0f}".format(hitung.per_unit).replace(",", ".") }}</span></div>
+            </div>
+        </div>
+        {% else %}
+        <div class="text-sm text-slate-400 mb-4">Belum ada bahan. Tambahkan minimal satu di bawah.</div>
+        {% endif %}
+
+        {# Form tambah bahan #}
+        <form method="POST" action="/web/master/racikan/{{ form.id_racikan }}/bahan/tambah"
+              class="border-t border-slate-100 pt-4 grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+            {{ csrf_input(request) }}
+            <div class="md:col-span-6">
+                <label class="block text-xs text-slate-500 mb-1">Bahan (produk)</label>
+                <select name="id_produk" required class="searchable-dropdown w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+                        data-placeholder="Cari nama / kandungan...">
+                    <option value="">— pilih —</option>
+                    {% for p in master_produks %}
+                    <option value="{{ p.id_produk }}" data-kandungan="{{ p.kandungan or '' }}" data-golongan="{{ p.golongan or '' }}">
+                        [{{ p.kode_produk }}] {{ p.nama_produk }}{% if p.kekuatan_nilai %} — {{ p.kekuatan_nilai|int }} {{ p.kekuatan_satuan }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-xs text-slate-500 mb-1">Dosis / unit</label>
+                <input type="number" name="dosis_per_unit" required min="0.001" step="0.001"
+                       class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-xs text-slate-500 mb-1">Satuan</label>
+                <select name="satuan_dosis" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+                    <option value="mg">mg (tablet)</option>
+                    <option value="gr">gr (krim)</option>
+                    <option value="ml">ml (cair)</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <button type="submit" class="w-full px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">+ Tambah Bahan</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

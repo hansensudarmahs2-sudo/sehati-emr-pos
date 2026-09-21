@@ -432,6 +432,11 @@ def master_produk_tambah_submit(
     kandungan: str = Form(default=""),
     nama_dagang: str = Form(default=""),
     golongan: str = Form(default=""),
+    # Dasar hitung racikan (opsional)
+    kekuatan_nilai: str = Form(default=""),
+    kekuatan_satuan: str = Form(default=""),
+    isi_kemasan: str = Form(default=""),
+    satuan_isi: str = Form(default=""),
     # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP (opsional)
     default_cara_pakai: str = Form(default=""),
     # DEC-060 Komisi Hybrid Produk (single dokter)
@@ -460,6 +465,10 @@ def master_produk_tambah_submit(
             kandungan=(kandungan.strip() or None),
             nama_dagang=(nama_dagang.strip() or None),
             golongan=(golongan.strip() or None),
+            kekuatan_nilai=(Decimal(kekuatan_nilai.strip()) if kekuatan_nilai.strip() else None),
+            kekuatan_satuan=(kekuatan_satuan.strip() or None),
+            isi_kemasan=(Decimal(isi_kemasan.strip()) if isi_kemasan.strip() else None),
+            satuan_isi=(satuan_isi.strip() or None),
             default_cara_pakai=(dcp_clean if dcp_clean else None),
             hpp_per_unit=Decimal(str(hpp_per_unit)),
             pajak_persen=Decimal(str(pajak_persen)),
@@ -514,6 +523,11 @@ def master_produk_edit_form(id_produk: int, request: Request, db: DbSession):
         "kandungan": p.kandungan or "",
         "nama_dagang": p.nama_dagang or "",
         "golongan": p.golongan or "",
+        # Dasar hitung racikan
+        "kekuatan_nilai": (float(p.kekuatan_nilai) if p.kekuatan_nilai else ""),
+        "kekuatan_satuan": p.kekuatan_satuan or "",
+        "isi_kemasan": (float(p.isi_kemasan) if p.isi_kemasan else ""),
+        "satuan_isi": p.satuan_isi or "",
         # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP
         "default_cara_pakai": p.default_cara_pakai or "",
         # DEC-060 Komisi Hybrid Produk
@@ -547,6 +561,11 @@ def master_produk_edit_submit(
     kandungan: str = Form(default=""),
     nama_dagang: str = Form(default=""),
     golongan: str = Form(default=""),
+    # Dasar hitung racikan (opsional)
+    kekuatan_nilai: str = Form(default=""),
+    kekuatan_satuan: str = Form(default=""),
+    isi_kemasan: str = Form(default=""),
+    satuan_isi: str = Form(default=""),
     # TODO-NEW-3 #31 — auto-fill cara pakai resep SOAP (opsional)
     default_cara_pakai: str = Form(default=""),
     # DEC-060 Komisi Hybrid Produk
@@ -575,6 +594,10 @@ def master_produk_edit_submit(
             kandungan=(kandungan.strip() or None),
             nama_dagang=(nama_dagang.strip() or None),
             golongan=(golongan.strip() or None),
+            kekuatan_nilai=(Decimal(kekuatan_nilai.strip()) if kekuatan_nilai.strip() else None),
+            kekuatan_satuan=(kekuatan_satuan.strip() or None),
+            isi_kemasan=(Decimal(isi_kemasan.strip()) if isi_kemasan.strip() else None),
+            satuan_isi=(satuan_isi.strip() or None),
             default_cara_pakai=(dcp_clean if dcp_clean else None),
             hpp_per_unit=Decimal(str(hpp_per_unit)),
             pajak_persen=Decimal(str(pajak_persen)),

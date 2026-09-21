@@ -84,6 +84,48 @@
                    class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
         </div>
 
+        {# Dasar hitung RACIKAN — tanpa ini, produk tidak bisa dipakai sebagai bahan racikan #}
+        <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
+            <div class="text-sm font-medium text-slate-700 mb-1">⚗️ Dasar Hitung Racikan</div>
+            <p class="text-xs text-slate-500 mb-3">
+                Isi <b>Kekuatan</b> untuk tablet/kapsul (mis. 8 mg per butir) → dipakai menghitung jumlah butir.
+                Isi <b>Isi Kemasan</b> untuk krim/cairan (mis. 10 gr per tube) → dipakai menghitung harga per gram.
+                Produk tanpa data ini <b>tidak bisa dipilih</b> sebagai bahan di Formula Racikan.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Kekuatan per butir (tablet/kapsul)</label>
+                    <div class="flex gap-2">
+                        <input type="number" name="kekuatan_nilai" min="0" step="0.001"
+                               value="{{ form.kekuatan_nilai if form.kekuatan_nilai not in (None, '') else '' }}"
+                               placeholder="mis. 8"
+                               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <select name="kekuatan_satuan" class="w-28 px-2 py-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="">—</option>
+                            {% for s in ['mg','mcg','g','ml','IU'] %}
+                            <option value="{{ s }}" {% if form.kekuatan_satuan == s %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-600 mb-1">Isi kemasan (krim/cairan)</label>
+                    <div class="flex gap-2">
+                        <input type="number" name="isi_kemasan" min="0" step="0.001"
+                               value="{{ form.isi_kemasan if form.isi_kemasan not in (None, '') else '' }}"
+                               placeholder="mis. 10"
+                               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <select name="satuan_isi" class="w-28 px-2 py-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="">—</option>
+                            {% for s in ['gr','ml','tablet'] %}
+                            <option value="{{ s }}" {% if form.satuan_isi == s %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label for="satuan" class="block text-sm font-medium text-slate-700 mb-1">Satuan</label>
