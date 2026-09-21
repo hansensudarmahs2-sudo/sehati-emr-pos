@@ -105,3 +105,79 @@ class MasterRacikanBahan(Base):
             f"<MasterRacikanBahan(racikan={self.id_racikan}, produk={self.id_produk}, "
             f"dosis={self.dosis_per_unit}{self.satuan_dosis})>"
         )
+
+
+class KunjunganRacikan(Base):
+    """Tabel `kunjungan_racikan` — racikan yang DIRESEPKAN pada satu kunjungan (SNAPSHOT).
+
+    Harga dikunci saat dokter menyimpan SOAP; kasir hanya membaca. Harga bahan boleh
+    berubah besok — nota lama tetap utuh. Pola snapshot sama seperti PO/retur/diagnosa.
+    """
+
+    __tablename__ = "kunjungan_racikan"
+
+    id_kunjungan_racikan: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_kunjungan: Mapped[int] = mapped_column(
+        ForeignKey("kunjungan.id_kunjungan"), nullable=False
+    )
+    # NULL = racikan ad-hoc (tidak dari formula tersimpan)
+    id_racikan: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_racikan.id_racikan"), nullable=True
+    )
+    nama_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    jenis_racik: Mapped[str] = mapped_column(String(20), nullable=False)
+    jumlah_unit: Mapped[int] = mapped_column(Integer, nullable=False)
+    aturan_pakai: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    subtotal_bahan: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+    biaya_racik: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+    total: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+
+    status_item: Mapped[str] = mapped_column(
+        String(20), default="PENDING", server_default="PENDING", nullable=False
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP, server_default=func.current_timestamp(), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<KunjunganRacikan(id={self.id_kunjungan_racikan}, kunj={self.id_kunjungan}, "
+            f"{self.nama_snapshot!r} x{self.jumlah_unit}, total={self.total})>"
+        )
+
+
+class KunjunganRacikanBahan(Base):
+    """Tabel `kunjungan_racikan_bahan` — rincian bahan per racikan yang diresepkan (SNAPSHOT).
+
+    `dipakai` = jumlah butir (mode MG, sudah dibulatkan KE ATAS) atau gram (mode GRAM,
+    pro-rata). Ini yang dipotong dari stok saat penyerahan (Fase 3).
+    """
+
+    __tablename__ = "kunjungan_racikan_bahan"
+
+    id_kunjungan_racikan_bahan: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_kunjungan_racikan: Mapped[int] = mapped_column(
+        ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=False
+    )
+    id_produk: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_produk.id_produk"), nullable=True
+    )
+    nama_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    dosis_per_unit: Mapped[float] = mapped_column(DECIMAL(10, 3), nullable=False)
+    satuan_dosis: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Basis hitung saat itu: kekuatan per butir (MG) atau isi kemasan (GRAM)
+    kekuatan_snapshot: Mapped[Optional[float]] = mapped_column(DECIMAL(10, 3), nullable=True)
+    mode_hitung: Mapped[str] = mapped_column(String(10), default="MG", server_default="MG", nullable=False)
+
+    dipakai: Mapped[float] = mapped_column(DECIMAL(12, 3), nullable=False)
+    satuan_dipakai: Mapped[str] = mapped_column(String(10), nullable=False)
+    harga_satuan: Mapped[float] = mapped_column(DECIMAL(12, 2), nullable=False)
+    subtotal: Mapped[float] = mapped_column(DECIMAL(12, 2), nullable=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<KunjunganRacikanBahan({self.nama_snapshot!r}, dipakai={self.dipakai}"
+            f"{self.satuan_dipakai}, sub={self.subtotal})>"
+        )

@@ -16,10 +16,16 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import delete as sa_delete, or_, select
 
 from app.db.models.produk import MasterProduk
-from app.db.models.racikan import MasterBiayaRacik, MasterRacikan, MasterRacikanBahan
+from app.db.models.racikan import (
+    KunjunganRacikan,
+    KunjunganRacikanBahan,
+    MasterBiayaRacik,
+    MasterRacikan,
+    MasterRacikanBahan,
+)
 
 # satuan dosis yang berarti "mode gram/krim" (pro-rata)
 _SATUAN_GRAM = {"gr", "g", "ml"}
@@ -161,19 +167,37 @@ class RacikanService:
 
     # ------------------------------------------------------------- KALKULATOR
     def hitung(self, id_racikan: int, jumlah_unit: int) -> dict:
-        """Hitung rincian harga racikan untuk N unit. Dipakai pratinjau & (nanti) SOAP."""
+        """Hitung dari FORMULA tersimpan. Delegasi ke hitung_spec()."""
         formula = self.get_formula(id_racikan)
         n = max(1, int(jumlah_unit or formula.default_jumlah_unit or 1))
+        bahan = [
+            {"id_produk": b.id_produk, "dosis": b.dosis_per_unit, "satuan": b.satuan_dosis}
+            for b in self.list_bahan(formula.id_racikan)
+        ]
+        hasil = self.hitung_spec(formula.jenis_racik, n, bahan)
+        hasil.update({"id_racikan": formula.id_racikan, "nama": formula.nama})
+        return hasil
+
+    def hitung_spec(self, jenis_racik: str, jumlah_unit: int, bahan_spec: list[dict]) -> dict:
+        """Hitung dari SPEC mentah — dipakai formula maupun racikan ad-hoc di SOAP.
+
+        bahan_spec: [{id_produk, dosis, satuan}] — satuan gr/g/ml → mode GRAM (pro-rata),
+        selain itu mode MG (butir dibulatkan KE ATAS).
+        """
+        n = max(1, int(jumlah_unit or 1))
         rincian, subtotal, masalah = [], Decimal("0"), []
 
-        for b in self.list_bahan(formula.id_racikan):
-            produk = self.db.get(MasterProduk, b.id_produk)
+        for b in bahan_spec:
+            produk = self.db.get(MasterProduk, b.get("id_produk")) if b.get("id_produk") else None
             if produk is None:
-                masalah.append("Ada bahan yang produknya sudah terhapus.")
+                masalah.append("Ada bahan yang produknya tidak ditemukan.")
                 continue
-            dosis = Decimal(str(b.dosis_per_unit or 0))
+            dosis = Decimal(str(b.get("dosis") or 0))
+            if dosis <= 0:
+                masalah.append(f"{produk.nama_produk}: dosis per unit belum diisi.")
+                continue
             harga_jual = Decimal(str(produk.harga_jual or 0))
-            satuan = (b.satuan_dosis or "mg").lower()
+            satuan = (b.get("satuan") or "mg").lower()
             total_dosis = dosis * n
 
             if satuan in _SATUAN_GRAM:
@@ -200,7 +224,7 @@ class RacikanService:
 
             subtotal += sub
             rincian.append({
-                "id_racikan_bahan": b.id_racikan_bahan,
+                "id_racikan_bahan": b.get("id_racikan_bahan"),
                 "id_produk": produk.id_produk,
                 "nama": produk.nama_produk,
                 "kode_produk": produk.kode_produk,
@@ -208,6 +232,7 @@ class RacikanService:
                 "satuan_dosis": satuan,
                 "mode": "GRAM" if satuan in _SATUAN_GRAM else "MG",
                 "basis": basis,
+                "kekuatan_snapshot": float(isi if satuan in _SATUAN_GRAM else kekuatan),
                 "total_dosis": float(total_dosis),
                 "dipakai": float(dipakai),
                 "satuan_dipakai": (produk.satuan_isi or "gr") if satuan in _SATUAN_GRAM else "butir",
@@ -215,12 +240,13 @@ class RacikanService:
                 "subtotal": float(sub),
             })
 
-        tarif = self.tarif_racik(formula.jenis_racik)
+        jenis = (jenis_racik or "").upper()
+        tarif = self.tarif_racik(jenis)
         total = _rp(subtotal + tarif)
         return {
-            "id_racikan": formula.id_racikan,
-            "nama": formula.nama,
-            "jenis_racik": formula.jenis_racik,
+            "id_racikan": None,
+            "nama": "",
+            "jenis_racik": jenis,
             "jumlah_unit": n,
             "rincian": rincian,
             "subtotal_bahan": float(_rp(subtotal)),
@@ -229,3 +255,110 @@ class RacikanService:
             "per_unit": float(_rp(total / n)) if n else 0.0,
             "masalah": masalah,
         }
+
+    # ------------------------------------------- SNAPSHOT RESEP RACIKAN (SOAP)
+    def save_kunjungan_racikan(self, id_kunjungan: int, racikan_list: list[dict]) -> None:
+        """Replace semua racikan pada kunjungan dengan snapshot hasil hitung.
+
+        racikan_list: [{id_racikan|None, nama, jenis_racik, jumlah_unit, aturan_pakai,
+                        bahan: [{id_produk, dosis, satuan}]}]
+        Harga DIKUNCI di sini — kasir tidak menghitung ulang.
+        """
+        # Hapus lama. WAJIB bulk DELETE berurutan (anak dulu, baru induk):
+        # session.delete() per objek membiarkan SQLAlchemy mengurutkan sendiri, dan
+        # karena kedua tabel ini tidak dihubungkan relationship(), induk bisa terhapus
+        # lebih dulu → ditolak foreign key → seluruh transaksi rollback tanpa jejak.
+        old_ids = self.db.execute(
+            select(KunjunganRacikan.id_kunjungan_racikan)
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+        ).scalars().all()
+        if old_ids:
+            self.db.execute(
+                sa_delete(KunjunganRacikanBahan)
+                .where(KunjunganRacikanBahan.id_kunjungan_racikan.in_(old_ids))
+            )
+            self.db.execute(
+                sa_delete(KunjunganRacikan)
+                .where(KunjunganRacikan.id_kunjungan_racikan.in_(old_ids))
+            )
+            self.db.flush()
+
+        for r in racikan_list:
+            bahan = r.get("bahan") or []
+            if not bahan:
+                continue
+            h = self.hitung_spec(r.get("jenis_racik"), r.get("jumlah_unit"), bahan)
+            if not h["rincian"]:
+                import logging as _lg
+                _lg.getLogger("sehati.racik").warning(
+                    "RACIK-DILEWATI nama=%r bahan=%s masalah=%s",
+                    r.get("nama"), bahan, h.get("masalah"),
+                )
+                continue
+            head = KunjunganRacikan(
+                id_kunjungan=id_kunjungan,
+                id_racikan=r.get("id_racikan") or None,
+                nama_snapshot=(r.get("nama") or "Racikan")[:100],
+                jenis_racik=h["jenis_racik"],
+                jumlah_unit=h["jumlah_unit"],
+                aturan_pakai=(r.get("aturan_pakai") or None),
+                subtotal_bahan=h["subtotal_bahan"],
+                biaya_racik=h["biaya_racik"],
+                total=h["total"],
+                status_item="PENDING",
+            )
+            self.db.add(head)
+            self.db.flush()
+            for d in h["rincian"]:
+                self.db.add(KunjunganRacikanBahan(
+                    id_kunjungan_racikan=head.id_kunjungan_racikan,
+                    id_produk=d["id_produk"],
+                    nama_snapshot=d["nama"][:100],
+                    dosis_per_unit=d["dosis_per_unit"],
+                    satuan_dosis=d["satuan_dosis"],
+                    kekuatan_snapshot=d["kekuatan_snapshot"],
+                    mode_hitung=d["mode"],
+                    dipakai=d["dipakai"],
+                    satuan_dipakai=d["satuan_dipakai"],
+                    harga_satuan=d["harga_satuan"],
+                    subtotal=d["subtotal"],
+                ))
+        self.db.flush()
+
+    def get_kunjungan_racikan(self, id_kunjungan: int) -> list[dict]:
+        """Racikan tersimpan pada kunjungan (untuk mode Ubah SOAP, kasir, cetak)."""
+        out = []
+        for h in self.db.execute(
+            select(KunjunganRacikan)
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .order_by(KunjunganRacikan.id_kunjungan_racikan)
+        ).scalars().all():
+            bahan = [{
+                "nama": b.nama_snapshot,
+                "dosis_per_unit": float(b.dosis_per_unit),
+                "satuan_dosis": b.satuan_dosis,
+                "dipakai": float(b.dipakai),
+                "satuan_dipakai": b.satuan_dipakai,
+                "harga_satuan": float(b.harga_satuan),
+                "subtotal": float(b.subtotal),
+                "mode": b.mode_hitung,
+                "id_produk": b.id_produk,
+            } for b in self.db.execute(
+                select(KunjunganRacikanBahan)
+                .where(KunjunganRacikanBahan.id_kunjungan_racikan == h.id_kunjungan_racikan)
+                .order_by(KunjunganRacikanBahan.id_kunjungan_racikan_bahan)
+            ).scalars().all()]
+            out.append({
+                "id_kunjungan_racikan": h.id_kunjungan_racikan,
+                "id_racikan": h.id_racikan,
+                "nama": h.nama_snapshot,
+                "jenis_racik": h.jenis_racik,
+                "jumlah_unit": h.jumlah_unit,
+                "aturan_pakai": h.aturan_pakai or "",
+                "subtotal_bahan": float(h.subtotal_bahan),
+                "biaya_racik": float(h.biaya_racik),
+                "total": float(h.total),
+                "status_item": h.status_item,
+                "bahan": bahan,
+            })
+        return out

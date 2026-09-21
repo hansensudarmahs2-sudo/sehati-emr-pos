@@ -1,0 +1,172 @@
+{# Satu Kartu Racik di SOAP. DERIVED VIEW: setiap perubahan → kartu dirender ULANG
+   penuh oleh server (/web/dokter/_racik-hitung). Tidak ada state di klien.
+   Nama field diberi awalan token agar beberapa kartu tidak saling tabrakan.
+   Context: token, cur{id_racikan,nama,jenis,unit,aturan}, bahan_rows[], hitung{},
+            formulas[], master_produks[], jenis_opts[] #}
+<style>
+  /* Penomoran otomatis: kartu ke-2 dst. langsung terbaca sebagai racikan terpisah */
+  #racik-list{counter-reset:racikno}
+  .racik-card{border:1px solid #c7d2fe;background:#eef2ff;border-radius:10px;padding:12px;margin-bottom:10px;
+    counter-increment:racikno}
+  .racik-title::after{content:" #" counter(racikno)}
+  .racik-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .racik-title{font-size:13px;font-weight:700;color:#1e293b}
+  .racik-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;margin-bottom:10px}
+  .racik-grid label{display:block;font-size:11px;color:#64748b;margin-bottom:2px}
+  .racik-in{width:100%;padding:6px 8px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;background:#fff}
+  .racik-tbl{width:100%;font-size:12.5px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;border-collapse:separate;border-spacing:0}
+  .racik-tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;color:#64748b;padding:6px 8px;background:#f8fafc}
+  .racik-tbl td{padding:5px 8px;border-top:1px solid #f1f5f9;vertical-align:middle}
+  .racik-x{width:22px;height:22px;border:0;border-radius:6px;cursor:pointer;background:#fee2e2;color:#b91c1c;font-weight:700;font-size:11px;line-height:1}
+  .racik-x:hover{background:#fecaca}
+  .racik-sum{margin-top:8px;font-size:13px}
+  .racik-sum div{display:flex;justify-content:space-between;padding:1px 0}
+  .racik-total{border-top:1px solid #c7d2fe;margin-top:4px;padding-top:4px;font-weight:700;color:#0f172a}
+  .racik-warn{background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:11.5px;padding:6px 8px;border-radius:6px;margin-bottom:8px}
+  .racik-mode{font-size:9.5px;padding:1px 5px;border-radius:4px}
+  .racik-mg{background:#dbeafe;color:#1d4ed8}
+  .racik-gr{background:#d1fae5;color:#047857}
+</style>
+
+<div class="racik-card"
+     {# Token dikirim lewat URL, BUKAN body: body POST ikut membawa rc_token milik
+        kartu lain, dan server mengambil nilai terakhir → kartu bisa saling tertukar
+        identitas. Query param kebal terhadap duplikasi itu. #}
+     hx-post="/web/dokter/_racik-hitung?tok={{ token }}"
+     hx-trigger="change"
+     hx-include="this, [name='csrf_token']"
+     hx-target="this"
+     hx-swap="outerHTML">
+
+    <input type="hidden" name="rc_token" value="{{ token }}">
+    <input type="hidden" name="f_{{ token }}_prev_formula" value="{{ cur.id_racikan or '' }}">
+
+    <div class="racik-head">
+        <div class="racik-title">⚗️ Racikan</div>
+        <button type="button" class="racik-x" aria-label="Hapus racikan"
+                onclick="var c=this.closest('.racik-card'); if(c){c.remove();}">✕</button>
+    </div>
+
+    <div class="racik-grid">
+        <div style="grid-column:span 4">
+            <label>Formula (opsional)</label>
+            <select name="f_{{ token }}_id_racikan" class="racik-in">
+                <option value="">— racikan bebas / ad-hoc —</option>
+                {% for f in formulas %}
+                <option value="{{ f.id_racikan }}" {% if cur.id_racikan|string == f.id_racikan|string %}selected{% endif %}>{{ f.nama }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="grid-column:span 4">
+            <label>Nama racikan (tampil di resep)</label>
+            <input type="text" name="f_{{ token }}_nama" maxlength="100" class="racik-in"
+                   value="{{ cur.nama or '' }}" placeholder="mis. Racikan Jerawat">
+        </div>
+        <div style="grid-column:span 2">
+            <label>Jenis</label>
+            <select name="f_{{ token }}_jenis" class="racik-in">
+                {% for j in jenis_opts %}
+                <option value="{{ j.jenis_racik }}" {% if cur.jenis == j.jenis_racik %}selected{% endif %}>{{ j.nama }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="grid-column:span 2">
+            <label>Jumlah unit</label>
+            <input type="number" name="f_{{ token }}_unit" min="1" max="500" class="racik-in"
+                   value="{{ cur.unit or 15 }}">
+        </div>
+        <div style="grid-column:span 12">
+            <label>Aturan pakai</label>
+            <input type="text" name="f_{{ token }}_aturan" maxlength="100" class="racik-in"
+                   value="{{ cur.aturan or '' }}" placeholder="mis. 2 dd 1 kapsul sesudah makan">
+        </div>
+    </div>
+
+    {% if hitung.masalah %}
+    <div class="racik-warn">{% for m in hitung.masalah %}<div>⚠ {{ m }}</div>{% endfor %}</div>
+    {% endif %}
+
+    <table class="racik-tbl">
+        <thead>
+            <tr>
+                <th style="width:42%">Bahan</th>
+                <th style="width:12%">Dosis/unit</th>
+                <th style="width:10%">Satuan</th>
+                <th style="width:16%">Dipakai</th>
+                <th style="width:15%">Subtotal</th>
+                <th style="width:5%"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Baris bahan yang sudah diisi — nilai hitung diambil dari hasil server #}
+            {% for row in bahan_rows %}
+            {% set r = hitung.rincian[loop.index0] if hitung.rincian|length > loop.index0 else None %}
+            <tr>
+                <td>
+                    <select name="b_{{ token }}_produk" class="racik-in searchable-dropdown" data-placeholder="Cari bahan...">
+                        <option value="">— pilih bahan —</option>
+                        {% for p in master_produks %}
+                        <option value="{{ p.id_produk }}" data-kandungan="{{ p.kandungan or '' }}"
+                                {% if row.id_produk|string == p.id_produk|string %}selected{% endif %}>
+                            [{{ p.kode_produk }}] {{ p.nama_produk }}{% if p.kekuatan_nilai %} — {{ p.kekuatan_nilai|int }} {{ p.kekuatan_satuan }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td><input type="number" name="b_{{ token }}_dosis" min="0" step="0.001" class="racik-in" value="{{ row.dosis or '' }}"></td>
+                <td>
+                    <select name="b_{{ token }}_satuan" class="racik-in">
+                        {% for s in ['mg','gr','ml'] %}
+                        <option value="{{ s }}" {% if row.satuan == s %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    {% if r %}
+                    <span class="racik-mode {% if r.mode == 'GRAM' %}racik-gr{% else %}racik-mg{% endif %}">{{ r.mode }}</span>
+                    <b>{{ r.dipakai }}</b> {{ r.satuan_dipakai }}
+                    {% else %}<span style="color:#94a3b8">—</span>{% endif %}
+                </td>
+                <td>{% if r %}Rp {{ "{:,.0f}".format(r.subtotal).replace(",", ".") }}{% else %}—{% endif %}</td>
+                <td>
+                    <button type="button" class="racik-x" aria-label="Hapus bahan"
+                            onclick="var tr=this.closest('tr'); var c=this.closest('.racik-card'); tr.remove(); c.dispatchEvent(new Event('change',{bubbles:true}));">✕</button>
+                </td>
+            </tr>
+            {% endfor %}
+
+            {# Satu baris kosong selalu tersedia — isi bahan, kartu otomatis menambah baris baru #}
+            <tr>
+                <td>
+                    <select name="b_{{ token }}_produk" class="racik-in searchable-dropdown" data-placeholder="Tambah bahan...">
+                        <option value="">— tambah bahan —</option>
+                        {% for p in master_produks %}
+                        <option value="{{ p.id_produk }}" data-kandungan="{{ p.kandungan or '' }}">
+                            [{{ p.kode_produk }}] {{ p.nama_produk }}{% if p.kekuatan_nilai %} — {{ p.kekuatan_nilai|int }} {{ p.kekuatan_satuan }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td><input type="number" name="b_{{ token }}_dosis" min="0" step="0.001" class="racik-in" placeholder="0"></td>
+                <td>
+                    <select name="b_{{ token }}_satuan" class="racik-in">
+                        {% for s in ['mg','gr','ml'] %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+                    </select>
+                </td>
+                <td colspan="3" style="color:#94a3b8;font-size:11px">pilih bahan → otomatis dihitung</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="racik-sum">
+        <div><span style="color:#475569">Subtotal bahan</span><span>Rp {{ "{:,.0f}".format(hitung.subtotal_bahan).replace(",", ".") }}</span></div>
+        <div><span style="color:#475569">Ongkos racik ({{ hitung.jenis_racik }}, flat)</span><span>Rp {{ "{:,.0f}".format(hitung.biaya_racik).replace(",", ".") }}</span></div>
+        <div class="racik-total"><span>TOTAL {{ hitung.jumlah_unit }} unit</span><span>Rp {{ "{:,.0f}".format(hitung.total).replace(",", ".") }}</span></div>
+        <div style="font-size:11px;color:#64748b"><span>≈ per unit</span><span>Rp {{ "{:,.0f}".format(hitung.per_unit).replace(",", ".") }}</span></div>
+    </div>
+</div>
+
+<script>
+// Tom Select perlu di-init ulang utk dropdown bahan yang baru dirender.
+(function(){ if (window.initTomSelect) window.initTomSelect(document); })();
+</script>

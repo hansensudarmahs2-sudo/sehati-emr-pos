@@ -430,6 +430,59 @@
             </p>
         </div>
 
+        {# Racikan (Fase 2) — kartu racik, hitung di server, harga dikunci saat simpan #}
+        <div>
+            <div class="flex items-center justify-between mb-2">
+                <h4 class="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    ⚗️ Racikan
+                </h4>
+                <button type="button"
+                        hx-get="/web/dokter/_racik-card"
+                        hx-target="#racik-list"
+                        hx-swap="beforeend"
+                        class="text-xs px-3 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition">
+                    + Racik
+                </button>
+            </div>
+
+            {# Racikan yang sudah tersimpan (mode Ubah) — read-only ringkas #}
+            {% if existing_racikan and existing_racikan|length > 0 %}
+            <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                <div class="font-medium text-slate-600 mb-2">Racikan tersimpan ({{ existing_racikan|length }}):</div>
+                <ul class="space-y-2">
+                    {% for r in existing_racikan %}
+                    <li>
+                        <div class="flex items-start justify-between gap-2">
+                            <span class="text-slate-700">
+                                ⚗️ <b>{{ r.nama }}</b> — {{ r.jumlah_unit }} unit ({{ r.jenis_racik }})
+                                {% if r.aturan_pakai %}<em class="text-slate-500">· {{ r.aturan_pakai }}</em>{% endif %}
+                            </span>
+                            <span class="text-slate-700 whitespace-nowrap font-semibold">
+                                Rp {{ "{:,.0f}".format(r.total).replace(",", ".") }}
+                            </span>
+                        </div>
+                        <div class="text-slate-500 mt-0.5">
+                            {% for b in r.bahan %}{{ b.nama }} {{ b.dosis_per_unit }}{{ b.satuan_dosis }}
+                            ({{ b.dipakai }} {{ b.satuan_dipakai }}){% if not loop.last %} · {% endif %}{% endfor %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <div class="text-[11px] text-amber-700 mt-2">
+                    ⚠ Menyimpan SOAP akan <b>mengganti</b> seluruh racikan di atas dengan kartu racik yang ada di bawah.
+                    Kalau ingin dipertahankan, susun ulang kartunya.
+                </div>
+            </div>
+            {% endif %}
+
+            <div id="racik-list"></div>
+            <p class="text-xs text-slate-500 mt-2">
+                Pilih Formula untuk memuat komposisi siap pakai, atau susun bebas (ad-hoc).
+                Harga dihitung otomatis: tablet dibulatkan <b>ke atas</b> per butir, krim <b>pro-rata</b> per gram,
+                lalu ditambah ongkos racik. <b>Harga dikunci saat SOAP disimpan</b> — kasir tidak menghitung ulang.
+            </p>
+        </div>
+
         {# Kontrol / Follow-up (modul #7) — override dokter atas jadwal follow-up #}
         <div class="bg-sky-50 border border-sky-100 rounded-lg p-3 mb-4">
             <div class="text-sm font-semibold text-slate-800 mb-1">🔔 Rencana Kontrol / Follow-up</div>

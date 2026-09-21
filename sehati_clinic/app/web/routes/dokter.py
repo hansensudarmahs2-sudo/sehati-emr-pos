@@ -20,6 +20,7 @@ from app.schemas.pemeriksaan import (
 from app.services.antropometri_service import AntropometriService
 from app.services.antro_report_service import AntroReportService
 from app.services.diagnosa_service import DiagnosaService
+from app.services.racikan_service import RacikanService
 from app.schemas.antropometri import AntropometriUpsertRequest
 from app.services.kunjungan_service import KunjunganService
 from app.services.master_produk_service import MasterProdukService
@@ -247,6 +248,7 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
         existing_resep=existing_resep,
         existing_series=existing_series,
         existing_diagnosa=DiagnosaService(db).get_kunjungan_diagnosa(id_kunjungan),
+        existing_racikan=RacikanService(db).get_kunjungan_racikan(id_kunjungan),
         soap_history=soap_history,
         master_penyakit_list=PenyakitKronisService(db).list_master(),
     )
@@ -384,6 +386,99 @@ def dokter_saran(request: Request, db: DbSession):
     return templates.TemplateResponse(request, "_saran_panel.html", {
         "tindakan": tindakan, "produk": produk, "total": len(tindakan) + len(produk),
     })
+
+
+def _racik_ctx(db, token: str, cur: dict, bahan_rows: list[dict]):
+    """Context bersama untuk render Kartu Racik (baru maupun hitung ulang)."""
+    svc = RacikanService(db)
+    spec = [
+        {"id_produk": r["id_produk"], "dosis": r["dosis"], "satuan": r["satuan"]}
+        for r in bahan_rows if r.get("id_produk")
+    ]
+    hitung = svc.hitung_spec(cur.get("jenis"), cur.get("unit"), spec)
+    return {
+        "token": token, "cur": cur, "bahan_rows": bahan_rows, "hitung": hitung,
+        "formulas": svc.list_formula(only_active=True),
+        "jenis_opts": svc.list_biaya_racik(),
+        "master_produks": MasterProdukService(db).list_all(only_active=True, limit=500),
+    }
+
+
+@router.get("/dokter/_racik-card", response_class=HTMLResponse)
+def dokter_racik_card(request: Request, db: DbSession):
+    """Kartu Racik baru (kosong)."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    import uuid
+    token = uuid.uuid4().hex[:10]
+    cur = {"id_racikan": "", "nama": "", "jenis": "KAPSUL", "unit": 15, "aturan": ""}
+    resp = templates.TemplateResponse(request, "_racik_card.html", _racik_ctx(db, token, cur, []))
+    # WAJIB no-store: URL-nya sama setiap klik "+ Racik", jadi browser bisa menyajikan
+    # kartu dari cache → kartu ke-2 lahir dengan token yang sama dengan kartu ke-1,
+    # dan keduanya dianggap satu racikan saat disimpan.
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.post("/dokter/_racik-hitung", response_class=HTMLResponse)
+async def dokter_racik_hitung(request: Request, db: DbSession):
+    """Hitung ulang & render ULANG kartu dari isian terkini (derived view)."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    form = await request.form()
+    # Token WAJIB dari query param — body bisa berisi rc_token milik kartu lain.
+    token = (request.query_params.get("tok") or "").strip()
+    if not token:
+        return HTMLResponse("", status_code=400)
+
+    def g(suffix, default=""):
+        return (form.get(f"f_{token}_{suffix}") or default)
+
+    id_racikan = (g("id_racikan") or "").strip()
+    prev_formula = (g("prev_formula") or "").strip()
+    try:
+        unit = int(g("unit", "15") or 15)
+    except (ValueError, TypeError):
+        unit = 15
+    cur = {
+        "id_racikan": id_racikan, "nama": g("nama").strip(),
+        "jenis": (g("jenis", "KAPSUL") or "KAPSUL").upper(),
+        "unit": max(1, unit), "aturan": g("aturan").strip(),
+    }
+
+    svc = RacikanService(db)
+
+    # Formula baru dipilih → muat komposisinya (menimpa isian bahan saat ini).
+    if id_racikan and id_racikan != prev_formula:
+        try:
+            f = svc.get_formula(int(id_racikan))
+            cur["nama"] = f.nama
+            cur["jenis"] = f.jenis_racik
+            cur["unit"] = f.default_jumlah_unit or cur["unit"]
+            cur["aturan"] = f.default_aturan_pakai or cur["aturan"]
+            bahan_rows = [
+                {"id_produk": str(b.id_produk), "dosis": float(b.dosis_per_unit), "satuan": b.satuan_dosis}
+                for b in svc.list_bahan(f.id_racikan)
+            ]
+        except HTTPException:
+            bahan_rows = []
+    else:
+        produk_l = form.getlist(f"b_{token}_produk")
+        dosis_l = form.getlist(f"b_{token}_dosis")
+        satuan_l = form.getlist(f"b_{token}_satuan")
+        bahan_rows = []
+        for i, pid in enumerate(produk_l):
+            if not str(pid).strip():
+                continue   # baris kosong diabaikan; template selalu menambah satu baris kosong
+            bahan_rows.append({
+                "id_produk": str(pid).strip(),
+                "dosis": (dosis_l[i] if i < len(dosis_l) else ""),
+                "satuan": (satuan_l[i] if i < len(satuan_l) else "mg"),
+            })
+
+    return templates.TemplateResponse(request, "_racik_card.html", _racik_ctx(db, token, cur, bahan_rows))
 
 
 @router.get("/dokter/_paket-apply", response_class=HTMLResponse)
@@ -571,6 +666,52 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
             })
         # Selalu simpan (replace) — supaya penghapusan semua diagnosa di mode ubah ikut tersimpan.
         _primary_kontrol = DiagnosaService(db).save_kunjungan_diagnosa(id_kunjungan, _dx_entries)
+
+        # Racikan (Fase 2) — snapshot harga dikunci di sini; kasir tidak menghitung ulang.
+        _racikan_list = []
+        _seen_tokens = set()
+        for _t in form_data.getlist("rc_token"):
+            _t = (_t or "").strip()
+            if not _t or _t in _seen_tokens:
+                continue  # token kembar → kartunya sama, jangan dihitung dua kali
+            _seen_tokens.add(_t)
+            _pl = form_data.getlist(f"b_{_t}_produk")
+            _dl = form_data.getlist(f"b_{_t}_dosis")
+            _sl = form_data.getlist(f"b_{_t}_satuan")
+            _bahan = []
+            for _i, _pid in enumerate(_pl):
+                if not str(_pid).strip():
+                    continue
+                try:
+                    _idp = int(_pid)
+                except (ValueError, TypeError):
+                    continue
+                try:
+                    _dos = float(_dl[_i]) if _i < len(_dl) and str(_dl[_i]).strip() else 0
+                except (ValueError, TypeError):
+                    _dos = 0
+                if _dos <= 0:
+                    continue
+                _bahan.append({
+                    "id_produk": _idp, "dosis": _dos,
+                    "satuan": (_sl[_i] if _i < len(_sl) else "mg") or "mg",
+                })
+            if not _bahan:
+                continue
+            try:
+                _unit = int(form_data.get(f"f_{_t}_unit") or 1)
+            except (ValueError, TypeError):
+                _unit = 1
+            _idr = (form_data.get(f"f_{_t}_id_racikan") or "").strip()
+            _racikan_list.append({
+                "id_racikan": int(_idr) if _idr.isdigit() else None,
+                "nama": (form_data.get(f"f_{_t}_nama") or "").strip() or "Racikan",
+                "jenis_racik": (form_data.get(f"f_{_t}_jenis") or "KAPSUL").upper(),
+                "jumlah_unit": max(1, _unit),
+                "aturan_pakai": (form_data.get(f"f_{_t}_aturan") or "").strip() or None,
+                "bahan": _bahan,
+            })
+        RacikanService(db).save_kunjungan_racikan(id_kunjungan, _racikan_list)
         # Auto-fill tgl kontrol dari diagnosa primer bila dokter tidak mengisi manual
         if _tgl_kontrol is None and _primary_kontrol:
             from datetime import timedelta as _td
@@ -584,6 +725,10 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
         FollowupService(db).generate_for_kunjungan(id_kunjungan, commit=False)
         db.commit()
     except Exception:
+        import logging as _lg
+        _lg.getLogger("sehati.racik").exception(
+            "GAGAL simpan blok kontrol/diagnosa/racikan untuk kunjungan=%s", id_kunjungan
+        )
         db.rollback()
 
     return RedirectResponse(url="/web/dokter/antrian", status_code=status.HTTP_303_SEE_OTHER)

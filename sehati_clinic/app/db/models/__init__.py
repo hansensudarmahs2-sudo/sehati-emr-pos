@@ -121,6 +121,8 @@ from app.db.models.diagnosa import (
 
 # Models — racikan (Formula + biaya racik, Fase 1)
 from app.db.models.racikan import (
+    KunjunganRacikan,
+    KunjunganRacikanBahan,
     MasterBiayaRacik,
     MasterRacikan,
     MasterRacikanBahan,
@@ -222,4 +224,6 @@ __all__ = [
     "MasterBiayaRacik",
     "MasterRacikan",
     "MasterRacikanBahan",
+    "KunjunganRacikan",
+    "KunjunganRacikanBahan",
 ]
