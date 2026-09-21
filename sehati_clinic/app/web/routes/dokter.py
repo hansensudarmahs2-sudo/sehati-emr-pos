@@ -478,10 +478,13 @@ async def dokter_racik_hitung(request: Request, db: DbSession):
         unit = int(g("unit", "15") or 15)
     except (ValueError, TypeError):
         unit = 15
+    _jenis = (g("jenis", "KAPSUL") or "KAPSUL").upper()
     cur = {
         "id_racikan": id_racikan, "nama": g("nama").strip(),
-        "jenis": (g("jenis", "KAPSUL") or "KAPSUL").upper(),
-        "unit": max(1, unit), "aturan": g("aturan").strip(),
+        "jenis": _jenis,
+        # KRIM: dokter menulis TOTAL gram per pot, tidak ada pengali unit.
+        "unit": 1 if _jenis == "KRIM" else max(1, unit),
+        "aturan": g("aturan").strip(),
     }
 
     svc = RacikanService(db)

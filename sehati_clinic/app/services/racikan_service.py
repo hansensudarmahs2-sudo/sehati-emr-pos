@@ -184,7 +184,12 @@ class RacikanService:
         bahan_spec: [{id_produk, dosis, satuan}] — satuan gr/g/ml → mode GRAM (pro-rata),
         selain itu mode MG (butir dibulatkan KE ATAS).
         """
-        n = max(1, int(jumlah_unit or 1))
+        jenis_awal = (jenis_racik or "").upper()
+        # KRIM tidak punya konsep "butir": yang ditulis dokter adalah TOTAL gram dalam
+        # satu pot, jadi tidak boleh dikalikan jumlah unit. Sebelumnya kartu memberi
+        # default 15 (warisan kapsul) → menulis 8 gram menghasilkan 120 gram dan tagihan
+        # membengkak 15x tanpa tanda apa pun. Keputusan dr. Hansen 2026-09-21.
+        n = 1 if jenis_awal == "KRIM" else max(1, int(jumlah_unit or 1))
         rincian, subtotal, masalah = [], Decimal("0"), []
 
         for b in bahan_spec:
@@ -221,6 +226,19 @@ class RacikanService:
                 harga_per_satuan = harga_jual
                 sub = _rp(dipakai * harga_jual)
                 basis = f"{kekuatan} {produk.kekuatan_satuan or 'mg'}/butir"
+
+            # Pagar kewajaran — memperingatkan, TIDAK memblokir (pola sama dengan
+            # peringatan stok minus). Tujuannya menangkap salah ketik sebelum jadi tagihan.
+            if satuan in _SATUAN_GRAM and dipakai > Decimal("50"):
+                masalah.append(
+                    f"{produk.nama_produk}: {dipakai:g} gram — lebih dari satu pot biasa. "
+                    f"Pastikan ini benar."
+                )
+            elif satuan not in _SATUAN_GRAM and dipakai > Decimal("200"):
+                masalah.append(
+                    f"{produk.nama_produk}: {dipakai:g} butir — jumlah tidak biasa. "
+                    f"Pastikan ini benar."
+                )
 
             subtotal += sub
             rincian.append({

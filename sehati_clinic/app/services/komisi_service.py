@@ -9,8 +9,14 @@ Prinsip:
   * TINDAKAN → komisi_dokter ke `kunjungan_tindakan.id_dokter_pelaksana`,
                komisi_perawat ke `kunjungan_tindakan.id_perawat_pelaksana`.
                Rate 0 / pelaksana kosong → tak ada baris untuk role itu.
-  * PRODUK   → komisi_dokter ke dokter yang di-assign kunjungan (peresep).
-               "Beli tanpa konsul" (tanpa dokter) → tanpa komisi.
+  * PRODUK & RACIKAN → komisi_dokter ke dokter yang di-assign kunjungan (peresep);
+               kalau kunjungan TIDAK di-assign, FALLBACK ke dokter penulis SOAP pertama
+               (2026-09-21, task #52). Aman karena `input_medis_lengkap` memblokir dokter
+               lain menulis SOAP milik kunjungan yang sudah di-assign — jadi saat assigned
+               terisi, orangnya sama; saat NULL, penulis SOAP adalah satu-satunya atribusi
+               yang bermakna. SEBELUMNYA: assigned NULL → komisi produk & racikan TIDAK
+               ditulis sama sekali, tanpa peringatan di mana pun (kebocoran senyap).
+               "Beli tanpa konsul" (tanpa kunjungan/SOAP sama sekali) → tetap tanpa komisi.
 - Basis komisi = harga MASTER (treatment.harga / produk.harga_jual) → NOMINAL flat dibayar konsisten,
   PERSEN = % harga master (independen diskon/kuota). (Bisa disesuaikan bila dr. Hansen mau basis lain.)
 - Basis tanggal = tanggal bayar. VOID transaksi → baris komisi status VOID.
@@ -59,6 +65,24 @@ class KomisiService:
         + produk yang dibayar. Opsi A (DEC-088). Return jumlah baris ditulis."""
         tgl = tanggal or date.today()
         n = 0
+
+        # Task #52 — dokter efektif untuk komisi PRODUK & RACIKAN.
+        # Kalau FO tidak menetapkan dokter di pendaftaran (default dropdown = "Bebas"),
+        # komisi dulu hilang sama sekali. Sekarang jatuh ke dokter penulis SOAP PERTAMA
+        # (yang benar-benar mengerjakan konsul); revisi SOAP berikutnya tidak memindahkan
+        # komisi ke orang lain.
+        id_dokter_komisi = id_dokter_assigned
+        if not id_dokter_komisi:
+            from app.db.models import PemeriksaanKlinis as _PK
+            id_dokter_komisi = self.db.execute(
+                select(_PK.id_staf_dokter)
+                .where(
+                    _PK.id_kunjungan == id_kunjungan,
+                    _PK.id_staf_dokter.is_not(None),
+                )
+                .order_by(_PK.id_pemeriksaan.asc())
+                .limit(1)
+            ).scalar_one_or_none()
 
         # ---- TINDAKAN (semua SELESAI di kunjungan, bukan hanya yang ditagih) ----
         tindakan_rows = self.db.execute(
@@ -109,8 +133,8 @@ class KomisiService:
                 )
                 n += 1
 
-        # ---- PRODUK ---- (komisi_dokter → dokter peresep = dokter assigned kunjungan)
-        if id_dokter_assigned:
+        # ---- PRODUK ---- (komisi_dokter → dokter peresep; lihat id_dokter_komisi di atas)
+        if id_dokter_komisi:
             for rp in (rincian_produk or []):
                 produk = self.db.get(MasterProduk, rp.id_produk)
                 if produk is None:
@@ -122,7 +146,7 @@ class KomisiService:
                 if kom_total > 0:
                     self._add_row(
                         id_transaksi=id_transaksi, id_kunjungan=id_kunjungan, id_pasien=id_pasien,
-                        tanggal=tgl, id_staf=id_dokter_assigned, role="DOKTER", sumber="PRODUK",
+                        tanggal=tgl, id_staf=id_dokter_komisi, role="DOKTER", sumber="PRODUK",
                         id_ref=getattr(rp, "id_resep", None) or rp.id_produk,
                         nama_item=getattr(rp, "nama_produk", None) or produk.nama_produk,
                         harga_jual=float(getattr(rp, "harga_satuan", 0) or 0),
@@ -135,7 +159,7 @@ class KomisiService:
         # ---- RACIKAN ---- komisi dihitung dari BAHAN saja; ongkos racik (jasa) TIDAK
         # masuk dasar komisi (keputusan dr. Hansen 2026-09-21). Tiap bahan memakai
         # aturan komisi produknya sendiri, persis seperti resep biasa.
-        if id_dokter_assigned:
+        if id_dokter_komisi:
             for rr in (rincian_racikan or []):
                 for bahan in (getattr(rr, "bahan", None) or []):
                     if not getattr(bahan, "id_produk", None):
@@ -150,7 +174,7 @@ class KomisiService:
                     if kom_total > 0:
                         self._add_row(
                             id_transaksi=id_transaksi, id_kunjungan=id_kunjungan,
-                            id_pasien=id_pasien, tanggal=tgl, id_staf=id_dokter_assigned,
+                            id_pasien=id_pasien, tanggal=tgl, id_staf=id_dokter_komisi,
                             role="DOKTER", sumber="RACIKAN",
                             id_ref=rr.id_kunjungan_racikan,
                             nama_item=f"{rr.nama} — {bahan.nama}",

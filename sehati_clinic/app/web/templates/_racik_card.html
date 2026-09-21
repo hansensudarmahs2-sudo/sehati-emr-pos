@@ -70,11 +70,22 @@
                 {% endfor %}
             </select>
         </div>
+        {# KRIM tidak punya "butir": dokter menulis TOTAL gram per pot, jadi pengali unit
+           disembunyikan & dikunci 1. Kalau ditampilkan (default lama 15), menulis 8 gram
+           diam-diam jadi 120 gram. #}
+        {% if cur.jenis == 'KRIM' %}
+        <input type="hidden" name="f_{{ token }}_unit" value="1">
+        <div style="grid-column:span 2">
+            <label>Jumlah</label>
+            <div style="font-size:12px;color:#475569;padding:6px 0">1 pot</div>
+        </div>
+        {% else %}
         <div style="grid-column:span 2">
             <label>Jumlah unit</label>
             <input type="number" name="f_{{ token }}_unit" min="1" max="500" class="racik-in"
                    value="{{ cur.unit or 15 }}">
         </div>
+        {% endif %}
         <div style="grid-column:span 12">
             <label>Aturan pakai</label>
             <input type="text" name="f_{{ token }}_aturan" maxlength="100" class="racik-in"
@@ -90,7 +101,7 @@
         <thead>
             <tr>
                 <th style="width:42%">Bahan</th>
-                <th style="width:12%">Dosis/unit</th>
+                <th style="width:12%">{% if cur.jenis == 'KRIM' %}Gram{% else %}Dosis/unit{% endif %}</th>
                 <th style="width:10%">Satuan</th>
                 <th style="width:16%">Dipakai</th>
                 <th style="width:15%">Subtotal</th>
@@ -161,8 +172,12 @@
     <div class="racik-sum">
         <div><span style="color:#475569">Subtotal bahan</span><span>Rp {{ "{:,.0f}".format(hitung.subtotal_bahan).replace(",", ".") }}</span></div>
         <div><span style="color:#475569">Ongkos racik ({{ hitung.jenis_racik }}, flat)</span><span>Rp {{ "{:,.0f}".format(hitung.biaya_racik).replace(",", ".") }}</span></div>
+        {% if cur.jenis == 'KRIM' %}
+        <div class="racik-total"><span>TOTAL 1 pot</span><span>Rp {{ "{:,.0f}".format(hitung.total).replace(",", ".") }}</span></div>
+        {% else %}
         <div class="racik-total"><span>TOTAL {{ hitung.jumlah_unit }} unit</span><span>Rp {{ "{:,.0f}".format(hitung.total).replace(",", ".") }}</span></div>
         <div style="font-size:11px;color:#64748b"><span>≈ per unit</span><span>Rp {{ "{:,.0f}".format(hitung.per_unit).replace(",", ".") }}</span></div>
+        {% endif %}
     </div>
 </div>
 
