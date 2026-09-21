@@ -18,12 +18,14 @@
         {# Dropdown produk #}
         <div class="md:col-span-4 produk-panel">
             <label class="block text-xs font-medium text-slate-600 mb-1">Produk</label>
-            <select name="id_produk" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            <select name="id_produk" class="searchable-dropdown w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+                    data-placeholder="Cari kode / nama / merk / kandungan...">
                 <option value="">— pilih —</option>
                 {% for p in master_produk %}
                 <option value="{{ p.id_produk }}" data-satuan="{{ p.satuan or '' }}"
+                        data-kandungan="{{ p.kandungan or '' }}" data-golongan="{{ p.golongan or '' }}"
                         {% if pf and pf.id_produk == p.id_produk %}selected{% endif %}>
-                    {{ p.kode_produk }}{% if p.nama_dagang %} · {{ p.nama_dagang }}{% else %} — {{ p.nama_produk }}{% endif %} [{{ p.tipe_produk }}]
+                    {{ p.kode_produk }}{% if p.nama_dagang %} · {{ p.nama_dagang }}{% else %} — {{ p.nama_produk }}{% endif %} [{{ p.tipe_produk }}]{% if p.kandungan %} · {{ p.kandungan }}{% endif %}
                 </option>
                 {% endfor %}
             </select>
@@ -33,7 +35,8 @@
         {% if not is_apoteker %}
         <div class="md:col-span-4 bahan-panel hidden">
             <label class="block text-xs font-medium text-slate-600 mb-1">Bahan</label>
-            <select name="id_bahan" class="w-full px-2 py-1.5 text-sm border border-slate-300 rounded">
+            <select name="id_bahan" class="searchable-dropdown w-full px-2 py-1.5 text-sm border border-slate-300 rounded"
+                    data-placeholder="Cari bahan...">
                 <option value="">— pilih —</option>
                 {% for b in master_bahan %}
                 <option value="{{ b.id_bahan }}" data-satuan="{{ b.satuan_pembelian or b.satuan }}">

@@ -201,6 +201,32 @@
                 </div>
                 {% endif %}
 
+                {% if items_racikan %}
+                <div class="border-t-2 border-indigo-300 pt-3">
+                    <label class="block text-sm font-bold text-indigo-900 mb-2">
+                        ⚗️ Reverse Stok BAHAN Racikan?
+                        <span class="block text-xs text-slate-600 font-normal mt-0.5">
+                            Centang hanya kalau racikan <b>belum diracik</b> — bahannya masih utuh di rak.
+                        </span>
+                    </label>
+                    <div class="space-y-1 bg-indigo-50 border border-indigo-200 p-3 rounded-lg max-h-40 overflow-y-auto">
+                        {% for r in items_racikan %}
+                        <label class="flex items-start gap-2 text-sm cursor-pointer hover:bg-indigo-100 p-1 rounded">
+                            <input type="checkbox" name="items_reverse_stok_list" value="RCK:{{ r.id_kunjungan_racikan }}"
+                                   class="rounded text-emerald-600 focus:ring-emerald-500 mt-0.5">
+                            <span class="flex-1">
+                                <b>{{ r.nama }}</b> <span class="text-xs text-slate-500">({{ r.jumlah_unit }} unit)</span>
+                                <span class="block text-xs text-slate-500">{{ r.bahan|join(" · ") }}</span>
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <p class="text-xs text-amber-700 mt-1">
+                        ⚠ Kalau sudah digerus/dicampur, JANGAN centang — bahan tidak bisa kembali ke stok.
+                    </p>
+                </div>
+                {% endif %}
+
                 <input type="hidden" name="items_reverse_stok" id="hidden-reverse-list" value="">
             </div>
 
@@ -259,7 +285,29 @@
             return false;
         }
         syncReverseList(form);
-        window.appConfirm('PERHATIAN: Void transaksi ini TIDAK BISA dibatalkan setelah submit.\n\nLanjutkan?').then(function(ok){
+
+        // Peringatan kalau ADA item yang bisa dikembalikan tapi TIDAK ADA yang dicentang.
+        // Tanpa ini, kotak centang kecil yang terlewat = stok tidak pernah kembali,
+        // dan tidak ada satu pun tanda di layar bahwa itu terjadi.
+        var semua = form.querySelectorAll('input[name="items_reverse_stok_list"]');
+        var dicentang = form.querySelectorAll('input[name="items_reverse_stok_list"]:checked');
+        var pesan = 'PERHATIAN: Void transaksi ini TIDAK BISA dibatalkan setelah submit.\n\n';
+        if (semua.length > 0 && dicentang.length === 0) {
+            var daftar = Array.from(semua).map(function(c) {
+                var t = c.closest('label');
+                return '• ' + (t ? t.innerText.split('\n')[0].trim() : c.value);
+            }).join('\n');
+            pesan += 'TIDAK ADA stok yang akan dikembalikan.\n\n'
+                   + 'Item berikut tetap terpotong dari stok:\n' + daftar + '\n\n'
+                   + 'Kalau barang/bahannya masih utuh dan seharusnya kembali ke stok, '
+                   + 'BATALKAN lalu centang dulu.\n\nTetap lanjutkan void tanpa mengembalikan stok?';
+        } else if (dicentang.length > 0) {
+            pesan += dicentang.length + ' item akan DIKEMBALIKAN ke stok.\n\nLanjutkan?';
+        } else {
+            pesan += 'Lanjutkan?';
+        }
+
+        window.appConfirm(pesan).then(function(ok){
             if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
         });
         return false;

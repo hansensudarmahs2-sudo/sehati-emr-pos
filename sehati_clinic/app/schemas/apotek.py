@@ -61,6 +61,31 @@ class ResepDetailItem(BaseModel):
     stok_cukup: bool = True                  # qty <= stok_terkini
 
 
+class RacikanBahanDetailItem(BaseModel):
+    """1 bahan di dalam racikan — inilah yang benar-benar dipotong dari stok."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id_produk: Optional[int] = None           # NULL = bahan non-inventori (tidak dipotong)
+    nama: str
+    dipakai: float                            # butir (mode MG, sudah CEIL) / gram (GRAM)
+    satuan_dipakai: str
+    stok_terkini: Optional[float] = None
+    stok_cukup: bool = True
+
+
+class RacikanDetailItem(BaseModel):
+    """1 racikan yang harus diracik & diserahkan apoteker."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id_kunjungan_racikan: int
+    nama: str
+    jenis_racik: str
+    jumlah_unit: int
+    aturan_pakai: Optional[str] = None
+    status_item: Optional[str] = None         # PENDING / DIBAYAR / BATAL
+    bahan: list[RacikanBahanDetailItem] = Field(default_factory=list)
+
+
 class DetailResepResponse(BaseModel):
     status: str = "success"
     id_kunjungan: int
@@ -68,7 +93,8 @@ class DetailResepResponse(BaseModel):
     no_rm: str
     nama_pasien: str
     daftar_obat: list[ResepDetailItem] = Field(default_factory=list)
-    total_item: int = 0
+    daftar_racikan: list[RacikanDetailItem] = Field(default_factory=list)
+    total_item: int = 0                       # produk + racikan
     semua_stok_cukup: bool = True            # quick flag — kalau false, apoteker hati2
 
 
@@ -153,6 +179,7 @@ class SuggestedOrderResponse(BaseModel):
 __all__ = [
     "AntrianApotekItem", "AntrianApotekResponse",
     "ResepDetailItem", "DetailResepResponse",
+    "RacikanDetailItem", "RacikanBahanDetailItem",
     "SerahkanObatRequest", "StokPotongItem", "SerahkanObatResponse",
     "WriteOffProdukRequest", "WriteOffProdukResponse",
     "SuggestedOrderItem", "SuggestedOrderResponse",

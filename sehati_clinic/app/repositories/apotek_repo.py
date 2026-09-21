@@ -52,6 +52,8 @@ class ApotekRepository:
         )
         rows = self.db.execute(stmt).all()
 
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+
         result = []
         for kunjungan, pasien in rows:
             n_item = self.db.execute(
@@ -59,7 +61,14 @@ class ApotekRepository:
                 .where(KunjunganResep.id_kunjungan == kunjungan.id_kunjungan)
                 .where(KunjunganResep.status_item == "DIBAYAR")
             ).scalar() or 0
-            result.append((kunjungan, pasien, int(n_item)))
+            # Racikan ikut dihitung — kalau tidak, kunjungan berisi racikan saja akan
+            # tampil "0 item" di antrian apotek dan dikira tidak ada yang perlu disiapkan.
+            n_racik = self.db.execute(
+                select(func.count(_KRC.id_kunjungan_racikan))
+                .where(_KRC.id_kunjungan == kunjungan.id_kunjungan)
+                .where(_KRC.status_item == "DIBAYAR")
+            ).scalar() or 0
+            result.append((kunjungan, pasien, int(n_item) + int(n_racik)))
         return result
 
     # =========================================================================
@@ -103,6 +112,36 @@ class ApotekRepository:
             .where(KunjunganResep.status_item == "DIBAYAR")
         )
         return list(self.db.execute(stmt).scalars().all())
+
+    def get_racikan_for_apotek(self, id_kunjungan: int) -> list:
+        """Racikan di kunjungan ini (exclude BATAL) + bahannya.
+
+        Return: list[(KunjunganRacikan, list[KunjunganRacikanBahan])]
+        """
+        from app.db.models.racikan import KunjunganRacikan, KunjunganRacikanBahan
+
+        heads = self.db.execute(
+            select(KunjunganRacikan)
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .where(KunjunganRacikan.status_item != "BATAL")
+            .order_by(KunjunganRacikan.id_kunjungan_racikan.asc())
+        ).scalars().all()
+        out = []
+        for h in heads:
+            bahan = self.db.execute(
+                select(KunjunganRacikanBahan)
+                .where(KunjunganRacikanBahan.id_kunjungan_racikan == h.id_kunjungan_racikan)
+                .order_by(KunjunganRacikanBahan.id_kunjungan_racikan_bahan.asc())
+            ).scalars().all()
+            out.append((h, list(bahan)))
+        return out
+
+    def get_racikan_dibayar_for_serah(self, id_kunjungan: int) -> list:
+        """Racikan DIBAYAR + bahannya — kandidat untuk diracik & diserahkan."""
+        return [
+            (h, b) for (h, b) in self.get_racikan_for_apotek(id_kunjungan)
+            if h.status_item == "DIBAYAR"
+        ]
 
     # =========================================================================
     # STOK PRODUK — get for update (lock) & update

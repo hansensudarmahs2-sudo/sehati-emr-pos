@@ -212,6 +212,25 @@ class PrintService:
                     "subtotal": round(qty * hg, 2),
                 })
 
+            # Fase 3: racikan. Dibaca dari SNAPSHOT transaksi_detail_racikan (bukan dari
+            # kunjungan_racikan) supaya nota lama tetap utuh walau racikannya diubah.
+            # qty=1 karena satu baris = satu racikan utuh; jumlah unit masuk ke label.
+            from app.db.models.racikan import TransaksiDetailRacikan as _TDR
+            _racik_rows = self.db.execute(
+                select(_TDR)
+                .where(_TDR.id_transaksi == trx.id_transaksi)
+                .order_by(_TDR.id_detail_racikan)
+            ).scalars().all()
+            for _dr in _racik_rows:
+                _tot = float(_dr.subtotal_bahan or 0) + float(_dr.biaya_racik or 0)
+                items.append({
+                    "tipe": "RCK",
+                    "label": f"{_dr.nama_snapshot} ({_dr.jenis_racik} {_dr.jumlah_unit} unit)",
+                    "qty": 1,
+                    "harga": _tot,
+                    "subtotal": round(_tot, 2),
+                })
+
         # M2/M3: transaksi MEMBERSHIP -> baris "Aktivasi Membership <tier>"
         if not items and getattr(trx, "id_membership_aktivasi", None):
             from app.db.models import MasterMembership as _MM_nota

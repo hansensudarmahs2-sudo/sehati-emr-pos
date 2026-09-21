@@ -27,6 +27,7 @@ from app.db.models import (
     StafRoleEnum,
     StatusTransaksiEnum,
     TransaksiDetailProduk,
+    TransaksiDetailRacikan,
     TransaksiKasir,
     TransaksiPembayaran,
     VoidApprovalMethodEnum,
@@ -44,6 +45,8 @@ from app.schemas.kasir import (
     RekapShiftItem,
     RekapShiftResponse,
     RincianProduk,
+    RincianRacikan,
+    RincianRacikanBahan,
     RincianTindakan,
     RingkasanBiaya,
     RiwayatBayarItem,
@@ -213,6 +216,30 @@ class KasirService:
         # ===== Query ALL items =====
         all_tindakan = self.repo.get_tindakan_selesai_for_billing(id_kunjungan)
         all_resep_pending = self.repo.get_resep_pending_for_billing(id_kunjungan)
+        all_racikan_pending = self.repo.get_racikan_pending_for_billing(id_kunjungan)
+
+        def _to_rincian_racikan(h, bahan_rows) -> RincianRacikan:
+            """KunjunganRacikan + bahannya → baris tagihan. Harga TIDAK dihitung ulang."""
+            return RincianRacikan(
+                id_kunjungan_racikan=h.id_kunjungan_racikan,
+                nama=h.nama_snapshot,
+                jenis_racik=h.jenis_racik,
+                jumlah_unit=int(h.jumlah_unit or 0),
+                aturan_pakai=h.aturan_pakai,
+                subtotal_bahan=Decimal(str(h.subtotal_bahan or 0)),
+                biaya_racik=Decimal(str(h.biaya_racik or 0)),
+                total=Decimal(str(h.total or 0)),
+                status_item=h.status_item,
+                bahan=[
+                    RincianRacikanBahan(
+                        id_produk=b.id_produk,
+                        nama=b.nama_snapshot,
+                        dipakai=float(b.dipakai or 0),
+                        satuan_dipakai=b.satuan_dipakai,
+                    )
+                    for b in bahan_rows
+                ],
+            )
 
         # ===== Detect "new" items (FLOW-D Part B) =====
         if cutoff is not None:
@@ -224,11 +251,21 @@ class KasirService:
                 (r, p) for (r, p) in all_resep_pending
                 if r.waktu_input is not None and r.waktu_input > cutoff
             ]
+            # Racikan tidak punya waktu_input; created_at adalah analognya. Baris yang
+            # sudah DIBAYAR tidak akan muncul di sini (repo hanya ambil PENDING), jadi
+            # tidak ada risiko tertagih ulang.
+            new_racikan = [
+                (h, b) for (h, b) in all_racikan_pending
+                if h.created_at is not None and h.created_at > cutoff
+            ]
         else:
             new_tindakan = all_tindakan
             new_resep = all_resep_pending
+            new_racikan = all_racikan_pending
 
-        has_new_items = (len(new_tindakan) > 0) or (len(new_resep) > 0)
+        has_new_items = (
+            (len(new_tindakan) > 0) or (len(new_resep) > 0) or (len(new_racikan) > 0)
+        )
 
         # ===== VIEW-ONLY MODE (sudah lunas, no new items) =====
         if existing is not None and not has_new_items:
@@ -283,6 +320,28 @@ class KasirService:
                         else str(resep.status_item) if resep.status_item else None
                     ),
                 ))
+            # Racikan untuk tampilan (bukan untuk ditagih ulang): sama polanya dengan
+            # resep — sembunyikan BATAL kecuali transaksinya memang sudah di-void.
+            from app.db.models.racikan import (
+                KunjunganRacikan as _KRC,
+                KunjunganRacikanBahan as _KRCB,
+            )
+            _racik_q = (
+                _sel(_KRC)
+                .where(_KRC.id_kunjungan == id_kunjungan)
+                .order_by(_KRC.id_kunjungan_racikan.asc())
+            )
+            if not _existing_voided:
+                _racik_q = _racik_q.where(_KRC.status_item != "BATAL")
+            rincian_racikan_view: list[RincianRacikan] = []
+            for _h in self.db.execute(_racik_q).scalars().all():
+                _bahan = self.db.execute(
+                    _sel(_KRCB)
+                    .where(_KRCB.id_kunjungan_racikan == _h.id_kunjungan_racikan)
+                    .order_by(_KRCB.id_kunjungan_racikan_bahan.asc())
+                ).scalars().all()
+                rincian_racikan_view.append(_to_rincian_racikan(_h, _bahan))
+
             # Phase 4 (#364): cek apakah transaksi existing sudah di-void.
             is_voided = (
                 getattr(existing, "status_transaksi", "BAYAR") == "VOID"
@@ -329,9 +388,11 @@ class KasirService:
                 ),
                 rincian_tindakan=rincian_tindakan_view,
                 rincian_produk=rincian_produk_view,
+                rincian_racikan=rincian_racikan_view,
                 ringkasan_biaya=RingkasanBiaya(
                     subtotal_tindakan=Decimal("0"),
                     subtotal_produk=Decimal("0"),
+                    subtotal_racikan=Decimal("0"),
                     subtotal=Decimal("0"),
                     persen_diskon_treatment=Decimal("0"),
                     persen_diskon_produk=Decimal("0"),
@@ -377,10 +438,25 @@ class KasirService:
                 ),
             ))
 
+        rincian_racikan: list[RincianRacikan] = []
+        subtotal_racikan = Decimal("0")
+        for _h, _bahan in new_racikan:
+            _row = _to_rincian_racikan(_h, _bahan)
+            subtotal_racikan += _row.total
+            rincian_racikan.append(_row)
+
         diskon = self.membership.get_diskon_for_pasien(pasien.id_pasien)
         nominal_diskon_t = (subtotal_tindakan * diskon.persen_treatment / Decimal("100")).quantize(Decimal("0.01"))
         nominal_diskon_p = (subtotal_produk * diskon.persen_produk / Decimal("100")).quantize(Decimal("0.01"))
-        nominal_diskon_total = nominal_diskon_t + nominal_diskon_p
+        # Racikan memakai PERSEN produk, dikenakan ke SELURUH total racikan —
+        # bahan DAN ongkos racik (keputusan dr. Hansen 2026-09-21).
+        # Dijumlah PER BARIS (bukan dari agregat) supaya angka di ringkasan selalu
+        # sama persis dengan jumlah diskon_item yang disimpan di transaksi_detail_racikan.
+        nominal_diskon_r = sum(
+            (_r.total * diskon.persen_produk / Decimal("100")).quantize(Decimal("0.01"))
+            for _r in rincian_racikan
+        ) or Decimal("0")
+        nominal_diskon_total = nominal_diskon_t + nominal_diskon_p + nominal_diskon_r
 
         # M2: aktivasi membership TIDAK lagi ikut tagihan klinis. Membership kini
         # transaksi berdiri sendiri (jenis=MEMBERSHIP, id_kunjungan=NULL) dibayar
@@ -391,7 +467,7 @@ class KasirService:
         id_mship_pending = None
         id_hist_pending = None
 
-        subtotal = subtotal_tindakan + subtotal_produk
+        subtotal = subtotal_tindakan + subtotal_produk + subtotal_racikan
         total = subtotal - nominal_diskon_total
 
         # Tagihan tambahan: id_transaksi_existing dipopulate utk UI tahu ini reopen
@@ -412,9 +488,11 @@ class KasirService:
             message=msg,
             rincian_tindakan=rincian_tindakan,
             rincian_produk=rincian_produk,
+            rincian_racikan=rincian_racikan,
             ringkasan_biaya=RingkasanBiaya(
                 subtotal_tindakan=subtotal_tindakan,
                 subtotal_produk=subtotal_produk,
+                subtotal_racikan=subtotal_racikan,
                 subtotal_aktivasi_membership=subtotal_aktivasi,
                 nama_tier_aktivasi=nama_tier_pending,
                 id_membership_aktivasi_pending=id_mship_pending,
@@ -424,6 +502,7 @@ class KasirService:
                 persen_diskon_produk=diskon.persen_produk,
                 nominal_diskon_treatment=nominal_diskon_t,
                 nominal_diskon_produk=nominal_diskon_p,
+                nominal_diskon_racikan=nominal_diskon_r,
                 nominal_diskon_total=nominal_diskon_total,
                 total_tagihan=total,
             ),
@@ -569,6 +648,7 @@ class KasirService:
                 rincian_tagihan=(
                     f"Tindakan: {tagihan.ringkasan_biaya.subtotal_tindakan}, "
                     f"Produk: {tagihan.ringkasan_biaya.subtotal_produk}, "
+                    f"Racikan: {tagihan.ringkasan_biaya.subtotal_racikan}, "
                     f"Diskon: {tagihan.ringkasan_biaya.nominal_diskon_total}"
                 ),
                 subtotal=tagihan.ringkasan_biaya.subtotal,
@@ -590,6 +670,27 @@ class KasirService:
                     subtotal=produk_item.subtotal,
                 ))
 
+            # 3b. INSERT detail racikan (tabel SENDIRI — transaksi_detail_produk
+            # tidak muat karena id_produk-nya NOT NULL sedangkan racikan banyak bahan).
+            _persen_racik = Decimal(str(tagihan.ringkasan_biaya.persen_diskon_produk or 0))
+            for racik_item in tagihan.rincian_racikan:
+                _diskon_row = (
+                    Decimal(str(racik_item.total)) * _persen_racik / Decimal("100")
+                ).quantize(Decimal("0.01"))
+                self.db.add(TransaksiDetailRacikan(
+                    id_transaksi=id_trx_baru,
+                    id_kunjungan_racikan=racik_item.id_kunjungan_racikan,
+                    nama_snapshot=racik_item.nama,
+                    jenis_racik=racik_item.jenis_racik,
+                    jumlah_unit=racik_item.jumlah_unit,
+                    subtotal_bahan=racik_item.subtotal_bahan,
+                    biaya_racik=racik_item.biaya_racik,
+                    diskon_item=_diskon_row,
+                    subtotal=Decimal(str(racik_item.total)) - _diskon_row,
+                ))
+            if tagihan.rincian_racikan:
+                self.db.flush()
+
             # 4. INSERT pembayaran (split payment)
             for bayar in payload.pembayaran:
                 self.repo.add_pembayaran(TransaksiPembayaran(
@@ -598,13 +699,22 @@ class KasirService:
                     nominal=bayar.nominal,
                 ))
 
-            # 5. Mark resep DIBAYAR
+            # 5. Mark resep + racikan DIBAYAR
             n_resep_updated = self.repo.mark_resep_dibayar(payload.id_kunjungan)
+            n_racikan_updated = self.repo.mark_racikan_dibayar(
+                payload.id_kunjungan, id_trx_baru
+            )
 
             # 6. Transition status kunjungan
-            # Kalau ada resep → ANTRI_OBAT (lempar ke apotek)
-            # Kalau tidak → COMPLETED (selesai)
-            status_baru = "ANTRI_OBAT" if n_resep_updated > 0 else "COMPLETED"
+            # Ada resep ATAU racikan → ANTRI_OBAT (lempar ke apotek); selain itu COMPLETED.
+            # Racikan WAJIB ikut diperhitungkan: kunjungan yang isinya racikan saja akan
+            # loncat ke COMPLETED tanpa pernah diserahkan, sehingga stok bahan tidak
+            # pernah keluar.
+            status_baru = (
+                "ANTRI_OBAT"
+                if (n_resep_updated > 0 or n_racikan_updated > 0)
+                else "COMPLETED"
+            )
             status_lama = kunjungan.status_antrian if kunjungan else None
             if kunjungan:
                 self.kunjungan_repo.update_status(kunjungan, status_baru)
@@ -642,6 +752,7 @@ class KasirService:
                 id_pasien=kunjungan.id_pasien if kunjungan else None,
                 id_dokter_assigned=kunjungan.id_staf_dokter_assigned if kunjungan else None,
                 rincian_produk=tagihan.rincian_produk,
+                rincian_racikan=tagihan.rincian_racikan,
                 request=request,
             )
 
@@ -929,17 +1040,75 @@ class KasirService:
             return 0
         lot_map = lot_map or {}
 
-        stmt = select(TransaksiDetailProduk).where(
-            TransaksiDetailProduk.id_transaksi == transaksi.id_transaksi,
-            TransaksiDetailProduk.id_detail.in_(items_reverse),
+        # Token ber-namespace supaya produk & racikan tidak saling tertukar:
+        #   "PRD:<id_produk>"            → baris produk di transaksi ini
+        #   "RCK:<id_kunjungan_racikan>" → racikan; yang dikembalikan adalah tiap BAHAN-nya
+        #   "<angka>"                    → legacy = id_detail transaksi_detail_produk
+        # Sebelumnya template mengirim id_resep sementara service memfilter id_detail —
+        # keduanya tidak pernah cocok, jadi reverse stok diam-diam tidak terjadi.
+        from app.db.models.racikan import (
+            KunjunganRacikanBahan as _KRCB,
+            TransaksiDetailRacikan as _TDR,
         )
-        details = list(self.db.execute(stmt).scalars().all())
+
+        jobs = []  # (produk, qty, lot_key, penanda_selesai)
+        legacy_ids, produk_ids, racik_ids = [], [], []
+        for tok in items_reverse:
+            s = str(tok).strip()
+            if s.upper().startswith("PRD:"):
+                try:
+                    produk_ids.append(int(s[4:]))
+                except ValueError:
+                    pass
+            elif s.upper().startswith("RCK:"):
+                try:
+                    racik_ids.append(int(s[4:]))
+                except ValueError:
+                    pass
+            else:
+                try:
+                    legacy_ids.append(int(s))
+                except ValueError:
+                    pass
+
+        _cond = []
+        if legacy_ids:
+            _cond.append(TransaksiDetailProduk.id_detail.in_(legacy_ids))
+        if produk_ids:
+            _cond.append(TransaksiDetailProduk.id_produk.in_(produk_ids))
+        if _cond:
+            from sqlalchemy import or_ as _or
+            for detail in self.db.execute(
+                select(TransaksiDetailProduk).where(
+                    TransaksiDetailProduk.id_transaksi == transaksi.id_transaksi,
+                    _or(*_cond),
+                )
+            ).scalars().all():
+                _p = self.db.get(MasterProduk, detail.id_produk)
+                if _p is None:
+                    continue
+                jobs.append((_p, float(detail.qty), detail.id_detail, detail))
+
+        for _dr in (self.db.execute(
+            select(_TDR).where(
+                _TDR.id_transaksi == transaksi.id_transaksi,
+                _TDR.id_kunjungan_racikan.in_(racik_ids),
+            )
+        ).scalars().all() if racik_ids else []):
+            for _b in self.db.execute(
+                select(_KRCB).where(
+                    _KRCB.id_kunjungan_racikan == _dr.id_kunjungan_racikan)
+            ).scalars().all():
+                if not _b.id_produk:
+                    continue
+                _pb = self.db.get(MasterProduk, _b.id_produk)
+                if _pb is None or float(_b.dipakai or 0) <= 0:
+                    continue
+                jobs.append((_pb, float(_b.dipakai), f"RCK:{_dr.id_kunjungan_racikan}", _dr))
+
         reversed_count = 0
-        for detail in details:
-            produk = self.db.get(MasterProduk, detail.id_produk)
-            if produk is None:
-                continue
-            qty = float(detail.qty)
+        for produk, qty, lot_key, _marker in jobs:
+            detail = _marker  # penanda void_reverse_stok (produk maupun racikan)
             old_stok = float(produk.stok_terkini or 0)
             new_stok = old_stok + qty
             produk.stok_terkini = new_stok
@@ -984,7 +1153,7 @@ class KasirService:
             else:
                 # Sisa (atau seluruhnya bila tak ada jejak) → jalur lama: lot pilihan / VOID-RETURN.
                 sisa_qty = remaining if restored else qty
-                id_lot_sel = lot_map.get(detail.id_detail)
+                id_lot_sel = lot_map.get(lot_key)
                 lot = self.db.get(StokLot, id_lot_sel) if id_lot_sel else None
                 _prefix = ("; ".join(restored) + "; ") if restored else ""
                 if lot is not None and lot.tipe_item == "PRODUK" and lot.id_produk == produk.id_produk:
@@ -1064,6 +1233,31 @@ class KasirService:
             )
             cancelled_resep += 1
 
+        # Cascade 1b: racikan DIBAYAR -> BATAL (sejajar resep; apoteker tidak perlu meracik)
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+        cancelled_racikan = 0
+        for _rc in self.db.execute(
+            select(_KRC).where(
+                _KRC.id_kunjungan == id_kunjungan,
+                _KRC.status_item == "DIBAYAR",
+            )
+        ).scalars().all():
+            _old = _rc.status_item
+            _rc.status_item = "BATAL"
+            self.audit.log(
+                aksi="VOID_RACIKAN_CASCADE",
+                id_staf=actor_id_staf,
+                tabel_target="kunjungan_racikan",
+                id_target=_rc.id_kunjungan_racikan,
+                data_lama={"status_item": _old},
+                data_baru={
+                    "status_item": "BATAL",
+                    "trigger": f"void_transaksi_kunjungan_{id_kunjungan}",
+                },
+                request=request,
+            )
+            cancelled_racikan += 1
+
         # Cascade 2: kunjungan ANTRI_OBAT/ANTRI_BAYAR -> COMPLETED
         kunjungan = self.db.get(Kunjungan, id_kunjungan)
         kunjungan_advanced = False
@@ -1081,7 +1275,11 @@ class KasirService:
             )
             kunjungan_advanced = True
 
-        return {"cancelled_resep": cancelled_resep, "kunjungan_advanced": kunjungan_advanced}
+        return {
+            "cancelled_resep": cancelled_resep,
+            "cancelled_racikan": cancelled_racikan,
+            "kunjungan_advanced": kunjungan_advanced,
+        }
 
     def _revert_kuota_per_tindakan(self, id_kunjungan, actor_id_staf, request):
         """Phase 3 (DEC-067 outstanding): saat void transaksi, kembalikan kuota

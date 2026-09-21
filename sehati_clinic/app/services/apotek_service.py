@@ -20,6 +20,8 @@ from app.schemas.apotek import (
     AntrianApotekItem,
     AntrianApotekResponse,
     DetailResepResponse,
+    RacikanBahanDetailItem,
+    RacikanDetailItem,
     ResepDetailItem,
     SerahkanObatRequest,
     StokPotongItem,
@@ -100,13 +102,47 @@ class ApotekService:
                 stok_cukup=stok_cukup,
             ))
 
+        # Racikan: stok yang dicek adalah stok tiap BAHAN, bukan "produk racikan".
+        racikan_items: list[RacikanDetailItem] = []
+        for head, bahan_rows in self.repo.get_racikan_for_apotek(id_kunjungan):
+            bahan_out: list[RacikanBahanDetailItem] = []
+            for b in bahan_rows:
+                _stok = None
+                _cukup = True
+                if b.id_produk:
+                    from app.db.models import MasterProduk as _MPro
+                    _p = self.db.get(_MPro, b.id_produk)
+                    if _p is not None:
+                        _stok = float(_p.stok_terkini or 0)
+                        _cukup = float(b.dipakai or 0) <= _stok
+                        if not _cukup:
+                            semua_cukup = False
+                bahan_out.append(RacikanBahanDetailItem(
+                    id_produk=b.id_produk,
+                    nama=b.nama_snapshot,
+                    dipakai=float(b.dipakai or 0),
+                    satuan_dipakai=b.satuan_dipakai,
+                    stok_terkini=_stok,
+                    stok_cukup=_cukup,
+                ))
+            racikan_items.append(RacikanDetailItem(
+                id_kunjungan_racikan=head.id_kunjungan_racikan,
+                nama=head.nama_snapshot,
+                jenis_racik=head.jenis_racik,
+                jumlah_unit=int(head.jumlah_unit or 0),
+                aturan_pakai=head.aturan_pakai,
+                status_item=head.status_item,
+                bahan=bahan_out,
+            ))
+
         return DetailResepResponse(
             id_kunjungan=id_kunjungan,
             id_pasien=pasien.id_pasien,
             no_rm=pasien.no_rm,
             nama_pasien=pasien.nama,
             daftar_obat=items,
-            total_item=len(items),
+            daftar_racikan=racikan_items,
+            total_item=len(items) + len(racikan_items),
             semua_stok_cukup=semua_cukup,
         )
 
@@ -153,6 +189,10 @@ class ApotekService:
                 .where(_KR.id_kunjungan == kj.id_kunjungan, _KR.status_item == "DIBAYAR")
             ).all()
             obat = [f"{mp.nama_produk} x{float(kr.qty or 0):g}" for kr, mp in resep]
+            # Racikan ikut ditampilkan — kunjungan yang isinya racikan saja tetap perlu
+            # terlihat di daftar Obat Tertunda.
+            for _h, _bh in self.repo.get_racikan_dibayar_for_serah(kj.id_kunjungan):
+                obat.append(f"⚗️ {_h.nama_snapshot} x{int(_h.jumlah_unit or 0)} unit")
             out.append({
                 "id_kunjungan": kj.id_kunjungan,
                 "id_pasien": kj.id_pasien,
@@ -190,8 +230,12 @@ class ApotekService:
         if tgl_janji_kirim is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tanggal janji kirim/ambil WAJIB diisi.")
         resep_list = self.repo.get_resep_dibayar_for_serah(id_kunjungan)
-        if not resep_list:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tidak ada resep DIBAYAR untuk ditunda.")
+        racikan_list = self.repo.get_racikan_dibayar_for_serah(id_kunjungan)
+        if not resep_list and not racikan_list:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Tidak ada resep atau racikan DIBAYAR untuk ditunda.",
+            )
 
         kunjungan.tgl_janji_kirim = tgl_janji_kirim
         kunjungan.catatan_kirim = (catatan or None)
@@ -203,7 +247,10 @@ class ApotekService:
             id_target=id_kunjungan,
             data_lama={"status_antrian": "ANTRI_OBAT"},
             data_baru={"status_antrian": "COMPLETED", "tgl_janji_kirim": str(tgl_janji_kirim)},
-            keterangan=f"Obat ditunda (kirim/ambil {tgl_janji_kirim}). {len(resep_list)} item. Stok belum dipotong.",
+            keterangan=(
+                f"Obat ditunda (kirim/ambil {tgl_janji_kirim}). "
+                f"{len(resep_list)} resep + {len(racikan_list)} racikan. Stok belum dipotong."
+            ),
             request=request,
         )
         self.db.commit()
@@ -239,12 +286,13 @@ class ApotekService:
                 ),
             )
 
-        # 2. Ambil daftar resep DIBAYAR (yang siap diserahkan)
+        # 2. Ambil daftar resep + racikan DIBAYAR (yang siap diserahkan)
         resep_list = self.repo.get_resep_dibayar_for_serah(payload.id_kunjungan)
-        if not resep_list:
+        racikan_list = self.repo.get_racikan_dibayar_for_serah(payload.id_kunjungan)
+        if not resep_list and not racikan_list:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Tidak ada resep DIBAYAR di kunjungan ini untuk diserahkan.",
+                detail="Tidak ada resep atau racikan DIBAYAR di kunjungan ini untuk diserahkan.",
             )
 
         try:
@@ -283,6 +331,50 @@ class ApotekService:
                     stok_sebelum=stok_sebelum,
                     stok_sesudah=stok_sesudah,
                 ))
+
+            # 3b. Potong stok BAHAN racikan. Yang dipotong = kolom `dipakai` hasil
+            # kalkulator (butir sudah CEIL untuk mode MG, gram pro-rata untuk mode GRAM),
+            # BUKAN dosis resep. Jalurnya sama persis dengan produk: lock → kurangi stok
+            # → FEFO → catat jejak lot, supaya void bisa mengembalikannya ke lot asli.
+            for _head, _bahan_rows in racikan_list:
+                for _b in _bahan_rows:
+                    if not _b.id_produk:
+                        continue  # bahan non-inventori — tidak ada stok yang dipotong
+                    _qty_b = float(_b.dipakai or 0)
+                    if _qty_b <= 0:
+                        continue
+                    _produk_b = self.repo.get_produk_for_update(_b.id_produk)
+                    if _produk_b is None:
+                        continue
+                    _stok_sebelum_b = float(_produk_b.stok_terkini or 0)
+                    _stok_sesudah_b = self.repo.update_stok_produk(_produk_b, delta=-_qty_b)
+                    if _stok_sesudah_b < 0:
+                        shortfall_warnings.append(
+                            f"{_produk_b.nama_produk} (racikan {_head.nama_snapshot}): "
+                            f"stok jadi minus ({_stok_sesudah_b:g})"
+                        )
+                    _fefo_b = _lot_svc.consume_fefo(
+                        tipe_item="PRODUK", lokasi="RETAIL",
+                        qty=_qty_b, id_produk=_produk_b.id_produk)
+                    if (_fefo_b.get("shortfall") or 0) > 0:
+                        shortfall_warnings.append(
+                            f"{_produk_b.nama_produk} (racikan): lot kurang "
+                            f"{_fefo_b['shortfall']:g} (cache vs lot divergen)"
+                        )
+                    self._simpan_lot_terpakai(
+                        payload.id_kunjungan, _produk_b.id_produk, _fefo_b["consumed"])
+                    for c in _fefo_b["consumed"]:
+                        batch_terpakai.append(
+                            f"{_produk_b.nama_produk}: {c['qty']}x batch {c['batch_no'] or '-'}"
+                            + (f" ED {c['tgl_ed']}" if c['tgl_ed'] else "")
+                        )
+                    items_dipotong.append(StokPotongItem(
+                        id_produk=_produk_b.id_produk,
+                        nama_produk=f"{_produk_b.nama_produk} (racikan {_head.nama_snapshot})",
+                        qty_diserahkan=_qty_b,
+                        stok_sebelum=_stok_sebelum_b,
+                        stok_sesudah=_stok_sesudah_b,
+                    ))
 
             # 4. Transition ANTRI_OBAT → COMPLETED (kalau serah normal).
             # Kalau ini serah obat TERTUNDA, kunjungan sudah COMPLETED — cukup bersihkan marker.

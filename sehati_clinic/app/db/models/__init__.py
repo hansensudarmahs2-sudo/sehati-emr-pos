@@ -123,6 +123,7 @@ from app.db.models.diagnosa import (
 from app.db.models.racikan import (
     KunjunganRacikan,
     KunjunganRacikanBahan,
+    TransaksiDetailRacikan,
     MasterBiayaRacik,
     MasterRacikan,
     MasterRacikanBahan,
@@ -226,4 +227,5 @@ __all__ = [
     "MasterRacikanBahan",
     "KunjunganRacikan",
     "KunjunganRacikanBahan",
+    "TransaksiDetailRacikan",
 ]

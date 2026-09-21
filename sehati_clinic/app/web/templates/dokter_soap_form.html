@@ -445,17 +445,24 @@
                 </button>
             </div>
 
-            {# Racikan yang sudah tersimpan (mode Ubah) — read-only ringkas #}
-            {% if existing_racikan and existing_racikan|length > 0 %}
-            <div class="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-                <div class="font-medium text-slate-600 mb-2">Racikan tersimpan ({{ existing_racikan|length }}):</div>
+            {# Racikan yang sudah tersimpan (mode Ubah) — dipisah 2 kelompok.
+               TERKUNCI = sudah ditagih/dibatalkan kasir: tidak ikut diganti saat simpan.
+               PENDING  = belum ditagih: akan diganti oleh kartu racik di bawah. #}
+            {% set racikan_terkunci = existing_racikan | rejectattr('status_item', 'equalto', 'PENDING') | list %}
+            {% set racikan_pending = existing_racikan | selectattr('status_item', 'equalto', 'PENDING') | list %}
+
+            {% if racikan_terkunci | length > 0 %}
+            <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs">
+                <div class="font-medium text-emerald-800 mb-2">
+                    🔒 Racikan terkunci ({{ racikan_terkunci|length }}) — sudah diproses kasir
+                </div>
                 <ul class="space-y-2">
-                    {% for r in existing_racikan %}
+                    {% for r in racikan_terkunci %}
                     <li>
                         <div class="flex items-start justify-between gap-2">
                             <span class="text-slate-700">
                                 ⚗️ <b>{{ r.nama }}</b> — {{ r.jumlah_unit }} unit ({{ r.jenis_racik }})
-                                {% if r.aturan_pakai %}<em class="text-slate-500">· {{ r.aturan_pakai }}</em>{% endif %}
+                                <span class="text-emerald-700 font-medium">· {{ r.status_item }}</span>
                             </span>
                             <span class="text-slate-700 whitespace-nowrap font-semibold">
                                 Rp {{ "{:,.0f}".format(r.total).replace(",", ".") }}
@@ -468,18 +475,32 @@
                     </li>
                     {% endfor %}
                 </ul>
-                <div class="text-[11px] text-amber-700 mt-2">
-                    ⚠ Menyimpan SOAP akan <b>mengganti</b> seluruh racikan di atas dengan kartu racik yang ada di bawah.
-                    Kalau ingin dipertahankan, susun ulang kartunya.
+                <div class="text-[11px] text-emerald-700 mt-2">
+                    Racikan ini <b>tidak akan berubah</b> saat SOAP disimpan. Kalau perlu koreksi,
+                    kasir harus membatalkan (void) transaksinya lebih dulu.
                 </div>
             </div>
             {% endif %}
 
-            <div id="racik-list"></div>
+            {# Racikan PENDING dimuat sebagai KARTU (bukan ringkasan), supaya ikut
+               tersimpan saat dokter menambah racikan baru. Apa yang di layar =
+               apa yang tersimpan. #}
+            <div id="racik-list">
+                {% for c in racik_prefill %}
+                    {% with token=c.token, cur=c.cur, bahan_rows=c.bahan_rows, hitung=c.hitung,
+                            formulas=c.formulas, jenis_opts=c.jenis_opts, master_produks=c.master_produks %}
+                        {% include "_racik_card.html" %}
+                    {% endwith %}
+                {% endfor %}
+            </div>
             <p class="text-xs text-slate-500 mt-2">
                 Pilih Formula untuk memuat komposisi siap pakai, atau susun bebas (ad-hoc).
                 Harga dihitung otomatis: tablet dibulatkan <b>ke atas</b> per butir, krim <b>pro-rata</b> per gram,
                 lalu ditambah ongkos racik. <b>Harga dikunci saat SOAP disimpan</b> — kasir tidak menghitung ulang.
+                {% if racikan_pending | length > 0 %}
+                <br><b>Racikan yang sudah ada tampil sebagai kartu di atas</b> — biarkan apa adanya
+                kalau tidak ingin diubah, hapus kartunya kalau ingin dibatalkan.
+                {% endif %}
             </p>
         </div>
 

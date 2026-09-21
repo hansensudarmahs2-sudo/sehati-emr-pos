@@ -258,11 +258,16 @@ class RacikanService:
 
     # ------------------------------------------- SNAPSHOT RESEP RACIKAN (SOAP)
     def save_kunjungan_racikan(self, id_kunjungan: int, racikan_list: list[dict]) -> None:
-        """Replace semua racikan pada kunjungan dengan snapshot hasil hitung.
+        """Replace racikan BERSTATUS PENDING pada kunjungan dengan snapshot hasil hitung.
 
         racikan_list: [{id_racikan|None, nama, jenis_racik, jumlah_unit, aturan_pakai,
                         bahan: [{id_produk, dosis, satuan}]}]
         Harga DIKUNCI di sini — kasir tidak menghitung ulang.
+
+        PENTING: racikan yang sudah DIBAYAR/BATAL TIDAK disentuh. Sebelumnya fungsi ini
+        menghapus SEMUA racikan kunjungan, sehingga dokter yang menyunting SOAP setelah
+        pasien membayar akan menghapus baris yang sudah ditagih dan melahirkannya lagi
+        sebagai PENDING baru → tertagih dua kali dan jejak transaksinya putus.
         """
         # Hapus lama. WAJIB bulk DELETE berurutan (anak dulu, baru induk):
         # session.delete() per objek membiarkan SQLAlchemy mengurutkan sendiri, dan
@@ -270,7 +275,10 @@ class RacikanService:
         # lebih dulu → ditolak foreign key → seluruh transaksi rollback tanpa jejak.
         old_ids = self.db.execute(
             select(KunjunganRacikan.id_kunjungan_racikan)
-            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .where(
+                KunjunganRacikan.id_kunjungan == id_kunjungan,
+                KunjunganRacikan.status_item == "PENDING",
+            )
         ).scalars().all()
         if old_ids:
             self.db.execute(

@@ -160,6 +160,44 @@ class KasirRepository:
         rows = self.db.execute(stmt).all()
         return [(row[0], row[1]) for row in rows]
 
+    def get_racikan_pending_for_billing(self, id_kunjungan: int) -> list:
+        """List racikan PENDING di kunjungan ini + bahannya.
+
+        Harga TIDAK dihitung ulang di sini — sudah dikunci saat dokter simpan SOAP
+        (kolom subtotal_bahan / biaya_racik / total di kunjungan_racikan).
+        Return: list[(KunjunganRacikan, list[KunjunganRacikanBahan])]
+        """
+        from app.db.models.racikan import KunjunganRacikan, KunjunganRacikanBahan
+
+        heads = self.db.execute(
+            select(KunjunganRacikan)
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .where(KunjunganRacikan.status_item == "PENDING")
+            .order_by(KunjunganRacikan.id_kunjungan_racikan.asc())
+        ).scalars().all()
+        out = []
+        for h in heads:
+            bahan = self.db.execute(
+                select(KunjunganRacikanBahan)
+                .where(KunjunganRacikanBahan.id_kunjungan_racikan == h.id_kunjungan_racikan)
+                .order_by(KunjunganRacikanBahan.id_kunjungan_racikan_bahan.asc())
+            ).scalars().all()
+            out.append((h, list(bahan)))
+        return out
+
+    def mark_racikan_dibayar(self, id_kunjungan: int, id_transaksi: int) -> int:
+        """Racikan PENDING di kunjungan ini → DIBAYAR + tautkan ke transaksinya."""
+        from sqlalchemy import update
+        from app.db.models.racikan import KunjunganRacikan
+
+        stmt = (
+            update(KunjunganRacikan)
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .where(KunjunganRacikan.status_item == "PENDING")
+            .values(status_item="DIBAYAR", id_transaksi=id_transaksi)
+        )
+        return self.db.execute(stmt).rowcount or 0
+
     # =========================================================================
     # BULLETPROOF — cek transaksi existing
     # =========================================================================

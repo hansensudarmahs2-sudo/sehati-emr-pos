@@ -104,9 +104,32 @@ class RincianProduk(BaseModel):
     status_item: Optional[str] = None    # PENDING / BATAL / DIBAYAR
 
 
+class RincianRacikanBahan(BaseModel):
+    """1 bahan di dalam racikan — dipakai apotek untuk memotong stok."""
+    id_produk: Optional[int] = None       # NULL = bahan non-inventori
+    nama: str
+    dipakai: float                        # butir (mode MG, sudah CEIL) atau gram (GRAM)
+    satuan_dipakai: str
+
+
+class RincianRacikan(BaseModel):
+    """1 baris racikan di tagihan. Harga sudah DIKUNCI sejak dokter simpan SOAP."""
+    id_kunjungan_racikan: int
+    nama: str
+    jenis_racik: str
+    jumlah_unit: int
+    aturan_pakai: Optional[str] = None
+    subtotal_bahan: Decimal
+    biaya_racik: Decimal
+    total: Decimal                        # subtotal_bahan + biaya_racik (sebelum diskon)
+    status_item: Optional[str] = None     # PENDING / DIBAYAR / BATAL
+    bahan: list[RincianRacikanBahan] = Field(default_factory=list)
+
+
 class RingkasanBiaya(BaseModel):
     subtotal_tindakan: Decimal
     subtotal_produk: Decimal
+    subtotal_racikan: Decimal = Decimal("0")
     # #362D - Aktivasi membership (kalau ada pending history utk pasien ini)
     subtotal_aktivasi_membership: Decimal = Decimal("0")
     nama_tier_aktivasi: Optional[str] = None  # mis. "VIP" / "VVIP" untuk display
@@ -117,6 +140,9 @@ class RingkasanBiaya(BaseModel):
     persen_diskon_produk: Decimal
     nominal_diskon_treatment: Decimal
     nominal_diskon_produk: Decimal
+    # Racikan memakai PERSEN produk, tapi dikenakan ke SELURUH total racikan
+    # (bahan + ongkos racik) — keputusan dr. Hansen 2026-09-21.
+    nominal_diskon_racikan: Decimal = Decimal("0")
     nominal_diskon_total: Decimal
     total_tagihan: Decimal               # subtotal − diskon
 
@@ -155,6 +181,7 @@ class TagihanResponse(BaseModel):
 
     rincian_tindakan: list[RincianTindakan] = Field(default_factory=list)
     rincian_produk: list[RincianProduk] = Field(default_factory=list)
+    rincian_racikan: list[RincianRacikan] = Field(default_factory=list)
     ringkasan_biaya: RingkasanBiaya
 
 

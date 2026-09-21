@@ -133,8 +133,14 @@ class KunjunganRacikan(Base):
     biaya_racik: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
     total: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
 
+    # PENDING (belum ditagih) → DIBAYAR (masuk transaksi kasir) → BATAL (void).
+    # Hanya baris PENDING yang boleh diganti saat dokter menyimpan ulang SOAP.
     status_item: Mapped[str] = mapped_column(
         String(20), default="PENDING", server_default="PENDING", nullable=False
+    )
+    # Fase 3: transaksi kasir yang menagih racikan ini (NULL selama PENDING).
+    id_transaksi: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("transaksi_kasir.id_transaksi"), nullable=True
     )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp(), nullable=True
@@ -180,4 +186,47 @@ class KunjunganRacikanBahan(Base):
         return (
             f"<KunjunganRacikanBahan({self.nama_snapshot!r}, dipakai={self.dipakai}"
             f"{self.satuan_dipakai}, sub={self.subtotal})>"
+        )
+
+
+class TransaksiDetailRacikan(Base):
+    """Tabel `transaksi_detail_racikan` — baris tagihan racikan pada satu transaksi kasir.
+
+    Tabel detail SENDIRI, bukan menumpang `transaksi_detail_produk`, karena di sana
+    `id_produk` NOT NULL sedangkan satu racikan terdiri dari banyak bahan. Memaksakannya
+    akan merusak reverse-stok void, suggested order, riwayat pasien, dan export.
+
+    Isinya SNAPSHOT: nota lama tetap utuh walau racikan/harga bahan berubah kemudian.
+    """
+
+    __tablename__ = "transaksi_detail_racikan"
+
+    id_detail_racikan: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_transaksi: Mapped[int] = mapped_column(
+        ForeignKey("transaksi_kasir.id_transaksi"), nullable=False
+    )
+    id_kunjungan_racikan: Mapped[int] = mapped_column(
+        ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=False
+    )
+
+    nama_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    jenis_racik: Mapped[str] = mapped_column(String(20), nullable=False)
+    jumlah_unit: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    subtotal_bahan: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+    biaya_racik: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+    # Diskon member yang BENAR-BENAR dikenakan pada baris ini (keputusan dr. Hansen
+    # 2026-09-21: diskon berlaku ke SELURUH total racikan, termasuk ongkos racik).
+    diskon_item: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
+    subtotal: Mapped[float] = mapped_column(DECIMAL(12, 2), nullable=False)
+
+    # Sejajar transaksi_detail_produk: penanda apakah stok bahan sudah dikembalikan saat void.
+    void_reverse_stok: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<TransaksiDetailRacikan(trx={self.id_transaksi}, {self.nama_snapshot!r} "
+            f"x{self.jumlah_unit}, sub={self.subtotal})>"
         )

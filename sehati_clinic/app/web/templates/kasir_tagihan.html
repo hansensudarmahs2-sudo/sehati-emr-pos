@@ -174,7 +174,7 @@
                                   placeholder="Jelaskan kenapa void dilakukan setelah hari ini..."
                                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"></textarea>
                     </div>
-                    {% if tagihan.rincian_produk %}
+                    {% if tagihan.rincian_produk or tagihan.rincian_racikan %}
                     <div class="border-t border-slate-200 pt-3">
                         <label class="block text-sm font-medium text-slate-700 mb-2">
                             Reverse Stok Produk?
@@ -182,11 +182,21 @@
                         </label>
                         <div class="space-y-1 bg-slate-50 p-3 rounded-lg max-h-40 overflow-y-auto">
                             {% for item in tagihan.rincian_produk %}
+                            {# Token ber-namespace — sebelumnya mengirim id_resep padahal
+                               service memfilter id_detail, jadi reverse tak pernah jalan. #}
                             <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded">
-                                <input type="checkbox" name="force_items_reverse_list" value="{{ item.id_resep }}"
+                                <input type="checkbox" name="force_items_reverse_list" value="PRD:{{ item.id_produk }}"
                                        class="rounded text-amber-600 focus:ring-amber-500">
                                 <span class="flex-1">{{ item.nama_produk }}</span>
                                 <span class="text-xs text-slate-500">qty {{ item.qty }}</span>
+                            </label>
+                            {% endfor %}
+                            {% for r in tagihan.rincian_racikan %}
+                            <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded">
+                                <input type="checkbox" name="force_items_reverse_list" value="RCK:{{ r.id_kunjungan_racikan }}"
+                                       class="rounded text-amber-600 focus:ring-amber-500">
+                                <span class="flex-1">⚗️ {{ r.nama }}</span>
+                                <span class="text-xs text-slate-500">{{ r.jumlah_unit }} unit · {{ r.bahan|length }} bahan</span>
                             </label>
                             {% endfor %}
                         </div>
@@ -238,8 +248,24 @@
             }
             var d = {{ tagihan.days_past }};
             var pesan = (d === 0)
-                ? 'PERHATIAN: Force Void (Admin override) TIDAK BISA dibatalkan.\n\nLanjutkan void transaksi hari ini?'
-                : 'PERHATIAN: Force Past-Day Void TIDAK BISA dibatalkan.\n\nLanjutkan void transaksi ' + d + ' hari lalu?';
+                ? 'PERHATIAN: Force Void (Admin override) TIDAK BISA dibatalkan.\n\n'
+                : 'PERHATIAN: Force Past-Day Void TIDAK BISA dibatalkan (' + d + ' hari lalu).\n\n';
+            // Sama seperti void same-day: jangan biarkan centang yang terlewat lolos diam-diam.
+            var semua = form.querySelectorAll('input[name="force_items_reverse_list"]');
+            if (semua.length > 0 && checks.length === 0) {
+                var daftar = Array.from(semua).map(function(c) {
+                    var t = c.closest('label');
+                    return '• ' + (t ? t.innerText.split('\n')[0].trim() : c.value);
+                }).join('\n');
+                pesan += 'TIDAK ADA stok yang akan dikembalikan.\n\n'
+                       + 'Item berikut tetap terpotong dari stok:\n' + daftar + '\n\n'
+                       + 'Kalau masih utuh dan seharusnya kembali, BATALKAN lalu centang dulu.\n\n'
+                       + 'Tetap lanjutkan void tanpa mengembalikan stok?';
+            } else if (checks.length > 0) {
+                pesan += checks.length + ' item akan DIKEMBALIKAN ke stok.\n\nLanjutkan?';
+            } else {
+                pesan += 'Lanjutkan?';
+            }
             window.appConfirm(pesan).then(function(ok){
                 if (ok) { form.dataset.appConfirmed = "1"; form.submit(); }
             });
@@ -330,6 +356,57 @@
         {% endif %}
     </div>
 
+    {# Breakdown: Racikan (Fase 3) — harga sudah dikunci dokter, kasir tidak menghitung ulang #}
+    {% if tagihan.rincian_racikan %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+        <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+            ⚗️ Racikan ({{ tagihan.rincian_racikan|length }})
+        </h3>
+        <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                    <th class="text-left py-2 font-medium">Nama Racikan</th>
+                    <th class="text-right py-2 font-medium">Unit</th>
+                    <th class="text-right py-2 font-medium">Bahan</th>
+                    <th class="text-right py-2 font-medium">Ongkos Racik</th>
+                    <th class="text-right py-2 font-medium">Subtotal</th>
+                    <th class="text-center py-2 font-medium">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in tagihan.rincian_racikan %}
+                <tr class="{% if r.status_item == 'BATAL' %}opacity-50 line-through{% endif %}">
+                    <td class="py-2 text-slate-700">
+                        {{ r.nama }}
+                        <span class="text-xs text-slate-400">({{ r.jenis_racik }})</span>
+                        <div class="text-xs text-slate-400">
+                            {% for b in r.bahan %}{{ b.nama }} {{ b.dipakai }} {{ b.satuan_dipakai }}{% if not loop.last %} · {% endif %}{% endfor %}
+                        </div>
+                    </td>
+                    <td class="py-2 text-right text-slate-700">{{ r.jumlah_unit }}</td>
+                    <td class="py-2 text-right text-slate-700">Rp {{ "{:,.0f}".format(r.subtotal_bahan|float).replace(",", ".") }}</td>
+                    <td class="py-2 text-right text-slate-700">Rp {{ "{:,.0f}".format(r.biaya_racik|float).replace(",", ".") }}</td>
+                    <td class="py-2 text-right font-medium text-slate-800">Rp {{ "{:,.0f}".format(r.total|float).replace(",", ".") }}</td>
+                    <td class="py-2 text-center">
+                        {% if r.status_item == "DIBAYAR" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">DIBAYAR</span>
+                        {% elif r.status_item == "BATAL" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">BATAL</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">PENDING</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="text-xs text-slate-400 mt-2">
+            Harga racikan dikunci saat dokter menyimpan SOAP. Perubahan harga bahan setelah itu
+            tidak mengubah tagihan ini.
+        </p>
+    </div>
+    {% endif %}
+
     {# Ringkasan biaya #}
     <div class="bg-slate-50 rounded-xl border border-slate-200 p-5 mb-6">
         <h3 class="text-base font-semibold text-slate-800 mb-3">Ringkasan Biaya</h3>
@@ -342,6 +419,12 @@
                 <dt class="text-slate-600">Subtotal Produk</dt>
                 <dd class="text-slate-800">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal_produk|float).replace(",", ".") }}</dd>
             </div>
+            {% if tagihan.ringkasan_biaya.subtotal_racikan|float > 0 %}
+            <div class="flex justify-between">
+                <dt class="text-slate-600">Subtotal Racikan</dt>
+                <dd class="text-slate-800">Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.subtotal_racikan|float).replace(",", ".") }}</dd>
+            </div>
+            {% endif %}
             {# #362D - Aktivasi membership line item (kalau ada pending) #}
             {% if tagihan.ringkasan_biaya.subtotal_aktivasi_membership|float > 0 %}
             <div class="flex justify-between bg-amber-50 border-l-4 border-amber-400 px-3 py-2 rounded">
@@ -366,6 +449,14 @@
             <div class="flex justify-between text-emerald-700">
                 <dt>Diskon Produk ({{ tagihan.ringkasan_biaya.persen_diskon_produk }}%)</dt>
                 <dd>- Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.nominal_diskon_produk|float).replace(",", ".") }}</dd>
+            </div>
+            {% endif %}
+            {% if tagihan.ringkasan_biaya.nominal_diskon_racikan|float > 0 %}
+            <div class="flex justify-between text-emerald-700">
+                {# Memakai persen produk, tapi dikenakan ke SELURUH total racikan
+                   (bahan + ongkos racik) — keputusan dr. Hansen 2026-09-21. #}
+                <dt>Diskon Racikan ({{ tagihan.ringkasan_biaya.persen_diskon_produk }}%)</dt>
+                <dd>- Rp {{ "{:,.0f}".format(tagihan.ringkasan_biaya.nominal_diskon_racikan|float).replace(",", ".") }}</dd>
             </div>
             {% endif %}
             <div class="flex justify-between border-t-2 border-slate-300 pt-2 mt-2">

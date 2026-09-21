@@ -229,6 +229,37 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
     except Exception:
         soap_history = []
 
+    # Racikan tersimpan + prefill kartu untuk yang masih PENDING (belum ditagih).
+    _existing_racikan = RacikanService(db).get_kunjungan_racikan(id_kunjungan)
+    _racik_prefill = []
+    try:
+        import uuid as _uuid
+        for _r in _existing_racikan:
+            if (_r.get("status_item") or "PENDING") != "PENDING":
+                continue  # DIBAYAR/BATAL → tampil terkunci, tidak boleh disunting
+            _bahan_rows = [
+                {
+                    "id_produk": str(_b["id_produk"]),
+                    "dosis": _b["dosis_per_unit"],
+                    "satuan": _b["satuan_dosis"],
+                }
+                for _b in (_r.get("bahan") or []) if _b.get("id_produk")
+            ]
+            _racik_prefill.append(_racik_ctx(
+                db,
+                _uuid.uuid4().hex[:10],
+                {
+                    "id_racikan": _r.get("id_racikan") or "",
+                    "nama": _r.get("nama") or "",
+                    "jenis": _r.get("jenis_racik") or "KAPSUL",
+                    "unit": _r.get("jumlah_unit") or 15,
+                    "aturan": _r.get("aturan_pakai") or "",
+                },
+                _bahan_rows,
+            ))
+    except Exception:
+        _racik_prefill = []
+
     return build_shell_context(
         user,
         db=db,
@@ -248,7 +279,12 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
         existing_resep=existing_resep,
         existing_series=existing_series,
         existing_diagnosa=DiagnosaService(db).get_kunjungan_diagnosa(id_kunjungan),
-        existing_racikan=RacikanService(db).get_kunjungan_racikan(id_kunjungan),
+        existing_racikan=_existing_racikan,
+        # Racikan PENDING dimuat kembali sebagai KARTU yang bisa disunting, bukan sekadar
+        # ringkasan. Penyimpanan menulis ulang dari kartu yang ada di layar, jadi kalau
+        # racikan lama tidak hadir sebagai kartu ia akan hilang saat dokter menambah
+        # racikan baru. Prinsipnya: apa yang di layar = apa yang tersimpan.
+        racik_prefill=_racik_prefill,
         soap_history=soap_history,
         master_penyakit_list=PenyakitKronisService(db).list_master(),
     )

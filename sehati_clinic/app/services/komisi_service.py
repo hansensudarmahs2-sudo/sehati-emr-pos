@@ -51,6 +51,7 @@ class KomisiService:
         id_pasien: Optional[int],
         id_dokter_assigned: Optional[int],
         rincian_produk,
+        rincian_racikan=None,
         tanggal: Optional[date] = None,
         request: Optional[Request] = None,
     ) -> int:
@@ -130,6 +131,35 @@ class KomisiService:
                         komisi_nominal=kom_total,
                     )
                     n += 1
+
+        # ---- RACIKAN ---- komisi dihitung dari BAHAN saja; ongkos racik (jasa) TIDAK
+        # masuk dasar komisi (keputusan dr. Hansen 2026-09-21). Tiap bahan memakai
+        # aturan komisi produknya sendiri, persis seperti resep biasa.
+        if id_dokter_assigned:
+            for rr in (rincian_racikan or []):
+                for bahan in (getattr(rr, "bahan", None) or []):
+                    if not getattr(bahan, "id_produk", None):
+                        continue  # bahan non-inventori — tidak ada master produknya
+                    produk = self.db.get(MasterProduk, bahan.id_produk)
+                    if produk is None:
+                        continue
+                    calc = hitung_komisi_produk(produk)  # per unit
+                    kom_unit = float(calc.get("komisi_dokter", 0) or 0)
+                    dipakai = float(getattr(bahan, "dipakai", 0) or 0)
+                    kom_total = kom_unit * dipakai
+                    if kom_total > 0:
+                        self._add_row(
+                            id_transaksi=id_transaksi, id_kunjungan=id_kunjungan,
+                            id_pasien=id_pasien, tanggal=tgl, id_staf=id_dokter_assigned,
+                            role="DOKTER", sumber="RACIKAN",
+                            id_ref=rr.id_kunjungan_racikan,
+                            nama_item=f"{rr.nama} — {bahan.nama}",
+                            harga_jual=float(produk.harga_jual or 0),
+                            komisi_tipe=produk.komisi_dokter_tipe,
+                            komisi_value=float(produk.komisi_dokter_value or 0),
+                            komisi_nominal=kom_total,
+                        )
+                        n += 1
 
         if n:
             self.db.flush()

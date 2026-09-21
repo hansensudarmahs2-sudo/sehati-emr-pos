@@ -457,6 +457,30 @@ def kasir_bayar_sukses(
             ],
         })
 
+    # Racikan untuk modal void: yang dikembalikan ke stok adalah BAHAN-nya.
+    from app.db.models.racikan import (
+        TransaksiDetailRacikan as _TDR2,
+        KunjunganRacikanBahan as _KRCB2,
+    )
+    items_racikan = []
+    for _dr in db.execute(
+        select(_TDR2).where(_TDR2.id_transaksi == id_transaksi)
+        .order_by(_TDR2.id_detail_racikan)
+    ).scalars().all():
+        _bh = db.execute(
+            select(_KRCB2).where(
+                _KRCB2.id_kunjungan_racikan == _dr.id_kunjungan_racikan)
+        ).scalars().all()
+        items_racikan.append({
+            "id_kunjungan_racikan": _dr.id_kunjungan_racikan,
+            "nama": _dr.nama_snapshot,
+            "jumlah_unit": int(_dr.jumlah_unit or 0),
+            "bahan": [
+                f"{b.nama_snapshot} {float(b.dipakai or 0):g} {b.satuan_dipakai}"
+                for b in _bh
+            ],
+        })
+
     ctx = build_shell_context(
         user,
         db=db,
@@ -472,6 +496,7 @@ def kasir_bayar_sukses(
         tgl_bayar=tgl_bayar,
         default_paper=default_paper,
         items_produk=items_produk,
+        items_racikan=items_racikan,
     )
     return templates.TemplateResponse(request, "kasir_bayar_sukses.html", ctx)
 
@@ -606,23 +631,21 @@ async def kasir_void_transaksi(
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    # Parse items_reverse_stok: "1,3,5" → [1, 3, 5]
-    items_list = []
-    if items_reverse_stok:
-        try:
-            items_list = [int(x.strip()) for x in items_reverse_stok.split(",") if x.strip()]
-        except ValueError:
-            items_list = []
+    # Token ber-namespace: "PRD:<id_produk>" / "RCK:<id_kunjungan_racikan>".
+    # Angka polos tetap diterima (legacy = id_detail). Jangan di-int() di sini —
+    # service yang mengurai, supaya produk & racikan tidak tertukar.
+    items_list = [x.strip() for x in items_reverse_stok.split(",") if x.strip()]
 
-    # P-L6b: peta batch pilihan operator per item (lot_<id_detail>) → {id_detail: id_lot}
+    # P-L6b: peta batch pilihan operator per item (lot_<token>) → {token: id_lot}
     lot_map = {}
     if items_list:
         _f = await request.form()
-        for _idd in items_list:
-            _lv = _f.get(f"lot_{_idd}")
+        for _tok in items_list:
+            _lv = _f.get(f"lot_{_tok}")
             if _lv and str(_lv).strip():
                 try:
-                    lot_map[_idd] = int(_lv)
+                    _key = int(_tok) if _tok.isdigit() else _tok
+                    lot_map[_key] = int(_lv)
                 except ValueError:
                     pass
 
@@ -683,12 +706,7 @@ def kasir_force_past_day_void(
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    items_list = []
-    if items_reverse_stok:
-        try:
-            items_list = [int(x.strip()) for x in items_reverse_stok.split(",") if x.strip()]
-        except ValueError:
-            items_list = []
+    items_list = [x.strip() for x in items_reverse_stok.split(",") if x.strip()]
 
     try:
         result = KasirService(db).force_past_day_void(
