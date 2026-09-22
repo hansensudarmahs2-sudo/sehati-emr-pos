@@ -251,6 +251,10 @@ class TreatmentService:
                 "message": "Tindakan dimulai. Stopwatch aktif.",
                 "data": {
                     "id_kunjungan_tindakan": id_kunjungan_tindakan,
+                    # Tanpa ini, route web jatuh ke jalur cadangan dan memantulkan
+                    # petugas balik ke daftar Antri Tindakan setiap kali menekan Mulai —
+                    # padahal dia sedang mengerjakan pasien di halaman itu.
+                    "id_kunjungan": tindakan.id_kunjungan,
                     "status_baru": "PROSES",
                     "waktu_mulai": now.isoformat(),
                     "id_staf_pelaksana": id_staf_pelaksana,
@@ -369,6 +373,9 @@ class TreatmentService:
                 "message": message,
                 "data": {
                     "id_kunjungan_tindakan": id_kunjungan_tindakan,
+                    # Sama seperti start_tindakan: route web butuh ini supaya petugas
+                    # tetap di halaman tindakan dan bisa mengerjakan tindakan berikutnya.
+                    "id_kunjungan": tindakan.id_kunjungan,
                     "status_baru": "SELESAI",
                     "status_kunjungan_baru": status_kunjungan_baru,
                     "jumlah_bhp_terpotong": len(hasil_potong),
