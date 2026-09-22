@@ -828,10 +828,16 @@ class ReportsService:
     ):
         """Rekap resep yang sudah diserahkan apoteker dalam rentang tanggal.
 
-        Strategy:
-        1. Query audit_log WHERE aksi='SERAH_OBAT' AND waktu in range → list of (id_kunjungan, id_staf_apoteker, waktu_serah)
-        2. JOIN kunjungan_resep WHERE id_kunjungan IN (...) AND status_item='DIBAYAR'
+        Strategy (sejak task #54, 2026-09-22):
+        1. Baca `kunjungan_resep` yang `status_item='DISERAHKAN'` dengan `waktu_serah`
+           dalam rentang — atribusi apoteker menempel per BARIS (`id_staf_serah`).
+        2. Data LAMA (diserahkan sebelum status itu ada, itemnya masih 'DIBAYAR') tetap
+           lewat jalur audit `SERAH_OBAT`, tapi hanya untuk kunjungan yang tidak punya
+           satu pun baris DISERAHKAN — supaya tidak dihitung dua kali.
         3. JOIN master_produk, master_staf, pasien untuk enrich data
+
+        CATATAN: racikan belum masuk laporan ini (skemanya per-produk); bahan racikan
+        yang diserahkan tidak tampil sebagai baris tersendiri.
 
         Filter:
         - apoteker_id: filter spesifik apoteker (optional)
@@ -854,7 +860,60 @@ class ReportsService:
         start_dt = datetime.combine(tgl_dari, datetime.min.time())
         end_dt = datetime.combine(tgl_sampai, datetime.max.time())
 
-        # Step 1: Find SERAH_OBAT audit entries
+        # ------------------------------------------------------------------
+        # Task #54 (2026-09-22) — sumber kebenaran pindah dari AUDIT LOG ke ITEM.
+        #
+        # Cara lama: cari audit `SERAH_OBAT` per kunjungan, lalu tarik SEMUA resep
+        # DIBAYAR kunjungan itu. Dua kesalahan begitu satu kunjungan bisa diserahkan
+        # lebih dari sekali (penyerahan sebagian):
+        #   1. peta ber-key id_kunjungan → event kedua MENIMPA event pertama, apoteker
+        #      pertama kehilangan kreditnya;
+        #   2. "semua resep DIBAYAR" ikut menghitung item yang belum diserahkan, dan
+        #      menghitungnya LAGI pada event berikutnya.
+        # Sekarang tiap baris resep menyimpan sendiri `id_staf_serah` + `waktu_serah`,
+        # jadi kreditnya per item dan tidak mungkin tertimpa.
+        # ------------------------------------------------------------------
+        _kolom = (
+            KunjunganResep.id_resep,
+            KunjunganResep.id_kunjungan,
+            KunjunganResep.id_produk,
+            KunjunganResep.qty,
+            KunjunganResep.aturan_pakai,
+            MasterProduk.kode_produk,
+            MasterProduk.nama_produk,
+            MasterProduk.harga_jual,
+            Kunjungan.id_pasien,
+            Pasien.no_rm,
+            Pasien.nama.label("nama_pasien"),
+        )
+
+        def _dengan_join(stmt):
+            return (
+                stmt
+                .join(MasterProduk, MasterProduk.id_produk == KunjunganResep.id_produk)
+                .join(Kunjungan, Kunjungan.id_kunjungan == KunjunganResep.id_kunjungan)
+                .join(Pasien, Pasien.id_pasien == Kunjungan.id_pasien)
+            )
+
+        # Step 1: item yang BENAR-BENAR diserahkan, dengan atribusi per baris.
+        baru_stmt = _dengan_join(
+            select(*_kolom,
+                   KunjunganResep.id_staf_serah.label("id_staf_apoteker"),
+                   KunjunganResep.waktu_serah.label("waktu_serah"))
+            .where(KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN)
+            .where(KunjunganResep.waktu_serah.is_not(None))
+            .where(KunjunganResep.waktu_serah >= start_dt)
+            .where(KunjunganResep.waktu_serah <= end_dt)
+        )
+        if apoteker_id is not None:
+            baru_stmt = baru_stmt.where(KunjunganResep.id_staf_serah == apoteker_id)
+        resep_rows = list(self.db.execute(baru_stmt.order_by(
+            KunjunganResep.id_resep.desc())).all())
+
+        # Step 1b: DATA LAMA — kunjungan yang diserahkan sebelum status DISERAHKAN ada,
+        # sehingga itemnya masih tercatat DIBAYAR. Untuk itu jalur audit tetap dipakai,
+        # TAPI hanya untuk kunjungan yang tidak punya satu pun baris DISERAHKAN — kalau
+        # tidak, kunjungan yang sama akan terhitung dua kali oleh dua jalur.
         audit_stmt = (
             select(
                 AuditLog.id_target.label("id_kunjungan"),
@@ -868,14 +927,33 @@ class ReportsService:
         )
         if apoteker_id is not None:
             audit_stmt = audit_stmt.where(AuditLog.id_staf == apoteker_id)
-        audit_rows = list(self.db.execute(audit_stmt).all())
+        legacy_map = {}
+        for row in self.db.execute(audit_stmt).all():
+            legacy_map[row.id_kunjungan] = (row.id_staf_apoteker, row.waktu_serah)
+        if legacy_map:
+            sudah_per_item = set(self.db.execute(
+                select(KunjunganResep.id_kunjungan)
+                .where(KunjunganResep.id_kunjungan.in_(list(legacy_map.keys())))
+                .where(KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN)
+                .distinct()
+            ).scalars().all())
+            for _idk in list(legacy_map.keys()):
+                if _idk in sudah_per_item:
+                    del legacy_map[_idk]
+        if legacy_map:
+            legacy_rows = list(self.db.execute(_dengan_join(
+                select(*_kolom)
+                .where(KunjunganResep.id_kunjungan.in_(list(legacy_map.keys())))
+                .where(KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR)
+            ).order_by(KunjunganResep.id_resep.desc())).all())
+            # Bungkus jadi bentuk yang sama: atribusi diambil dari audit kunjungannya.
+            from types import SimpleNamespace as _NS
+            for _r in legacy_rows:
+                _apt, _wkt = legacy_map[_r.id_kunjungan]
+                resep_rows.append(_NS(**_r._mapping, id_staf_apoteker=_apt,
+                                      waktu_serah=_wkt))
 
-        # Map id_kunjungan -> (id_staf_apoteker, waktu_serah)
-        kunjungan_to_apoteker = {}
-        for row in audit_rows:
-            kunjungan_to_apoteker[row.id_kunjungan] = (row.id_staf_apoteker, row.waktu_serah)
-
-        if not kunjungan_to_apoteker:
+        if not resep_rows:
             return ApotekerDispensedResponse(
                 tgl_dari=tgl_dari, tgl_sampai=tgl_sampai,
                 filter_apoteker_id=apoteker_id,
@@ -884,34 +962,8 @@ class ReportsService:
                 items=[],
             )
 
-        id_kunjungan_list = list(kunjungan_to_apoteker.keys())
-
-        # Step 2: Get all resep DIBAYAR for these kunjungan + JOIN master_produk + pasien
-        resep_stmt = (
-            select(
-                KunjunganResep.id_resep,
-                KunjunganResep.id_kunjungan,
-                KunjunganResep.id_produk,
-                KunjunganResep.qty,
-                KunjunganResep.aturan_pakai,
-                MasterProduk.kode_produk,
-                MasterProduk.nama_produk,
-                MasterProduk.harga_jual,
-                Kunjungan.id_pasien,
-                Pasien.no_rm,
-                Pasien.nama.label("nama_pasien"),
-            )
-            .join(MasterProduk, MasterProduk.id_produk == KunjunganResep.id_produk)
-            .join(Kunjungan, Kunjungan.id_kunjungan == KunjunganResep.id_kunjungan)
-            .join(Pasien, Pasien.id_pasien == Kunjungan.id_pasien)
-            .where(KunjunganResep.id_kunjungan.in_(id_kunjungan_list))
-            .where(KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR)
-            .order_by(KunjunganResep.id_resep.desc())
-        )
-        resep_rows = list(self.db.execute(resep_stmt).all())
-
         # Step 3: Build apoteker name map
-        apoteker_ids = {x[0] for x in kunjungan_to_apoteker.values() if x[0]}
+        apoteker_ids = {r.id_staf_apoteker for r in resep_rows if r.id_staf_apoteker}
         apoteker_name_map = {}
         if apoteker_ids:
             staf_rows = self.db.execute(
@@ -926,10 +978,10 @@ class ReportsService:
         kunjungan_seen = set()
 
         for r in resep_rows:
-            apoteker_info = kunjungan_to_apoteker.get(r.id_kunjungan)
-            if not apoteker_info:
-                continue
-            id_apt, waktu_serah = apoteker_info
+            # Atribusi menempel di barisnya sendiri — tidak lagi dicari lewat kunjungan,
+            # jadi dua penyerahan oleh dua apoteker di satu kunjungan tetap terpisah.
+            id_apt = r.id_staf_apoteker
+            waktu_serah = r.waktu_serah
             apt_nama = apoteker_name_map.get(id_apt, "(unknown)") if id_apt else "(unknown)"
             # A9: akumulasi Decimal (harga_jual = DECIMAL(12,2)); convert ke float di boundary
             qty = Decimal(str(r.qty or 0))
@@ -1195,17 +1247,41 @@ class ReportsService:
         if limit > 500:
             limit = 500
 
-        # Step 1: SERAH_OBAT kunjungan IDs in range
-        audit_stmt = (
-            select(AuditLog.id_target.label("id_kunjungan"))
+        # Step 1 (task #54): kumpulkan id_resep yang BENAR-BENAR diserahkan.
+        # Cara lama — "semua resep DIBAYAR milik kunjungan yang punya audit SERAH_OBAT" —
+        # ikut menghitung item yang belum pernah keluar begitu penyerahan boleh sebagian.
+        id_resep_serah = list(self.db.execute(
+            select(KunjunganResep.id_resep)
+            .where(KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN)
+            .where(KunjunganResep.waktu_serah.is_not(None))
+            .where(KunjunganResep.waktu_serah >= start_dt)
+            .where(KunjunganResep.waktu_serah <= end_dt)
+        ).scalars().all())
+
+        # Data LAMA: kunjungan ber-audit SERAH_OBAT yang belum punya status per item.
+        legacy_kunj = set(self.db.execute(
+            select(AuditLog.id_target)
             .where(AuditLog.aksi == "SERAH_OBAT")
             .where(AuditLog.tabel_target == "kunjungan")
             .where(AuditLog.waktu >= start_dt)
             .where(AuditLog.waktu <= end_dt)
-        )
-        id_kunjungan_list = [r.id_kunjungan for r in self.db.execute(audit_stmt).all()]
+        ).scalars().all())
+        if legacy_kunj:
+            sudah_per_item = set(self.db.execute(
+                select(KunjunganResep.id_kunjungan)
+                .where(KunjunganResep.id_kunjungan.in_(list(legacy_kunj)))
+                .where(KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN)
+                .distinct()
+            ).scalars().all())
+            legacy_kunj -= sudah_per_item
+        if legacy_kunj:
+            id_resep_serah += list(self.db.execute(
+                select(KunjunganResep.id_resep)
+                .where(KunjunganResep.id_kunjungan.in_(list(legacy_kunj)))
+                .where(KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR)
+            ).scalars().all())
 
-        if not id_kunjungan_list:
+        if not id_resep_serah:
             return TopProdukResponse(
                 tgl_dari=tgl_dari, tgl_sampai=tgl_sampai,
                 limit=limit, sort_by=sort_by,
@@ -1228,8 +1304,7 @@ class ReportsService:
                 MasterProduk.stok_terkini,
             )
             .join(MasterProduk, MasterProduk.id_produk == KunjunganResep.id_produk)
-            .where(KunjunganResep.id_kunjungan.in_(id_kunjungan_list))
-            .where(KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR)
+            .where(KunjunganResep.id_resep.in_(id_resep_serah))
             .group_by(
                 KunjunganResep.id_produk,
                 MasterProduk.kode_produk,
