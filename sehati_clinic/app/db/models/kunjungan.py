@@ -203,6 +203,15 @@ class KunjunganResep(Base):
     )
     waktu_void: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
 
+    # Task #54 — penyerahan PER ITEM. Diisi saat item benar-benar diserahkan (stok
+    # dipotong), bukan saat kunjungan selesai. Dipakai laporan apoteker supaya kredit
+    # jatuh ke orang yang menyerahkan item itu, walau satu kunjungan diserahkan
+    # beberapa kali oleh orang berbeda.
+    waktu_serah: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
+    id_staf_serah: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
+    )
+
 
 class KunjunganTindakan(Base):
     """Tabel `kunjungan_tindakan` — treatment yang dieksekusi per kunjungan."""

@@ -102,8 +102,19 @@ class DetailResepResponse(BaseModel):
 # SERAHKAN OBAT
 # =============================================================================
 class SerahkanObatRequest(BaseModel):
-    """Eksekusi penyerahan obat ke pasien."""
+    """Eksekusi penyerahan obat ke pasien.
+
+    Task #54 — penyerahan boleh SEBAGIAN. `id_resep` / `id_kunjungan_racikan`:
+    None (default) = serahkan semua yang DIBAYAR, perilaku lama & tetap dipakai API v1.
+    Kalau diisi, hanya item itu yang diserahkan dan sisanya menunggu — dalam hal itu
+    `tgl_janji_kirim_sisa` WAJIB, supaya sisa obat punya tanggal dan bisa muncul
+    sebagai terlambat di dashboard, bukan mengendap tanpa jejak.
+    """
     id_kunjungan: int = Field(..., ge=1)
+    id_resep: Optional[list[int]] = None
+    id_kunjungan_racikan: Optional[list[int]] = None
+    tgl_janji_kirim_sisa: Optional[date] = None
+    catatan_kirim_sisa: Optional[str] = Field(default=None, max_length=255)
 
 
 class StokPotongItem(BaseModel):

@@ -202,15 +202,50 @@ async def apotek_tunda_serah(id_kunjungan: int, request: Request, db: DbSession)
 
 
 @router.post("/apotek/kunjungan/{id_kunjungan}/serahkan")
-def apotek_serahkan_obat(id_kunjungan: int, request: Request, db: DbSession):
+async def apotek_serahkan_obat(id_kunjungan: int, request: Request, db: DbSession):
     user = get_user_from_cookie(request, db)
     if user is None:
         return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
     if not require_apoteker_role(user):
         return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
 
+    # Task #54 — form boleh mengirim pilihan item. Kalau field-nya sama sekali tidak
+    # ada (mis. pemanggil lama), tetap None = "serahkan semua", perilaku lama.
+    from datetime import date as _date
+    f = await request.form()
+
+    # Penanda bahwa form ini MEMANG form pilih-item. Tanpa penanda, tidak dicentangnya
+    # semua kotak tidak bisa dibedakan dari "form lama tanpa kotak sama sekali" — dan
+    # menebaknya sebagai 'serahkan semua' persis kebalikan dari maksud petugas.
+    _mode_pilih = (f.get("pilih_item") or "").strip() == "1"
+
+    def _ids(nama):
+        if not _mode_pilih:
+            return None
+        out = []
+        for v in f.getlist(nama):
+            try:
+                out.append(int(str(v).strip()))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    _raw_tgl = (f.get("tgl_janji_kirim_sisa") or "").strip()
+    _tgl_sisa = None
+    if _raw_tgl:
+        try:
+            _tgl_sisa = _date.fromisoformat(_raw_tgl)
+        except ValueError:
+            _tgl_sisa = None
+
     try:
-        payload = SerahkanObatRequest(id_kunjungan=id_kunjungan)
+        payload = SerahkanObatRequest(
+            id_kunjungan=id_kunjungan,
+            id_resep=_ids("id_resep"),
+            id_kunjungan_racikan=_ids("id_kunjungan_racikan"),
+            tgl_janji_kirim_sisa=_tgl_sisa,
+            catatan_kirim_sisa=(f.get("catatan_kirim_sisa") or "").strip() or None,
+        )
         result = ApotekService(db).serahkan_obat(
             payload=payload,
             id_staf_apoteker=user.id_staf,

@@ -58,11 +58,19 @@
         {% if detail.daftar_obat %}
         <div class="space-y-3">
             {% for o in detail.daftar_obat %}
+            {# Task #54 — hanya item DIBAYAR yang stoknya cukup yang bisa diserahkan.
+               `form="form-serah"` menautkan kotak ini ke form di bawah tanpa perlu
+               membungkus seluruh halaman. Kotak yang disabled tidak ikut terkirim. #}
+            {% set o_bisa = (o.status_item or "") == "DIBAYAR" and o.stok_cukup %}
             <div class="border {% if not o.stok_cukup %}border-red-300 bg-red-50/30{% else %}border-slate-200{% endif %} rounded-lg p-4">
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex-1">
-                        <div class="font-medium text-slate-800">
-                            {{ o.nama_produk }}
+                        <div class="font-medium text-slate-800 flex items-start gap-2">
+                            <input type="checkbox" name="id_resep" value="{{ o.id_resep }}"
+                                   form="form-serah" class="mt-1 h-4 w-4"
+                                   {% if o_bisa %}checked{% else %}disabled{% endif %}
+                                   title="{% if o_bisa %}Centang = diserahkan sekarang{% elif not o.stok_cukup %}Stok kurang — tidak bisa diserahkan{% else %}Belum dibayar{% endif %}">
+                            <span>{{ o.nama_produk }}</span>
                         </div>
                         <div class="text-xs text-slate-500 mt-1 font-mono">{{ o.kode_produk }}</div>
                         {% if o.aturan_pakai %}
@@ -97,7 +105,9 @@
                     </div>
                     <div>
                         {% set si = o.status_item or "" %}
-                        {% if si == "DIBAYAR" %}
+                        {% if si == "DISERAHKAN" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-teal-600 text-white font-medium">💊 Sudah Diserahkan</span>
+                        {% elif si == "DIBAYAR" %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">✓ Sudah Dibayar</span>
                         {% elif si == "PENDING" %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">⏸ Belum Dibayar</span>
@@ -125,10 +135,27 @@
         <div class="space-y-3">
             {% for r in detail.daftar_racikan %}
             <div class="border border-indigo-200 bg-indigo-50/40 rounded-lg p-4">
+                {# Racikan all-or-nothing: baru bisa dicentang kalau SEMUA bahannya cukup.
+                   Satu wadah tidak bisa dibagi — tidak ada gunanya "sebagian racikan". #}
+                {% set r_bahan_kurang = r.bahan | rejectattr('stok_cukup') | list %}
+                {% set r_bisa = (r.status_item or "") == "DIBAYAR" and r_bahan_kurang | length == 0 %}
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex-1">
-                        <div class="font-medium text-slate-800">{{ r.nama }}</div>
+                        <div class="font-medium text-slate-800 flex items-start gap-2">
+                            <input type="checkbox" name="id_kunjungan_racikan"
+                                   value="{{ r.id_kunjungan_racikan }}" form="form-serah"
+                                   class="mt-1 h-4 w-4"
+                                   {% if r_bisa %}checked{% else %}disabled{% endif %}
+                                   title="{% if r_bisa %}Centang = diserahkan sekarang{% elif r_bahan_kurang %}Ada bahan yang stoknya kurang{% else %}Belum dibayar{% endif %}">
+                            <span>{{ r.nama }}</span>
+                        </div>
                         <div class="text-xs text-slate-500 mt-1">{{ r.jenis_racik }}</div>
+                        {% if r_bahan_kurang %}
+                        <div class="text-xs text-red-600 font-medium mt-1">
+                            ✗ Belum bisa diracik — bahan kurang:
+                            {{ r_bahan_kurang | map(attribute='nama') | join(', ') }}
+                        </div>
+                        {% endif %}
                         {% if r.aturan_pakai %}
                         <div class="mt-2 text-sm text-slate-700 bg-amber-50 border-l-2 border-amber-300 px-2 py-1 rounded-r">
                             <span class="text-xs text-amber-700 font-medium uppercase">Aturan Pakai:</span>
@@ -164,7 +191,9 @@
 
                 <div class="mt-3 pt-2 border-t border-indigo-200 text-xs">
                     {% set sr = r.status_item or "" %}
-                    {% if sr == "DIBAYAR" %}
+                    {% if sr == "DISERAHKAN" %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-teal-600 text-white font-medium">💊 Sudah Diserahkan</span>
+                    {% elif sr == "DIBAYAR" %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">✓ Sudah Dibayar</span>
                     {% elif sr == "PENDING" %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">⏸ Belum Dibayar</span>
@@ -178,30 +207,93 @@
     </div>
     {% endif %}
 
-    {# Action: Serahkan Obat #}
+    {# Action: Serahkan Obat — PER ITEM (task #54).
+       Yang diserahkan = yang dicentang di atas. Tombol TIDAK lagi di-disable saat ada
+       stok kurang: justru itu alasan utama serah sebagian. Item yang tidak dicentang
+       tetap DIBAYAR dan masuk daftar Obat Tertunda dengan tanggal di bawah. #}
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
-        <div class="flex items-center justify-between">
+        <h4 class="font-semibold text-slate-800">Serahkan Obat ke Pasien</h4>
+        <p class="text-xs text-slate-500 mt-1 mb-3">
+            Stok hanya terpotong untuk item yang <b>dicentang</b> di atas.
+            Item yang tidak dicentang menunggu dan dijadwalkan lewat tanggal di bawah.
+        </p>
+        <form id="form-serah" method="POST"
+              action="/web/apotek/kunjungan/{{ detail.id_kunjungan }}/serahkan"
+              class="flex flex-wrap gap-2 items-end">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="pilih_item" value="1">
             <div>
-                <h4 class="font-semibold text-slate-800">Serahkan Obat ke Pasien</h4>
-                <p class="text-xs text-slate-500 mt-1">
-                    Stok akan terpotong otomatis dan kunjungan ditutup (COMPLETED).
-                    Pastikan semua obat sudah disiapkan.
-                </p>
+                <label class="block text-xs font-medium text-slate-600 mb-1">
+                    Tgl kirim/ambil untuk SISA
+                </label>
+                <input type="date" name="tgl_janji_kirim_sisa"
+                       class="border border-slate-300 rounded px-2 py-1 text-sm" style="min-width:150px">
+                <div class="text-xs text-slate-400 mt-1">wajib kalau ada yang tidak dicentang</div>
             </div>
-            <form method="POST" action="/web/apotek/kunjungan/{{ detail.id_kunjungan }}/serahkan"
-                  data-confirm="Yakin serah obat ke {{ detail.nama_pasien }}?\nStok akan terpotong dan kunjungan ditutup.">
-                {{ csrf_input(request) }}
-                <button type="submit"
-                        class="inline-flex items-center px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition font-semibold"
-                        {% if not detail.semua_stok_cukup %}disabled{% endif %}>
-                    💊 Serahkan Obat
-                </button>
-            </form>
-        </div>
+            <div class="flex-1" style="min-width:180px">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Catatan sisa (opsional)</label>
+                <input type="text" name="catatan_kirim_sisa" maxlength="255"
+                       placeholder="alamat / kurir / catatan"
+                       class="w-full border border-slate-300 rounded px-2 py-1 text-sm">
+            </div>
+            <button type="submit"
+                    class="inline-flex items-center px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition font-semibold">
+                💊 Serahkan yang Dicentang
+            </button>
+        </form>
         {% if not detail.semua_stok_cukup %}
-        <p class="text-xs text-red-600 mt-3">⚠ Tombol disable karena ada item dengan stok kurang. Restock dulu di Master Produk.</p>
+        <p class="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            ⚠ Ada item dengan stok kurang — item itu tidak bisa dicentang. Serahkan yang
+            tersedia sekarang, sisanya isi tanggal kirim.
+        </p>
         {% endif %}
     </div>
+
+    <script>
+    // Peringatan sebelum kirim: sebutkan apa yang TIDAK diserahkan, dengan namanya.
+    // Pelajaran dari bug reverse-stok: kotak centang yang mengubah stok tidak boleh
+    // lewat tanpa konfirmasi yang menyebut akibatnya.
+    (function () {
+        var form = document.getElementById('form-serah');
+        if (!form) return;
+        form.addEventListener('submit', function (e) {
+            // JANGAN saring :not(:disabled) di sini. Item yang TIDAK BISA diserahkan
+            // (stok kurang) justru dirender disabled — dan item itulah yang menunggu.
+            // Menyaringnya membuat peringatan bungkam soal apa yang tertinggal, persis
+            // kegagalan yang peringatan ini dibuat untuk mencegah.
+            var kotak = document.querySelectorAll(
+                'input[form="form-serah"][type="checkbox"]');
+            var pilih = [], sisa = [];
+            kotak.forEach(function (c) {
+                var nama = (c.parentElement.querySelector('span') || {}).textContent || 'item';
+                var ikut = c.checked && !c.disabled;
+                (ikut ? pilih : sisa).push(nama.trim()
+                    + (c.disabled ? ' (belum bisa diserahkan)' : ''));
+            });
+            var tgl = form.querySelector('input[name="tgl_janji_kirim_sisa"]');
+            if (pilih.length === 0) {
+                alert('Belum ada item yang dicentang. Centang minimal satu item.');
+                e.preventDefault();
+                return;
+            }
+            if (sisa.length > 0 && tgl && !tgl.value) {
+                alert('Ada ' + sisa.length + ' item yang TIDAK diserahkan:\n\n- '
+                      + sisa.join('\n- ')
+                      + '\n\nIsi dulu tanggal kirim/ambil untuk sisanya.');
+                e.preventDefault();
+                tgl.focus();
+                return;
+            }
+            var pesan = 'Serahkan ' + pilih.length + ' item ke {{ detail.nama_pasien }}?'
+                      + '\n\nStok terpotong untuk:\n- ' + pilih.join('\n- ');
+            if (sisa.length > 0) {
+                pesan += '\n\nMENUNGGU (stok belum dipotong):\n- ' + sisa.join('\n- ')
+                       + '\n\nDijadwalkan: ' + (tgl ? tgl.value : '-');
+            }
+            if (!confirm(pesan)) e.preventDefault();
+        });
+    })();
+    </script>
 
     {# Action: Tunda serah — obat dikirim/diambil nanti (P1-1 Obat Tertunda) #}
     <div class="bg-white rounded-xl shadow-sm border border-blue-100 p-5 mb-4">

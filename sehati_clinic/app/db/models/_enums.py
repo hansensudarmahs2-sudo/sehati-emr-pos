@@ -107,10 +107,20 @@ class StatusTindakanEnum(str, enum.Enum):
 
 
 class StatusItemResepEnum(str, enum.Enum):
-    """Status item resep — kunjungan_resep.status_item."""
+    """Status item resep — kunjungan_resep.status_item.
+
+    Alur: PENDING → DIBAYAR → DISERAHKAN; BATAL bisa dari PENDING atau DIBAYAR.
+
+    DISERAHKAN (task #54, 2026-09-22) menandai item yang stoknya SUDAH dipotong di
+    apotek. Sebelum ini, "sudah dipotong" ditebak dari `kunjungan.status_antrian ==
+    COMPLETED` — tebakan yang jadi SALAH begitu penyerahan boleh sebagian, dan membuat
+    void mengembalikan stok yang tidak pernah keluar. Status per item menggantikan
+    tebakan itu.
+    """
     PENDING = "PENDING"
     BATAL = "BATAL"
     DIBAYAR = "DIBAYAR"
+    DISERAHKAN = "DISERAHKAN"
 
 
 class StatusRencanaTreatmentEnum(str, enum.Enum):

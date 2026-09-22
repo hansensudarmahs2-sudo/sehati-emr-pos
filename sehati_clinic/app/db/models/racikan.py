@@ -133,14 +133,22 @@ class KunjunganRacikan(Base):
     biaya_racik: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
     total: Mapped[float] = mapped_column(DECIMAL(12, 2), default=0, server_default="0", nullable=False)
 
-    # PENDING (belum ditagih) → DIBAYAR (masuk transaksi kasir) → BATAL (void).
+    # PENDING (belum ditagih) → DIBAYAR (masuk transaksi kasir) → DISERAHKAN (stok bahan
+    # dipotong di apotek) → BATAL (void).
     # Hanya baris PENDING yang boleh diganti saat dokter menyimpan ulang SOAP.
+    # Kolom ini String, bukan Enum → penambahan DISERAHKAN tidak butuh ALTER tipe.
     status_item: Mapped[str] = mapped_column(
         String(20), default="PENDING", server_default="PENDING", nullable=False
     )
     # Fase 3: transaksi kasir yang menagih racikan ini (NULL selama PENDING).
     id_transaksi: Mapped[Optional[int]] = mapped_column(
         ForeignKey("transaksi_kasir.id_transaksi"), nullable=True
+    )
+    # Task #54 — racikan bersifat all-or-nothing (satu wadah tidak bisa dibagi), tapi
+    # tetap perlu jejak SIAPA dan KAPAN, sama seperti item resep biasa.
+    waktu_serah: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)
+    id_staf_serah: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
     )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp(), nullable=True

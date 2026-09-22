@@ -104,13 +104,25 @@ class ApotekRepository:
         rows = self.db.execute(stmt).all()
         return [(row[0], row[1]) for row in rows]
 
-    def get_resep_dibayar_for_serah(self, id_kunjungan: int) -> list[KunjunganResep]:
-        """List resep DIBAYAR di kunjungan ini — kandidat untuk diserahkan."""
+    def get_resep_dibayar_for_serah(
+        self, id_kunjungan: int, only_ids: Optional[list[int]] = None
+    ) -> list[KunjunganResep]:
+        """List resep DIBAYAR di kunjungan ini — kandidat untuk diserahkan.
+
+        `only_ids` (task #54): batasi ke baris tertentu untuk penyerahan SEBAGIAN.
+        None = semua (perilaku lama, dipakai API v1 & alur 'serahkan semua').
+        List kosong sengaja tetap berarti "tidak ada" — bukan "semua" — supaya
+        permintaan tanpa satu pun centang tidak diam-diam menyerahkan seluruhnya.
+        """
         stmt = (
             select(KunjunganResep)
             .where(KunjunganResep.id_kunjungan == id_kunjungan)
             .where(KunjunganResep.status_item == "DIBAYAR")
         )
+        if only_ids is not None:
+            if not only_ids:
+                return []
+            stmt = stmt.where(KunjunganResep.id_resep.in_(only_ids))
         return list(self.db.execute(stmt).scalars().all())
 
     def get_racikan_for_apotek(self, id_kunjungan: int) -> list:
@@ -136,12 +148,21 @@ class ApotekRepository:
             out.append((h, list(bahan)))
         return out
 
-    def get_racikan_dibayar_for_serah(self, id_kunjungan: int) -> list:
-        """Racikan DIBAYAR + bahannya — kandidat untuk diracik & diserahkan."""
-        return [
+    def get_racikan_dibayar_for_serah(
+        self, id_kunjungan: int, only_ids: Optional[list[int]] = None
+    ) -> list:
+        """Racikan DIBAYAR + bahannya — kandidat untuk diracik & diserahkan.
+
+        `only_ids` (task #54) sama seperti pada resep: None = semua, list = pilihan.
+        """
+        rows = [
             (h, b) for (h, b) in self.get_racikan_for_apotek(id_kunjungan)
             if h.status_item == "DIBAYAR"
         ]
+        if only_ids is not None:
+            _sel = set(only_ids)
+            rows = [(h, b) for (h, b) in rows if h.id_kunjungan_racikan in _sel]
+        return rows
 
     # =========================================================================
     # STOK PRODUK — get for update (lock) & update

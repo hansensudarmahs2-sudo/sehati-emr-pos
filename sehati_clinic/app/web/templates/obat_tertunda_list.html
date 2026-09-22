@@ -45,10 +45,17 @@
           </td>
           <td class="px-4 py-3 text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-1">
+              {# Task #54: sisa obat sering tidak lengkap juga. "Pilih item" membuka
+                 halaman apotek supaya petugas bisa menyerahkan sebagian lagi; tombol
+                 di sebelahnya tetap jalur cepat untuk menyerahkan SEMUA sisanya. #}
+              <a href="/web/apotek/kunjungan/{{ i.id_kunjungan }}"
+                 class="px-2 py-1 text-xs bg-white border border-teal-600 text-teal-700 rounded hover:bg-teal-50">
+                ☑ Pilih item
+              </a>
               <form method="POST" action="/web/obat-tertunda/{{ i.id_kunjungan }}/serahkan" class="inline"
-                    data-confirm="Serahkan obat ke {{ i.nama_pasien }}? Stok akan terpotong.">
+                    data-confirm="Serahkan SEMUA sisa obat ke {{ i.nama_pasien }}? Stok akan terpotong.">
                 {{ csrf_input(request) }}
-                <button type="submit" class="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700">💊 Serahkan</button>
+                <button type="submit" class="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700">💊 Serahkan semua</button>
               </form>
               <form method="POST" action="/web/obat-tertunda/{{ i.id_kunjungan }}/ubah-tgl" class="inline-flex items-center gap-1">
                 {{ csrf_input(request) }}

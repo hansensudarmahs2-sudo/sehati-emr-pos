@@ -83,6 +83,16 @@ class KunjunganLotTerpakai(Base):
     )
     id_lot: Mapped[int] = mapped_column(ForeignKey("stok_lot.id_lot"), nullable=False)
     qty: Mapped[float] = mapped_column(Float, nullable=False)
+    # Task #54 — ASAL potongan, per ITEM. Tanpa ini, satu produk yang muncul di DUA
+    # baris resep tidak bisa dibedakan saat void: reverse per item jadi menebak.
+    # Keduanya NULL pada baris lama (jejak sebelum 2026-09-22) → dibaca dengan cara
+    # lama (per produk). Tepat satu dari keduanya terisi pada baris baru.
+    id_resep: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_resep.id_resep"), nullable=True
+    )
+    id_kunjungan_racikan: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=True
+    )
     reversed_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, nullable=True,
         comment="Diisi saat qty sudah dikembalikan ke lot (void) — cegah double-restore.",

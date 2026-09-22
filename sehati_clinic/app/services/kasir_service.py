@@ -1008,18 +1008,77 @@ class KasirService:
         return len(rencana_list)
 
     def _produk_stok_sudah_dipotong(self, transaksi) -> bool:
-        """True kalau stok produk transaksi ini SUDAH pernah dipotong dari inventory.
+        """LEGACY — tebakan lama: COMPLETED berarti stok sudah dipotong.
 
-        P0-1 (AUDIT_SEHATI_2026-07-10): stok produk HANYA dipotong saat serah obat
-        (`ApotekService.serahkan_obat`), yang men-transisi kunjungan `ANTRI_OBAT -> COMPLETED`.
-        Jadi COMPLETED = obat sudah diserah = stok sudah dipotong. Sebelum itu (mis. ANTRI_OBAT)
-        atau tanpa kunjungan, stok belum berkurang → me-reverse akan menggelembungkan inventory.
+        P0-1 (AUDIT_SEHATI_2026-07-10): dulu stok produk hanya dipotong saat serah obat,
+        yang selalu mentransisi `ANTRI_OBAT -> COMPLETED`. Jadi COMPLETED = sudah diserah.
+
+        ⚠ Sejak task #54 (serah PER ITEM, 2026-09-22) tebakan ini **tidak lagi benar**:
+        kunjungan bisa COMPLETED sementara sebagian item belum diserahkan sama sekali.
+        Memakainya akan mengembalikan stok yang tidak pernah keluar. Fungsi ini sekarang
+        HANYA dipakai untuk data LAMA — kunjungan yang diserahkan sebelum status
+        DISERAHKAN ada, sehingga itemnya masih tercatat DIBAYAR. Lihat `_mode_per_item`.
         """
         if not transaksi.id_kunjungan:
             return False
         from app.db.models import Kunjungan
         kunjungan = self.db.get(Kunjungan, transaksi.id_kunjungan)
         return kunjungan is not None and kunjungan.status_antrian == "COMPLETED"
+
+    def _mode_per_item(self, id_kunjungan) -> bool:
+        """True kalau kunjungan ini bisa dinilai PER ITEM (bukan lewat tebakan COMPLETED).
+
+        Benar dalam dua keadaan, dan keduanya aman:
+        - ada item berstatus DISERAHKAN → jelas sudah pakai skema baru;
+        - belum ada jejak lot sama sekali → belum pernah ada penyerahan, jadi tidak ada
+          apa pun yang perlu dikembalikan (jawaban per item = 0 untuk semuanya).
+
+        Kalau keduanya tidak terpenuhi (ada jejak lot tapi tidak ada satu pun item
+        DISERAHKAN) berarti kunjungan LAMA — diserahkan sebelum skema ini ada — dan
+        penilaiannya jatuh ke `_produk_stok_sudah_dipotong`.
+        """
+        from sqlalchemy import select
+        from app.db.models import KunjunganResep, KunjunganLotTerpakai, StatusItemResepEnum
+        from app.db.models.racikan import KunjunganRacikan
+
+        if not id_kunjungan:
+            return False
+        ada_diserahkan = self.db.execute(
+            select(KunjunganResep.id_resep).where(
+                KunjunganResep.id_kunjungan == id_kunjungan,
+                KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
+            ).limit(1)
+        ).first() or self.db.execute(
+            select(KunjunganRacikan.id_kunjungan_racikan).where(
+                KunjunganRacikan.id_kunjungan == id_kunjungan,
+                KunjunganRacikan.status_item == "DISERAHKAN",
+            ).limit(1)
+        ).first()
+        if ada_diserahkan:
+            return True
+        ada_jejak = self.db.execute(
+            select(KunjunganLotTerpakai.id_terpakai).where(
+                KunjunganLotTerpakai.id_kunjungan == id_kunjungan
+            ).limit(1)
+        ).first()
+        return not ada_jejak
+
+    def _qty_produk_diserahkan(self, id_kunjungan, id_produk) -> float:
+        """Total qty produk ini yang BENAR-BENAR sudah diserahkan di kunjungan tsb.
+
+        Dijumlahkan, bukan diambil satu, karena satu produk bisa muncul di lebih dari
+        satu baris resep — dan hanya sebagian yang sudah diserahkan.
+        """
+        from sqlalchemy import select, func as _func
+        from app.db.models import KunjunganResep, StatusItemResepEnum
+
+        return float(self.db.execute(
+            select(_func.coalesce(_func.sum(KunjunganResep.qty), 0)).where(
+                KunjunganResep.id_kunjungan == id_kunjungan,
+                KunjunganResep.id_produk == id_produk,
+                KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
+            )
+        ).scalar() or 0)
 
     def _reverse_stok_per_item(self, transaksi, items_reverse, actor_id_staf, request, lot_map=None):
         """Reverse stok produk untuk items_reverse yang dichecklist user.
@@ -1036,7 +1095,10 @@ class KasirService:
 
         if not items_reverse:
             return 0
-        if not self._produk_stok_sudah_dipotong(transaksi):
+        # Task #54: penilaian "stok sudah dipotong" pindah dari status KUNJUNGAN ke status
+        # ITEM. Tebakan lama hanya dipakai untuk kunjungan lama (lihat _mode_per_item).
+        per_item = self._mode_per_item(transaksi.id_kunjungan)
+        if not per_item and not self._produk_stok_sudah_dipotong(transaksi):
             return 0
         lot_map = lot_map or {}
 
@@ -1051,7 +1113,7 @@ class KasirService:
             TransaksiDetailRacikan as _TDR,
         )
 
-        jobs = []  # (produk, qty, lot_key, penanda_selesai)
+        jobs = []  # (produk, qty, lot_key, penanda_selesai, id_kunjungan_racikan|None)
         legacy_ids, produk_ids, racik_ids = [], [], []
         for tok in items_reverse:
             s = str(tok).strip()
@@ -1087,7 +1149,7 @@ class KasirService:
                 _p = self.db.get(MasterProduk, detail.id_produk)
                 if _p is None:
                     continue
-                jobs.append((_p, float(detail.qty), detail.id_detail, detail))
+                jobs.append((_p, float(detail.qty), detail.id_detail, detail, None))
 
         for _dr in (self.db.execute(
             select(_TDR).where(
@@ -1104,11 +1166,34 @@ class KasirService:
                 _pb = self.db.get(MasterProduk, _b.id_produk)
                 if _pb is None or float(_b.dipakai or 0) <= 0:
                     continue
-                jobs.append((_pb, float(_b.dipakai), f"RCK:{_dr.id_kunjungan_racikan}", _dr))
+                jobs.append((_pb, float(_b.dipakai), f"RCK:{_dr.id_kunjungan_racikan}", _dr,
+                             _dr.id_kunjungan_racikan))
+
+        # Berapa qty tiap produk yang SUDAH terpakai oleh job sebelumnya — supaya dua
+        # baris transaksi dengan produk sama tidak sama-sama mengklaim jatah yang sama.
+        _terpakai: dict[int, float] = {}
 
         reversed_count = 0
-        for produk, qty, lot_key, _marker in jobs:
+        for produk, qty, lot_key, _marker, _id_racik in jobs:
             detail = _marker  # penanda void_reverse_stok (produk maupun racikan)
+
+            # --- Batas per item (task #54) ---
+            # Hanya item yang benar-benar DISERAHKAN yang boleh dikembalikan. Item yang
+            # masih DIBAYAR (tertunda, belum diambil pasien) stoknya tidak pernah keluar.
+            if per_item:
+                if _id_racik is None:
+                    _jatah = self._qty_produk_diserahkan(transaksi.id_kunjungan, produk.id_produk)
+                    _sisa_jatah = _jatah - _terpakai.get(produk.id_produk, 0.0)
+                    qty = min(qty, max(_sisa_jatah, 0.0))
+                else:
+                    from app.db.models.racikan import KunjunganRacikan as _KR
+                    _rh = self.db.get(_KR, _id_racik)
+                    if _rh is None or _rh.status_item != "DISERAHKAN":
+                        qty = 0.0
+                if qty <= 1e-6:
+                    continue
+                if _id_racik is None:
+                    _terpakai[produk.id_produk] = _terpakai.get(produk.id_produk, 0.0) + qty
             old_stok = float(produk.stok_terkini or 0)
             new_stok = old_stok + qty
             produk.stok_terkini = new_stok
@@ -1123,11 +1208,28 @@ class KasirService:
             restored = []
             remaining = qty
             if transaksi.id_kunjungan:
+                # Task #54: jejak disaring per ASAL. Tanpa ini, produk yang dijual biasa
+                # DAN dipakai sebagai bahan racikan di kunjungan yang sama akan berbagi
+                # jejak — void salah satunya memakan jejak milik yang lain, lalu yang
+                # lain jatuh ke lot 'VOID-RETURN' tanpa ED. Baris lama (kedua kolom NULL)
+                # tetap dapat dibaca keduanya supaya data lama tidak berubah perilakunya.
+                from sqlalchemy import and_ as _and, or_ as _or2
+                if _id_racik is None:
+                    _scope = KunjunganLotTerpakai.id_kunjungan_racikan.is_(None)
+                else:
+                    _scope = _or2(
+                        KunjunganLotTerpakai.id_kunjungan_racikan == _id_racik,
+                        _and(
+                            KunjunganLotTerpakai.id_kunjungan_racikan.is_(None),
+                            KunjunganLotTerpakai.id_resep.is_(None),
+                        ),
+                    )
                 jejak_rows = list(self.db.execute(
                     select(KunjunganLotTerpakai).where(
                         KunjunganLotTerpakai.id_kunjungan == transaksi.id_kunjungan,
                         KunjunganLotTerpakai.id_produk == produk.id_produk,
                         KunjunganLotTerpakai.reversed_at.is_(None),
+                        _scope,
                     ).order_by(KunjunganLotTerpakai.id_terpakai.desc())  # LIFO
                 ).scalars().all())
                 for jr in jejak_rows:
