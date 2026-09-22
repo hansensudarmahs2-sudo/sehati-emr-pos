@@ -255,6 +255,22 @@ class TransaksiRefund(Base):
     id_staf_refund: Mapped[Optional[int]] = mapped_column(
         ForeignKey("master_staf.id_staf"), nullable=True
     )
+
+    # --- Task #54-F (2026-09-22): refund PER ITEM -------------------------------
+    # Obat yang sudah dibayar tapi tidak pernah datang dibatalkan per item, bukan
+    # dengan void seluruh transaksi (yang merusak riwayat & komisi item lain yang
+    # sudah benar-benar diserahkan). TEPAT SATU dari dua kolom di bawah terisi saat
+    # jenis_refund='ITEM'; keduanya NULL = refund tingkat transaksi (belum dipakai).
+    jenis_refund: Mapped[str] = mapped_column(
+        String(20), default="ITEM", server_default="ITEM", nullable=False,
+        comment="ITEM = refund satu baris resep/racikan; TRANSAKSI = seluruh transaksi.",
+    )
+    id_resep: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_resep.id_resep"), nullable=True
+    )
+    id_kunjungan_racikan: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=True
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp(), nullable=True
     )

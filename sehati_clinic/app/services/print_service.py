@@ -276,8 +276,33 @@ class PrintService:
             voider = self.db.get(_MS, trx.void_by_id_staf)
             voided_by_nama = voider.nama_staf if voider else None
 
+        # Task #54-F: refund per item MENGURANGI `total_tagihan` header (keputusan
+        # dr. Hansen: supaya 12 titik agregasi uang otomatis benar). Akibatnya rincian
+        # baris di nota ini tidak lagi berjumlah sama dengan total transaksi. Nota WAJIB
+        # menyatakannya — kalau tidak, nota jadi dokumen yang angkanya tidak bisa
+        # dipertanggungjawabkan.
+        from app.db.models import TransaksiRefund as _TR
+        _refund_rows = self.db.execute(
+            select(_TR.nilai_refund, _TR.tgl_refund, _TR.metode_refund, _TR.alasan)
+            .where(_TR.id_transaksi == trx.id_transaksi)
+            .order_by(_TR.id_refund.asc())
+        ).all()
+        refund_items = [
+            {
+                "nilai": float(r.nilai_refund or 0),
+                "tgl": r.tgl_refund,
+                "metode": r.metode_refund or "—",
+                "alasan": r.alasan or "",
+            }
+            for r in _refund_rows
+        ]
+        refund_total = round(sum(r["nilai"] for r in refund_items), 2)
+
         return {
             "klinik": klinik,
+            "refund_items": refund_items,
+            "refund_total": refund_total,
+            "ada_refund": bool(refund_items),
             "transaksi": {
                 "id_transaksi": int(trx.id_transaksi),
                 "id_kunjungan": int(id_kunj) if id_kunj else None,

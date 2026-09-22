@@ -114,11 +114,37 @@
         <td class="text-right mono">− Rp {{ "{:,.0f}".format(diskon_benefit).replace(",", ".") }}</td>
     </tr>
     {% endif %}
+    {# Task #54-F: refund item mengurangi total transaksi, sehingga rincian baris di
+       atas TIDAK lagi berjumlah sama dengan TOTAL. Nota wajib menyatakannya. #}
+    {% if ada_refund %}
+    <tr>
+        <td class="text-right">↩ Dikembalikan (refund item)</td>
+        <td class="text-right mono">− Rp {{ "{:,.0f}".format(refund_total).replace(",", ".") }}</td>
+    </tr>
+    {% endif %}
     <tr>
         <td class="text-right font-bold" style="font-size: 1.1em;">TOTAL</td>
         <td class="text-right mono font-bold" style="font-size: 1.1em;">Rp {{ "{:,.0f}".format(total).replace(",", ".") }}</td>
     </tr>
 </table>
+
+{% if ada_refund %}
+<div class="divider"></div>
+<div class="section-title">↩ Pengembalian Dana</div>
+<table>
+    {% for r in refund_items %}
+    <tr>
+        <td>{{ r.tgl.strftime("%d/%m/%Y") if r.tgl else "—" }} · {{ r.metode }}
+            {% if r.alasan %}<div class="muted" style="font-size:0.85em">{{ r.alasan }}</div>{% endif %}
+        </td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(r.nilai).replace(",", ".") }}</td>
+    </tr>
+    {% endfor %}
+</table>
+<div class="muted" style="font-size:0.85em;margin-top:4px">
+    TOTAL di atas sudah dikurangi pengembalian ini. Obat yang dibatalkan tidak diserahkan.
+</div>
+{% endif %}
 
 {% if benefit_items and benefit_items|length > 0 %}
 <div class="divider"></div>

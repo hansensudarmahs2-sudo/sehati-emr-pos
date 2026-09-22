@@ -73,10 +73,22 @@
     <span>-{{ "{:,.0f}".format(diskon_benefit).replace(",", ".") }}</span>
 </div>
 {% endif %}
+{# Task #54-F: refund item mengurangi total, rincian di atas tidak lagi berjumlah sama #}
+{% if ada_refund %}
+<div style="display: flex; justify-content: space-between;">
+    <span>Dikembalikan</span>
+    <span>-{{ "{:,.0f}".format(refund_total).replace(",", ".") }}</span>
+</div>
+{% endif %}
 <div style="display: flex; justify-content: space-between;" class="font-bold">
     <span>TOTAL</span>
     <span>{{ "{:,.0f}".format(total).replace(",", ".") }}</span>
 </div>
+{% if ada_refund %}
+<div style="font-size:0.85em;text-align:center;margin-top:3px">
+    * TOTAL sudah dikurangi pengembalian dana
+</div>
+{% endif %}
 
 {% if benefit_items and benefit_items|length > 0 %}
 <div class="divider"></div>

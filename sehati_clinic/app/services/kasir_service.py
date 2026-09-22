@@ -660,19 +660,31 @@ class KasirService:
             self.repo.create_transaksi(trx)
             id_trx_baru = trx.id_transaksi
 
+            # Persen diskon produk (member) — dipakai untuk produk DAN racikan.
+            _persen_racik = Decimal(str(tagihan.ringkasan_biaya.persen_diskon_produk or 0))
+
             # 3. INSERT detail produk (snapshot dari rincian_produk yang non-BATAL)
+            # Task #54-F: `diskon_item` akhirnya DIISI. Kolomnya sudah ada sejak
+            # M-FIN-1 tapi selalu 0, sehingga nilai BERSIH per baris produk tidak
+            # pernah tersimpan. Akibatnya dua hal: Finance tak punya data margin per
+            # lini, dan refund per item tidak tahu berapa yang benar-benar dibayar
+            # pasien — kalau dikembalikan `subtotal` mentah, pasien member menerima
+            # lebih banyak dari yang ia bayar. Racikan sudah benar sejak Fase 3.
             for produk_item in tagihan.rincian_produk:
+                _diskon_p = (
+                    Decimal(str(produk_item.subtotal)) * _persen_racik / Decimal("100")
+                ).quantize(Decimal("0.01"))
                 self.repo.add_detail_produk(TransaksiDetailProduk(
                     id_transaksi=id_trx_baru,
                     id_produk=produk_item.id_produk,
                     qty=produk_item.qty,
                     harga_satuan=produk_item.harga_satuan,
                     subtotal=produk_item.subtotal,
+                    diskon_item=_diskon_p,
                 ))
 
             # 3b. INSERT detail racikan (tabel SENDIRI — transaksi_detail_produk
             # tidak muat karena id_produk-nya NOT NULL sedangkan racikan banyak bahan).
-            _persen_racik = Decimal(str(tagihan.ringkasan_biaya.persen_diskon_produk or 0))
             for racik_item in tagihan.rincian_racikan:
                 _diskon_row = (
                     Decimal(str(racik_item.total)) * _persen_racik / Decimal("100")
@@ -863,6 +875,250 @@ class KasirService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Gagal void item: {str(e)}",
+            )
+
+    # =========================================================================
+    # REFUND PER ITEM (task #54-F) — obat tertunda yang tidak pernah datang
+    # =========================================================================
+    def refund_item_tertunda(
+        self,
+        *,
+        id_resep: Optional[int] = None,
+        id_kunjungan_racikan: Optional[int] = None,
+        alasan: str,
+        metode_refund: str = "TUNAI",
+        actor_id_staf: int,
+        request: Optional[Request] = None,
+    ) -> dict:
+        """Batalkan SATU item obat yang sudah dibayar tapi tidak pernah diserahkan,
+        dan kembalikan uangnya.
+
+        Kenapa bukan void transaksi: void membatalkan SELURUH transaksi, termasuk item
+        yang sudah benar-benar diserahkan ke pasien — riwayatnya rusak dan komisi
+        dokter untuk item itu hilang padahal pekerjaannya nyata.
+
+        Pagar yang berlaku:
+        - item harus **DIBAYAR**. `DISERAHKAN` ditolak (obat sudah di tangan pasien —
+          itu urusan retur, bukan refund), `PENDING` ditolak (belum dibayar, pakai
+          `void_item_resep`), `BATAL` ditolak (sudah dibatalkan).
+        - transaksi asal harus `BAYAR`. Transaksi VOID tidak bisa direfund.
+        - stok TIDAK disentuh: status DIBAYAR (bukan DISERAHKAN) sudah menjamin
+          stoknya belum pernah dipotong.
+
+        Nilai yang dikembalikan = nilai BERSIH yang benar-benar dibayar pasien
+        (subtotal item dikurangi porsi diskonnya), bukan harga penuh.
+        """
+        import logging
+        from sqlalchemy import select
+        from app.db.models import TransaksiRefund, StatusItemResepEnum
+        from app.db.models.racikan import KunjunganRacikan
+
+        _log = logging.getLogger(__name__)
+
+        if (id_resep is None) == (id_kunjungan_racikan is None):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pilih tepat satu: item resep ATAU racikan.",
+            )
+        if not (alasan or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Alasan pembatalan WAJIB diisi — ini uang keluar.",
+            )
+
+        # ---- 1. Ambil item + pastikan statusnya DIBAYAR --------------------
+        if id_resep is not None:
+            item = self.repo.get_resep_by_id(id_resep)
+            if item is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                    f"Resep {id_resep} tidak ditemukan.")
+            _st = item.status_item.value if hasattr(item.status_item, "value") else str(item.status_item or "")
+            _label = f"resep #{id_resep}"
+            _sumber_komisi, _id_ref_komisi = "PRODUK", id_resep
+        else:
+            item = self.db.get(KunjunganRacikan, id_kunjungan_racikan)
+            if item is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                    f"Racikan {id_kunjungan_racikan} tidak ditemukan.")
+            _st = str(item.status_item or "")
+            _label = f"racikan #{id_kunjungan_racikan} ({item.nama_snapshot})"
+            _sumber_komisi, _id_ref_komisi = "RACIKAN", id_kunjungan_racikan
+
+        if _st == "DISERAHKAN":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"{_label} sudah DISERAHKAN ke pasien — tidak bisa direfund. "
+                    "Obat yang sudah keluar ditangani lewat retur, bukan refund."
+                ),
+            )
+        if _st != "DIBAYAR":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"{_label} berstatus '{_st}' — hanya item DIBAYAR yang bisa "
+                    "direfund."
+                ),
+            )
+
+        # ---- 2. Temukan transaksi + nilai BERSIH item ----------------------
+        if id_resep is not None:
+            # Resep tidak menyimpan id_transaksi; cari lewat detail produk transaksi
+            # BAYAR pada kunjungan yang sama. Kalau satu produk muncul di dua baris
+            # resep, nilainya dibagi rata per unit — itu satu-satunya pembagian yang
+            # bisa dipertanggungjawabkan tanpa id_resep di tabel detail.
+            trx = self.db.execute(
+                select(TransaksiKasir)
+                .where(TransaksiKasir.id_kunjungan == item.id_kunjungan,
+                       TransaksiKasir.status_transaksi == "BAYAR")
+                .order_by(TransaksiKasir.id_transaksi.desc()).limit(1)
+            ).scalars().first()
+            if trx is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tidak ada transaksi BAYAR untuk {_label}.",
+                )
+            detail = self.db.execute(
+                select(TransaksiDetailProduk).where(
+                    TransaksiDetailProduk.id_transaksi == trx.id_transaksi,
+                    TransaksiDetailProduk.id_produk == item.id_produk,
+                ).limit(1)
+            ).scalars().first()
+            if detail is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{_label} tidak ditemukan di rincian transaksi "
+                           f"#{trx.id_transaksi}.",
+                )
+            _qty_detail = Decimal(str(detail.qty or 0))
+            _qty_item = Decimal(str(item.qty or 0))
+            _net_detail = (Decimal(str(detail.subtotal or 0))
+                           - Decimal(str(detail.diskon_item or 0)))
+            if _qty_detail > 0 and _qty_item > 0 and _qty_item != _qty_detail:
+                nilai = (_net_detail * _qty_item / _qty_detail).quantize(Decimal("0.01"))
+            else:
+                nilai = _net_detail.quantize(Decimal("0.01"))
+        else:
+            _dr = self.db.execute(
+                select(TransaksiDetailRacikan).where(
+                    TransaksiDetailRacikan.id_kunjungan_racikan == id_kunjungan_racikan
+                ).limit(1)
+            ).scalars().first()
+            if _dr is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{_label} belum pernah ditagih — tidak ada yang direfund.",
+                )
+            trx = self.db.get(TransaksiKasir, _dr.id_transaksi)
+            if trx is None or trx.status_transaksi != "BAYAR":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Transaksi asal {_label} bukan BAYAR — tidak bisa direfund.",
+                )
+            nilai = Decimal(str(_dr.subtotal or 0)).quantize(Decimal("0.01"))
+
+        if nilai <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Nilai refund {_label} nol — tidak ada yang dikembalikan.",
+            )
+
+        # ---- 3. Anti-dobel: item ini belum pernah direfund -----------------
+        _sudah = self.db.execute(
+            select(TransaksiRefund.id_refund).where(
+                TransaksiRefund.id_resep == id_resep
+                if id_resep is not None
+                else TransaksiRefund.id_kunjungan_racikan == id_kunjungan_racikan
+            ).limit(1)
+        ).first()
+        if _sudah:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{_label} sudah pernah direfund.",
+            )
+
+        try:
+            now = self._now_utc7().replace(tzinfo=None)
+
+            # ---- 4. Catat refund (tabel yang SUDAH dibaca ekspor Finance G9) ----
+            self.db.add(TransaksiRefund(
+                id_transaksi=trx.id_transaksi,
+                tgl_refund=now,
+                nilai_refund=nilai,
+                metode_refund=metode_refund,
+                alasan=f"Pembatalan obat tertunda — {_label}. {alasan.strip()}",
+                id_staf_refund=actor_id_staf,
+                jenis_refund="ITEM",
+                id_resep=id_resep,
+                id_kunjungan_racikan=id_kunjungan_racikan,
+            ))
+
+            # ---- 5. Item jadi BATAL (stok TIDAK disentuh) ----------------------
+            if id_resep is not None:
+                item.status_item = StatusItemResepEnum.BATAL
+                item.id_staf_void = actor_id_staf
+                item.waktu_void = now
+            else:
+                item.status_item = "BATAL"
+
+            # ---- 6. Kurangi nilai transaksi ------------------------------------
+            # Keputusan dr. Hansen: header yang dikurangi, supaya 12 titik agregasi
+            # uang (omzet harian/bulanan, KPI dashboard, rekap shift, tutup kasir,
+            # ekspor Finance) otomatis benar tanpa satu pun query disentuh.
+            # Konsekuensi yang diterima: nota cetak ulang perlu penanda direfund.
+            _total_lama = Decimal(str(trx.total_tagihan or 0))
+            trx.total_tagihan = max(Decimal("0"), _total_lama - nilai)
+
+            # ---- 7. Komisi baris item itu saja -------------------------------
+            n_komisi = KomisiService(self.db).void_komisi_item(
+                id_transaksi=trx.id_transaksi, sumber=_sumber_komisi,
+                id_ref=_id_ref_komisi, actor_id_staf=actor_id_staf, request=request,
+            )
+
+            self.audit.log(
+                aksi="REFUND_ITEM",
+                id_staf=actor_id_staf,
+                tabel_target="transaksi_kasir",
+                id_target=trx.id_transaksi,
+                data_lama={"total_tagihan": float(_total_lama)},
+                data_baru={
+                    "total_tagihan": float(trx.total_tagihan),
+                    "nilai_refund": float(nilai),
+                    "metode_refund": metode_refund,
+                    "id_resep": id_resep,
+                    "id_kunjungan_racikan": id_kunjungan_racikan,
+                    "komisi_divoid": n_komisi,
+                },
+                keterangan=(
+                    f"Refund item: {_label} sebesar {nilai}. Stok TIDAK dikembalikan "
+                    f"(obat belum pernah diserahkan). Alasan: {alasan.strip()!r}"
+                ),
+                request=request,
+            )
+            self.db.commit()
+            return {
+                "status": "success",
+                "message": (
+                    f"{_label} dibatalkan. Refund Rp {nilai:,.0f} ({metode_refund}). "
+                    f"Total transaksi #{trx.id_transaksi} kini Rp "
+                    f"{trx.total_tagihan:,.0f}."
+                ).replace(",", "."),
+                "data": {
+                    "id_transaksi": trx.id_transaksi,
+                    "nilai_refund": float(nilai),
+                    "total_tagihan_baru": float(trx.total_tagihan),
+                    "komisi_divoid": n_komisi,
+                },
+            }
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            _log.exception("GAGAL refund item tertunda (%s)", _label)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gagal refund item: {e!s}",
             )
 
     # =========================================================================

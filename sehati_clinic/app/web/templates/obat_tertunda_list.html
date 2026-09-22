@@ -37,7 +37,36 @@
             <div class="font-mono text-xs text-slate-500">{{ i.no_rm }}</div>
           </td>
           <td class="px-4 py-3 text-slate-700 text-xs">
+            {# Task #54-F: tiap item bisa dibatalkan sendiri (uang dikembalikan)
+               tanpa membatalkan seluruh transaksi. Hanya tampil untuk peran kasir. #}
+            {% for it in i.get('items', []) %}
+            <div class="flex items-center justify-between gap-2 py-0.5">
+              <span>• {{ it.label }}</span>
+              {% if can_batalkan_item %}
+              <form method="POST" action="/web/obat-tertunda/{{ i.id_kunjungan }}/batalkan-item"
+                    class="inline-flex items-center gap-1 shrink-0"
+                    onsubmit="var a=this.querySelector('input[name=alasan]');
+                              if(!a.value.trim()){alert('Tulis dulu alasan pembatalan — ini uang keluar.');a.focus();return false;}
+                              return confirm('Batalkan {{ it.label|e }} untuk {{ i.nama_pasien|e }}?\n\nUang untuk item ini akan DIKEMBALIKAN ke pasien dan komisinya dibatalkan.\nStok tidak berubah (obat belum pernah diserahkan).\n\nTindakan ini tidak bisa dibatalkan.');">
+                {{ csrf_input(request) }}
+                <input type="hidden" name="jenis" value="{{ it.jenis }}">
+                <input type="hidden" name="id_item" value="{{ it.id }}">
+                <input type="text" name="alasan" maxlength="200" placeholder="alasan batal"
+                       class="border border-slate-300 rounded px-1 py-0.5 text-xs" style="width:110px">
+                <select name="metode_refund" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                  <option value="TUNAI">Tunai</option>
+                  <option value="TRANSFER">Transfer</option>
+                </select>
+                <button type="submit" title="Batalkan item & kembalikan uang"
+                        class="px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">
+                  ✗ Batal
+                </button>
+              </form>
+              {% endif %}
+            </div>
+            {% else %}
             {% for o in i.obat %}<div>• {{ o }}</div>{% endfor %}
+            {% endfor %}
           </td>
           <td class="px-4 py-3 text-xs">
             {% if i.nomor_telepon %}<a href="tel:{{ i.nomor_telepon }}" class="text-blue-600 hover:underline">{{ i.nomor_telepon }}</a>{% endif %}

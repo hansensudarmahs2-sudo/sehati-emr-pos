@@ -208,10 +208,25 @@ class ApotekService:
                 .where(_KR.id_kunjungan == kj.id_kunjungan, _KR.status_item == "DIBAYAR")
             ).all()
             obat = [f"{mp.nama_produk} x{float(kr.qty or 0):g}" for kr, mp in resep]
+            # Task #54-F: daftar TERSTRUKTUR per item, supaya tiap baris bisa
+            # dibatalkan sendiri (refund) tanpa membatalkan seluruh transaksi.
+            items = [
+                {
+                    "jenis": "RESEP",
+                    "id": kr.id_resep,
+                    "label": f"{mp.nama_produk} x{float(kr.qty or 0):g}",
+                }
+                for kr, mp in resep
+            ]
             # Racikan ikut ditampilkan — kunjungan yang isinya racikan saja tetap perlu
             # terlihat di daftar Obat Tertunda.
             for _h, _bh in self.repo.get_racikan_dibayar_for_serah(kj.id_kunjungan):
                 obat.append(f"⚗️ {_h.nama_snapshot} x{int(_h.jumlah_unit or 0)} unit")
+                items.append({
+                    "jenis": "RACIKAN",
+                    "id": _h.id_kunjungan_racikan,
+                    "label": f"⚗️ {_h.nama_snapshot} x{int(_h.jumlah_unit or 0)} unit",
+                })
             out.append({
                 "id_kunjungan": kj.id_kunjungan,
                 "id_pasien": kj.id_pasien,
@@ -221,6 +236,7 @@ class ApotekService:
                 "tgl_janji_kirim": kj.tgl_janji_kirim,
                 "catatan_kirim": kj.catatan_kirim or "",
                 "obat": obat,
+                "items": items,
                 "overdue": kj.tgl_janji_kirim is not None and kj.tgl_janji_kirim <= today,
             })
         return out

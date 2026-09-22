@@ -631,6 +631,12 @@ class ExportService:
                 TransaksiRefund.alasan,
                 TransaksiRefund.id_staf_refund,
                 MasterStaf.nama_staf,
+                # Task #54-F: refund kini bisa per ITEM (obat tertunda yang dibatalkan),
+                # jadi Finance perlu tahu baris mana yang dikembalikan — tanpa ini
+                # refund item tampak seperti refund transaksi utuh.
+                TransaksiRefund.jenis_refund,
+                TransaksiRefund.id_resep,
+                TransaksiRefund.id_kunjungan_racikan,
             )
             .outerjoin(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiRefund.id_transaksi)
             .outerjoin(MasterStaf, MasterStaf.id_staf == TransaksiRefund.id_staf_refund)
@@ -650,6 +656,9 @@ class ExportService:
                 "alasan": r[7],
                 "id_staf_refund": int(r[8]) if r[8] else None,
                 "nama_staf": r[9],
+                "jenis_refund": r[10],
+                "id_resep": int(r[11]) if r[11] else None,
+                "id_kunjungan_racikan": int(r[12]) if r[12] else None,
                 "kode_entitas": "KLN",
             }
             for r in self.db.execute(stmt).all()

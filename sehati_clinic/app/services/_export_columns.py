@@ -189,8 +189,16 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "alasan", "type": "str | null", "description": "Alasan refund."},
             {"name": "id_staf_refund", "type": "int | null", "description": "Staf yang memproses refund."},
             {"name": "nama_staf", "type": "str | null", "description": "Nama staf refund."},
+            {"name": "jenis_refund", "type": "str", "description": "ITEM = satu baris resep/racikan dibatalkan; TRANSAKSI = seluruh transaksi."},
+            {"name": "id_resep", "type": "int | null", "description": "Baris kunjungan_resep yang direfund (jenis_refund=ITEM)."},
+            {"name": "id_kunjungan_racikan", "type": "int | null", "description": "Racikan yang direfund (jenis_refund=ITEM). Racikan all-or-nothing."},
             {"name": "kode_entitas", "type": "str", "description": "Penanda PT. Konstan 'KLN'."},
         ],
+        "catatan": (
+            "Refund per item (task #54-F, 2026-09-22) MENGURANGI "
+            "transaksi_kasir.total_tagihan, jadi omzet di laporan lain sudah bersih "
+            "dari nilai ini — JANGAN dikurangkan dua kali saat menyusun jurnal."
+        ),
     },
 
     # =========================================================================

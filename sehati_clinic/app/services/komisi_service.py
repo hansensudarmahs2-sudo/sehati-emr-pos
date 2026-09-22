@@ -196,6 +196,51 @@ class KomisiService:
         self.db.add(KomisiLedger(status="AKTIF", **kw))
 
     # ---------------------------------------------------------------------
+    # VOID PER ITEM (task #54-F): hanya baris komisi milik SATU item.
+    # ---------------------------------------------------------------------
+    def void_komisi_item(
+        self,
+        id_transaksi: int,
+        sumber: str,
+        id_ref: int,
+        actor_id_staf: Optional[int] = None,
+        request: Optional[Request] = None,
+    ) -> int:
+        """VOID komisi untuk satu item saja — dipakai saat refund item tertunda.
+
+        Untuk `sumber='RACIKAN'` ini mengenai SEMUA baris bahan racikan itu, karena
+        tiap bahan ditulis sebagai baris sendiri dengan `id_ref` yang sama. Itu benar:
+        racikannya dibatalkan utuh.
+
+        ⚠ Untuk `sumber='PRODUK'`, `id_ref` diisi `rp.id_resep` dengan FALLBACK ke
+        `rp.id_produk` (lihat blok PRODUK di atas). Jadi pada baris LAMA yang tersimpan
+        lewat jalur fallback, filter ini bisa tidak kena. Jangan menganggap fungsi ini
+        akurat untuk data lama; untuk baris baru `id_resep` selalu terisi.
+        """
+        rows = self.db.execute(
+            select(KomisiLedger).where(
+                KomisiLedger.id_transaksi == id_transaksi,
+                KomisiLedger.sumber == sumber,
+                KomisiLedger.id_ref == id_ref,
+                KomisiLedger.status == "AKTIF",
+            )
+        ).scalars().all()
+        for r in rows:
+            r.status = "VOID"
+        if rows:
+            self.db.flush()
+            self.audit.log(
+                aksi="VOID_KOMISI_ITEM", id_staf=actor_id_staf,
+                tabel_target="komisi_ledger", id_target=id_transaksi,
+                keterangan=(
+                    f"{len(rows)} baris komisi di-VOID untuk {sumber} ref={id_ref} "
+                    "(refund item)."
+                ),
+                request=request,
+            )
+        return len(rows)
+
+    # ---------------------------------------------------------------------
     # VOID: saat transaksi di-void → baris komisi terkait jadi VOID. FLUSH.
     # ---------------------------------------------------------------------
     def void_komisi_transaksi(self, id_transaksi: int, actor_id_staf: Optional[int] = None,

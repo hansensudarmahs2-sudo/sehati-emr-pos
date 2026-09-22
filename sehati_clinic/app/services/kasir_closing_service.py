@@ -80,6 +80,25 @@ class KasirClosingService:
         for metode, total in rows:
             key = (metode or "").upper()
             result[key] = result.get(key, Decimal("0")) + Decimal(str(total or 0))
+
+        # Task #54-F: uang yang DIKEMBALIKAN ke pasien lewat refund item keluar dari
+        # laci tapi tidak terlihat di `transaksi_pembayaran` — tanpa pengurangan ini,
+        # tutup kasir pasti selisih sebesar nilai refund dan petugas yang disalahkan.
+        # Refund dikelompokkan menurut METODE-nya: tunai mengurangi laci, transfer
+        # mengurangi setoran non-tunai.
+        from app.db.models import TransaksiRefund
+
+        # Atribusinya ke PELAKU REFUND, bukan kasir yang dulu menerima bayaran:
+        # yang direkonsiliasi adalah laci tempat uangnya keluar hari ini.
+        refund_rows = self.db.execute(
+            select(TransaksiRefund.metode_refund, func.sum(TransaksiRefund.nilai_refund))
+            .where(TransaksiRefund.id_staf_refund == id_staf_kasir)
+            .where(TransaksiRefund.tgl_refund >= sejak)
+            .group_by(TransaksiRefund.metode_refund)
+        ).all()
+        for metode, total in refund_rows:
+            key = (metode or "TUNAI").upper()
+            result[key] = result.get(key, Decimal("0")) - Decimal(str(total or 0))
         return result
 
     def _build_rows(self, penjualan: dict, modal: Decimal) -> tuple:
