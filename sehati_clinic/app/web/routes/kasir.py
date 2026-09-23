@@ -497,6 +497,10 @@ def kasir_bayar_sukses(
         default_paper=default_paper,
         items_produk=items_produk,
         items_racikan=items_racikan,
+        # Apa yang akan TERTARIK kalau transaksi ini di-void — ditampilkan di modal
+        # void sebelum petugas menekan tombolnya. Komisi dokter yang sudah bekerja
+        # tidak boleh hilang tanpa ada yang melihatnya.
+        peringatan_void=KasirService(db).peringatan_void(id_transaksi),
     )
     return templates.TemplateResponse(request, "kasir_bayar_sukses.html", ctx)
 

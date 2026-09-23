@@ -1673,6 +1673,97 @@ class KasirService:
                 pass
         return reverted
 
+    def _tindakan_selesai_di_transaksi(self, trx) -> list:
+        """Tindakan berstatus SELESAI pada kunjungan transaksi ini.
+
+        Dipakai memagari void. Kebijakan dr. Hansen 2026-09-22 untuk komplain PASCA
+        TINDAKAN: tidak ada penarikan komisi dokter/perawat, tidak ada pengembalian
+        BHP, tidak ada pengembalian kuota, tidak ada pengembalian uang — komplain
+        didokumentasikan lewat nomor transaksi dan ditangani Finance sebagai jurnal
+        penanganan komplain.
+
+        Masalahnya, `void_transaksi` melakukan PERSIS KEBALIKANNYA: menarik semua
+        komisi jadi VOID, mengembalikan kuota membership, membatalkan resep, dan
+        mengeluarkan transaksi dari omzet. Jadi void tidak boleh dipakai untuk
+        tindakan yang pekerjaannya sudah benar-benar dilakukan.
+        """
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan, MasterTreatment, MasterStaf
+        from app.db.models._enums import StatusTindakanEnum
+
+        if not trx.id_kunjungan:
+            return []
+        rows = self.db.execute(
+            select(KunjunganTindakan).where(
+                KunjunganTindakan.id_kunjungan == trx.id_kunjungan,
+                KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI,
+            )
+        ).scalars().all()
+        out = []
+        for kt in rows:
+            t = self.db.get(MasterTreatment, kt.id_treatment)
+            dok = self.db.get(MasterStaf, kt.id_dokter_pelaksana) if kt.id_dokter_pelaksana else None
+            per = self.db.get(MasterStaf, kt.id_perawat_pelaksana) if kt.id_perawat_pelaksana else None
+            out.append({
+                "id": kt.id_kunjungan_tindakan,
+                "nama": t.nama_treatment if t else f"treatment #{kt.id_treatment}",
+                "dokter": dok.nama_staf if dok else None,
+                "perawat": per.nama_staf if per else None,
+                "pakai_kuota": kt.id_kuota_member is not None,
+            })
+        return out
+
+    def _pagari_void_tindakan_selesai(self, trx, reason_enum) -> None:
+        """Tolak void bila ada tindakan yang SUDAH SELESAI dikerjakan — APA PUN alasannya.
+
+        Aturan dr. Hansen (2026-09-22): **void hanya untuk tindakan yang BELUM selesai**
+        (mis. salah input sebelum dikerjakan). Begitu penindak menekan Selesai,
+        pekerjaannya nyata: bahan sudah terpakai, komisi dokter & perawat sudah layak,
+        kuota member sudah terpakai. Void akan menarik semua itu kembali — dan itu
+        bukan koreksi, melainkan merugikan orang yang sudah bekerja.
+
+        Alasan void TIDAK dibedakan di sini. Pengecualian untuk "salah input" pernah
+        dipertimbangkan dan DITOLAK dr. Hansen: alasan mudah dipilih keliru, dan celah
+        sekecil apa pun membuat komisi bisa tertarik diam-diam.
+
+        Komplain pasca tindakan ditangani di luar jalur ini — nomor transaksi dipakai
+        sebagai dokumentasi, lalu masuk jurnal penanganan komplain di Finance.
+        """
+        selesai = self._tindakan_selesai_di_transaksi(trx)
+        if not selesai:
+            return
+        nama = ", ".join(s["nama"] for s in selesai[:3])
+        if len(selesai) > 3:
+            nama += f", +{len(selesai) - 3} lainnya"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Transaksi ini tidak bisa di-void: {len(selesai)} tindakan SUDAH "
+                f"SELESAI dikerjakan ({nama}). Void hanya untuk tindakan yang belum "
+                "dikerjakan. Bahan sudah terpakai, komisi dokter & perawat sudah layak, "
+                "dan kuota member sudah terpakai — semuanya tidak ditarik kembali. "
+                "Untuk komplain, gunakan nomor transaksi ini sebagai dokumentasi dan "
+                "tangani lewat jurnal penanganan komplain di Finance."
+            ),
+        )
+
+    def peringatan_void(self, id_transaksi: int) -> dict:
+        """Apa yang akan TERTARIK kalau transaksi ini di-void — untuk ditampilkan
+        di layar konfirmasi SEBELUM petugas menekan void.
+
+        Tanpa ini, menarik komisi dokter yang sudah bekerja terjadi tanpa ada yang
+        melihatnya — pola kegagalan yang sama dengan centang reverse stok.
+        """
+        trx = self.db.get(TransaksiKasir, id_transaksi)
+        if trx is None:
+            return {"ada_tindakan_selesai": False, "tindakan": []}
+        selesai = self._tindakan_selesai_di_transaksi(trx)
+        return {
+            "ada_tindakan_selesai": bool(selesai),
+            "tindakan": selesai,
+            "pakai_kuota": any(s["pakai_kuota"] for s in selesai),
+        }
+
     def void_transaksi(
         self,
         id_transaksi,
@@ -1697,6 +1788,7 @@ class KasirService:
             raise HTTPException(400, "Sudah ter-void sebelumnya")
         if trx.status_transaksi != StatusTransaksiEnum.BAYAR.value:
             raise HTTPException(400, f"Hanya status BAYAR. Status: {trx.status_transaksi}")
+        self._pagari_void_tindakan_selesai(trx, reason_enum)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar
@@ -1818,6 +1910,9 @@ class KasirService:
             raise HTTPException(400, "Sudah ter-void")
         if trx.status_transaksi != StatusTransaksiEnum.BAYAR.value:
             raise HTTPException(400, f"Hanya status BAYAR")
+        # Pagar yang sama berlaku di jalur past-day — justru di sinilah
+        # REFUND_PASCA_TINDAKAN paling mungkin dipakai (batasnya 10 hari).
+        self._pagari_void_tindakan_selesai(trx, reason_enum)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar
