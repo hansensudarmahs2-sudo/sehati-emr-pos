@@ -207,6 +207,14 @@ MENU_STAF = {
     "icon": "👤",
     "active_when": "/web/staf",
 }
+MENU_AUDIT_PASIEN = {
+    # Alat maintenance (task #18 Lapis-2), bukan menu harian. Sengaja hanya muncul
+    # untuk Owner/Superadmin: layarnya menampilkan data beberapa pasien berdampingan.
+    "label": "Audit ID Pasien",
+    "url": "/web/audit-pasien",
+    "icon": "🪪",
+    "active_when": "/web/audit-pasien",
+}
 MENU_PROFIL = {
     "label": "Profil & Password",
     "url": "/web/profil",
@@ -232,7 +240,7 @@ _MENU_BY_ROLE = {
             MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_RACIKAN, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
-            MENU_STAF, MENU_REPORTS, MENU_EXPORT, MENU_FINANCE_EXPORT,
+            MENU_STAF, MENU_REPORTS, MENU_EXPORT, MENU_FINANCE_EXPORT, MENU_AUDIT_PASIEN,
         ]},
         {"group": "Settings", "items": [
             MENU_SETTINGS_KLINIK,
@@ -254,7 +262,7 @@ _MENU_BY_ROLE = {
             MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_RACIKAN, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
-            MENU_STAF, MENU_REPORTS, MENU_FINANCE_EXPORT,
+            MENU_STAF, MENU_REPORTS, MENU_FINANCE_EXPORT, MENU_AUDIT_PASIEN,
         ]},
         {"group": "Settings", "items": [
             MENU_SETTINGS_KLINIK,

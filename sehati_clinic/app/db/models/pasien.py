@@ -56,6 +56,26 @@ class Pasien(Base):
     email_address: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sumber_referensi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    # --- Nonaktif (task #18) -------------------------------------------------
+    # Pasien TIDAK PERNAH dihapus: kunjungan, transaksi, resep dan komisi menunjuk
+    # ke id_pasien ini. Duplikat dinonaktifkan — hilang dari pencarian, datanya utuh,
+    # nomor RM-nya dipensiunkan (tidak pernah diberikan ke orang lain).
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1", nullable=False
+    )
+    nonaktif_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    nonaktif_alasan: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    id_staf_nonaktif: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
+    )
+    digabung_ke_id_pasien: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("pasien.id_pasien"), nullable=True,
+        comment="Pasien yang BERTAHAN — penunjuk ke mana riwayat orang ini dibaca.",
+    )
+    # NIK dilepas saat nonaktif supaya bisa dipakai pasien yang bertahan; nilainya
+    # disimpan di sini agar jejaknya tidak hilang.
+    nomor_ktp_lama: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+
     # ----- Membership (snapshot — source of truth tier ada di master_membership) -----
     tipe_membership: Mapped[Optional[str]] = mapped_column(
         String(20),
@@ -185,3 +205,37 @@ class MasterPenyakitKronis(Base):
 
     def __repr__(self) -> str:
         return f"<MasterPenyakitKronis(kode={self.kode}, nama={self.nama!r})>"
+
+
+class PasienDuplikatDismiss(Base):
+    """Pasangan pasien yang sudah DINYATAKAN bukan duplikat (task #18, Lapis-2).
+
+    Audit integritas ID pasien akan terus menemukan pasangan yang mirip tapi memang
+    orang berbeda — kakak-adik senama, atau dua orang senama sealamat. Tanpa tempat
+    menyimpan keputusan itu, pasangan yang sama muncul lagi setiap kali laporan
+    dijalankan sampai petugas berhenti membacanya; laporan yang tidak dibaca tidak
+    melindungi siapa pun.
+
+    Pasangan disimpan TERURUT: `id_pasien_a` selalu lebih kecil dari `id_pasien_b`,
+    supaya (A,B) dan (B,A) tidak bisa tersimpan sebagai dua baris berbeda.
+    """
+
+    __tablename__ = "pasien_duplikat_dismiss"
+
+    id_dismiss: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_pasien_a: Mapped[int] = mapped_column(
+        ForeignKey("pasien.id_pasien"), nullable=False, comment="SELALU id yang lebih kecil."
+    )
+    id_pasien_b: Mapped[int] = mapped_column(
+        ForeignKey("pasien.id_pasien"), nullable=False, comment="SELALU id yang lebih besar."
+    )
+    alasan: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    id_staf: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP, server_default=func.current_timestamp(), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<PasienDuplikatDismiss({self.id_pasien_a} vs {self.id_pasien_b})>"

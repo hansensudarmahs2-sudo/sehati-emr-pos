@@ -52,6 +52,11 @@ class PasienRepository:
         term = f"%{keyword}%"
         stmt = (
             select(Pasien)
+            # Task #18: pasien NONAKTIF (duplikat yang sudah dibereskan) tidak boleh
+            # muncul di pencarian — kalau muncul, petugas bisa memilihnya lagi dan
+            # duplikatnya hidup kembali. Datanya tetap utuh & bisa dibuka lewat URL
+            # langsung dari halaman audit.
+            .where(Pasien.is_active.is_(True))
             .where(
                 or_(
                     Pasien.nama.ilike(term),
@@ -71,7 +76,14 @@ class PasienRepository:
         nik = (nik or "").strip()
         if not nik:
             return None
-        return self.db.query(Pasien).filter(Pasien.nomor_ktp == nik).first()
+        # Hanya pasien AKTIF yang memblokir pendaftaran. Duplikat yang sudah
+        # dinonaktifkan NIK-nya sudah dilepas, jadi tidak akan ikut tersaring —
+        # filter ini pagar kedua kalau ada baris lama yang NIK-nya belum dilepas.
+        return (
+            self.db.query(Pasien)
+            .filter(Pasien.nomor_ktp == nik, Pasien.is_active.is_(True))
+            .first()
+        )
 
     def find_by_dob_gender(self, tgl_lahir, jenis_kelamin) -> list[Pasien]:
         """Kandidat utk cek nama-sama: pasien dgn tgl_lahir + jenis_kelamin sama.
@@ -80,7 +92,11 @@ class PasienRepository:
             return []
         return (
             self.db.query(Pasien)
-            .filter(Pasien.tgl_lahir == tgl_lahir, Pasien.jenis_kelamin == jenis_kelamin)
+            .filter(
+                Pasien.tgl_lahir == tgl_lahir,
+                Pasien.jenis_kelamin == jenis_kelamin,
+                Pasien.is_active.is_(True),  # jangan peringatkan soal duplikat yang sudah dibereskan
+            )
             .all()
         )
 

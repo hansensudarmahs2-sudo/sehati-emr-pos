@@ -52,7 +52,7 @@ def obat_tertunda_list(request: Request, db: DbSession):
         items=items, today=today,
         # Pembatalan berikut pengembalian uang hanya untuk peran kasir (lihat route
         # batalkan-item): apoteker tahu obatnya tak datang, kasir yang mengeluarkan uang.
-        can_batalkan_item=require_kasir_role(user),
+        can_batalkan_item=require_kasir_role(user),  # lihat route batalkan-item
         ok=request.query_params.get("ok"), err=request.query_params.get("err"),
     )
     return templates.TemplateResponse(request, "obat_tertunda_list.html", ctx)

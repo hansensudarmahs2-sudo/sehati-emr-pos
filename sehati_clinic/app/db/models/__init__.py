@@ -50,6 +50,7 @@ from app.db.models.pasien import (
     MasterPenyakitKronis,
     Pasien,
     PasienAlergi,
+    PasienDuplikatDismiss,
     PasienPenyakitKronis,
 )
 
@@ -165,6 +166,7 @@ __all__ = [
     "MasterStaf",
     "Pasien",
     "PasienAlergi",
+    "PasienDuplikatDismiss",
     "PasienPenyakitKronis",
     "MasterPenyakitKronis",
     # ----- Booking & Kunjungan -----

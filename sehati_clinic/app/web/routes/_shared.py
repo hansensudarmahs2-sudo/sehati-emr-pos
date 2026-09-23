@@ -123,6 +123,15 @@ OWNER_ONLY_ROLES = {
     StafRoleEnum.OWNER,
 }
 
+# Untuk: Audit Integritas ID Pasien (#18 Lapis-2) — alat maintenance, bukan menu
+# harian. Layarnya menampilkan data beberapa pasien BERDAMPINGAN untuk dibandingkan,
+# jadi daftarnya sengaja sependek mungkin. Dibedakan dari OWNER_ONLY_ROLES (yang
+# memang hanya Owner) dan dari MASTER_DATA_ROLES (kemampuan yang berbeda).
+AUDIT_PASIEN_ROLES = {
+    StafRoleEnum.OWNER,
+    StafRoleEnum.SUPERADMIN,
+}
+
 # Untuk: Export ke Finance sekarang (file-drop, DEC-066-R2) — Owner + Superadmin.
 # Tombol manual/kontingensi; jalur normal tetap scheduler 05:00 WIB.
 FINANCE_EXPORT_ROLES = {
@@ -314,6 +323,11 @@ def is_perawat_role(user: MasterStaf) -> bool:
 def require_owner_only(user: MasterStaf) -> bool:
     """True kalau user adalah Owner (untuk Owner Raw Data Export — C2)."""
     return user.role in OWNER_ONLY_ROLES
+
+
+def require_audit_pasien_role(user: MasterStaf) -> bool:
+    """True kalau user boleh membuka Audit Integritas ID Pasien (Owner/Superadmin)."""
+    return user.role in AUDIT_PASIEN_ROLES
 
 
 def require_finance_export_role(user: MasterStaf) -> bool:
@@ -682,7 +696,8 @@ __all__ = [
     "require_staf_mgmt_role", "require_dokter_antrian_role",
     "require_antrian_mgmt_role", "require_kasir_role", "require_perawat_role",
     "require_apoteker_role", "require_master_data_role", "require_reports_role",
-    "require_owner_only", "require_kinerja_dokter_role", "require_rekap_kasir_role",
+    "require_owner_only", "require_audit_pasien_role",
+    "require_kinerja_dokter_role", "require_rekap_kasir_role",
     "is_dokter_role", "is_perawat_role", "is_kasir_role",
     "require_purchasing_full_role", "require_purchasing_view_role",
     "require_purchasing_approve_cancel_role", "require_opname_approve_role",

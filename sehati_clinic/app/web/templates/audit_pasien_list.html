@@ -1,0 +1,230 @@
+{% extends "_app.html" %}
+{% block title %}Audit ID Pasien{% endblock %}
+{% block page_title %}🪪 Audit Integritas ID Pasien{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+  {% if ok %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>{% endif %}
+  {% if err %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>{% endif %}
+
+  <div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg mb-4 text-sm">
+    Daftar ini berisi <b>dugaan</b>, bukan kesimpulan. Nama yang mirip sering kali memang
+    milik dua orang berbeda — kakak-adik, atau orang senama sealamat.
+    <b>Tidak ada penggabungan otomatis di sini</b>; keputusan ada di tangan kamu.
+  </div>
+
+  {# --- Ringkasan + setelan ambang --- #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
+    <div class="flex flex-wrap items-end gap-4 justify-between">
+      <div class="flex flex-wrap gap-5 text-sm">
+        <div><div class="text-xs text-slate-500">Pasien disisir</div>
+          <div class="text-xl font-bold text-slate-800">{{ hasil.total_pasien }}</div></div>
+        <div><div class="text-xs text-slate-500">Kandidat</div>
+          <div class="text-xl font-bold text-slate-800">{{ hasil.total_kandidat }}</div></div>
+        <div><div class="text-xs text-slate-500">NIK sama</div>
+          <div class="text-xl font-bold text-red-600">{{ hasil.ringkasan.NIK }}</div></div>
+        <div><div class="text-xs text-slate-500">Kuat</div>
+          <div class="text-xl font-bold text-orange-600">{{ hasil.ringkasan.KUAT }}</div></div>
+        <div><div class="text-xs text-slate-500">Sedang</div>
+          <div class="text-xl font-bold text-amber-600">{{ hasil.ringkasan.SEDANG }}</div></div>
+        <div><div class="text-xs text-slate-500">Nama mirip</div>
+          <div class="text-xl font-bold text-slate-600">{{ hasil.ringkasan.MIRIP }}</div></div>
+        <div><div class="text-xs text-slate-500">Sudah dinilai</div>
+          <div class="text-xl font-bold text-slate-400">{{ hasil.dismissed }}</div></div>
+      </div>
+      <form method="GET" action="/web/audit-pasien" class="flex items-end gap-2">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Ambang kemiripan nama</label>
+          <input type="number" name="ambang" step="0.01" min="0.5" max="1"
+                 value="{{ '%.2f'|format(ambang) }}"
+                 class="border border-slate-300 rounded px-2 py-1 text-sm" style="width:90px">
+          <div class="text-xs text-slate-400 mt-1">makin rendah, makin longgar & berisik</div>
+        </div>
+        <button type="submit" class="px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800">
+          Sisir ulang
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {# --- Daftar kandidat --- #}
+  {% if hasil.kandidat %}
+  <div class="space-y-3 mb-6">
+    {% for k in hasil.kandidat %}
+    {# Tailwind di proyek ini PRECOMPILED — kelas yang disusun dinamis
+       (mis. "bg-{{ warna }}-50") tidak ada di CSS hasil build dan warnanya hilang.
+       Karena itu tiap kelas ditulis UTUH. Lihat [[sehati-htmx-ui-gotcha]]. #}
+    {% if k.tingkat == 'NIK' %}
+      {% set kls_border = 'border-red-300' %}{% set kls_badge = 'bg-red-50 text-red-700' %}
+    {% elif k.tingkat == 'KUAT' %}
+      {% set kls_border = 'border-orange-300' %}{% set kls_badge = 'bg-orange-50 text-orange-700' %}
+    {% elif k.tingkat == 'SEDANG' %}
+      {% set kls_border = 'border-amber-300' %}{% set kls_badge = 'bg-amber-50 text-amber-700' %}
+    {% else %}
+      {% set kls_border = 'border-slate-200' %}{% set kls_badge = 'bg-slate-100 text-slate-700' %}
+    {% endif %}
+    <div class="bg-white rounded-xl shadow-sm border {{ kls_border }} p-4">
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold {{ kls_badge }}">
+            {{ k.tingkat }}
+          </span>
+          <span class="text-xs text-slate-500 ml-2">{{ k.alasan | join(' · ') }}</span>
+          {% if k.beda_jenis_kelamin %}
+          <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-50 text-purple-700"
+                title="Cocok di hal lain tapi jenis kelaminnya berbeda — bisa salah input, bisa memang dua orang">
+            ⚠ jenis kelamin berbeda
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {% for p in [k.a, k.b] %}
+        <div class="border border-slate-200 rounded-lg p-3 text-sm">
+          <div class="flex items-center justify-between">
+            <div class="font-semibold text-slate-800">{{ p.nama }}</div>
+            <a href="/web/pasien/{{ p.id_pasien }}" target="_blank"
+               class="text-xs text-blue-600 hover:underline">buka →</a>
+          </div>
+          <div class="font-mono text-xs text-slate-500">{{ p.no_rm }} · id {{ p.id_pasien }}</div>
+          {# Nonaktifkan SISI INI, dan tunjuk sisi lain sebagai yang bertahan.
+             Tombolnya per-pasien, bukan per-pasangan: yang mana yang duplikat
+             adalah keputusan manusia, bukan tebakan sistem. #}
+          {% set lawan = k.b if p.id_pasien == k.a.id_pasien else k.a %}
+          <form method="POST" action="/web/audit-pasien/nonaktifkan"
+                class="mt-2 flex flex-wrap items-center gap-1"
+                onsubmit="var a=this.querySelector('input[name=alasan]');
+                          if(!a.value.trim()){alert('Tulis alasannya — ini menyembunyikan seorang pasien.');a.focus();return false;}
+                          return confirm('Nonaktifkan {{ p.nama|e }} ({{ p.no_rm }})?\n\nYang terjadi:\n· hilang dari pencarian & pendaftaran\n· NIK dilepas supaya bisa dipakai {{ lawan.nama|e }}\n· nomor RM dipensiunkan, tidak diberikan ke orang lain\n· data TIDAK dihapus, bisa diaktifkan lagi\n\nRiwayat yang sudah menempel tetap di ID ini.');">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="id_pasien" value="{{ p.id_pasien }}">
+            <input type="hidden" name="digabung_ke" value="{{ lawan.id_pasien }}">
+            <input type="text" name="alasan" maxlength="200" placeholder="alasan nonaktif"
+                   class="flex-1 border border-slate-300 rounded px-2 py-1 text-xs" style="min-width:130px">
+            <button type="submit"
+                    class="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 whitespace-nowrap">
+              ⛔ Nonaktifkan ini
+            </button>
+          </form>
+          <dl class="mt-2 text-xs text-slate-600 space-y-0.5">
+            <div class="flex gap-2"><dt class="w-20 text-slate-400">NIK</dt><dd class="font-mono">{{ p.nomor_ktp or "—" }}</dd></div>
+            <div class="flex gap-2"><dt class="w-20 text-slate-400">Tgl lahir</dt><dd>{{ p.tgl_lahir or "—" }}</dd></div>
+            <div class="flex gap-2"><dt class="w-20 text-slate-400">Kelamin</dt><dd>{{ p.jenis_kelamin.value if p.jenis_kelamin else "—" }}</dd></div>
+            <div class="flex gap-2"><dt class="w-20 text-slate-400">Telepon</dt><dd class="font-mono">{{ p.nomor_telepon or "—" }}</dd></div>
+            <div class="flex gap-2"><dt class="w-20 text-slate-400">Alamat</dt><dd>{{ p.alamat or "—" }}</dd></div>
+          </dl>
+        </div>
+        {% endfor %}
+      </div>
+
+      <form method="POST" action="/web/audit-pasien/dismiss"
+            class="mt-3 flex flex-wrap items-end gap-2"
+            onsubmit="var a=this.querySelector('input[name=alasan]');
+                      if(!a.value.trim()){alert('Tulis alasannya — supaya kelak bisa ditinjau ulang kenapa pasangan ini dilewati.');a.focus();return false;}
+                      return confirm('Tandai {{ k.a.nama|e }} dan {{ k.b.nama|e }} sebagai BUKAN duplikat?\n\nPasangan ini tidak akan muncul lagi di laporan sampai penandaannya dicabut.');">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="id_a" value="{{ k.id_a }}">
+        <input type="hidden" name="id_b" value="{{ k.id_b }}">
+        <input type="text" name="alasan" maxlength="200" placeholder="alasan: mis. kakak-adik, beda orang"
+               class="flex-1 border border-slate-300 rounded px-2 py-1 text-sm" style="min-width:220px">
+        <button type="submit" class="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded hover:bg-slate-200">
+          Bukan duplikat
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center text-slate-400 mb-6">
+    <div class="text-4xl mb-2">✅</div>
+    <p class="text-sm">Tidak ada kandidat duplikat pada ambang {{ '%.0f'|format(ambang*100) }}%.</p>
+  </div>
+  {% endif %}
+
+  {# --- Pasien yang dinonaktifkan --- #}
+  {% if nonaktif_list %}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+    <div class="px-4 py-2 bg-slate-50 text-xs uppercase text-slate-500 font-medium">
+      Pasien nonaktif ({{ nonaktif_list|length }}) — nomor RM-nya dipensiunkan
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-slate-100">
+        {% for n in nonaktif_list %}
+        <tr>
+          <td class="px-4 py-2">
+            <div class="text-slate-700">{{ n.nama }}</div>
+            <div class="font-mono text-xs text-slate-500">{{ n.no_rm }} · id {{ n.id_pasien }}</div>
+            {% if n.tujuan %}<div class="text-xs text-slate-500">→ dibaca di {{ n.tujuan }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-2 text-xs text-slate-600">
+            {{ n.alasan or "—" }}
+            {% if n.nik_lama %}<div class="text-slate-400 font-mono">NIK dilepas: {{ n.nik_lama }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-2 text-xs">
+            {% if n.riwayat.kunjungan or n.riwayat.transaksi %}
+            <span class="text-amber-700">⚠ {{ n.riwayat.kunjungan }} kunjungan · {{ n.riwayat.transaksi }} transaksi tertinggal</span>
+            {% else %}
+            <span class="text-slate-400">tanpa riwayat</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 text-xs text-slate-400">{{ n.nonaktif_at.strftime('%d %b %Y') if n.nonaktif_at else "" }}</td>
+          <td class="px-4 py-2 text-right">
+            <form method="POST" action="/web/audit-pasien/aktifkan" class="inline"
+                  data-confirm="Aktifkan kembali {{ n.nama|e }}? Pasien ini akan muncul lagi di pencarian.">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="id_pasien" value="{{ n.id_pasien }}">
+              <button type="submit" class="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded hover:bg-emerald-100">
+                ⟲ Aktifkan
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# --- Yang sudah dinyatakan bukan duplikat --- #}
+  {% if dismissed_list %}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-4 py-2 bg-slate-50 text-xs uppercase text-slate-500 font-medium">
+      Sudah dinilai bukan duplikat ({{ dismissed_list|length }})
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-slate-100">
+        {% for d in dismissed_list %}
+        <tr>
+          <td class="px-4 py-2">
+            <div class="text-slate-700">{{ d.nama_a }} <span class="text-slate-400">↔</span> {{ d.nama_b }}</div>
+            <div class="font-mono text-xs text-slate-500">{{ d.no_rm_a }} · {{ d.no_rm_b }}</div>
+          </td>
+          <td class="px-4 py-2 text-xs text-slate-600">{{ d.alasan or "—" }}</td>
+          <td class="px-4 py-2 text-xs text-slate-400">{{ d.created_at.strftime('%d %b %Y') if d.created_at else "" }}</td>
+          <td class="px-4 py-2 text-right">
+            <form method="POST" action="/web/audit-pasien/batal-dismiss" class="inline"
+                  data-confirm="Cabut penandaan? Pasangan ini akan muncul lagi di laporan.">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="id_a" value="{{ d.id_a }}">
+              <input type="hidden" name="id_b" value="{{ d.id_b }}">
+              <button type="submit" class="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100">
+                ⟲ Cabut
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <p class="text-xs text-slate-400 mt-4">
+    Penggabungan pasien belum dibangun. Menggabungkan berarti memindahkan kunjungan,
+    transaksi, membership, alergi dan riwayat penyakit — kalau salah, rekam medis dua
+    orang tercampur. Untuk sekarang, koreksi dilakukan manual lewat halaman pasien.
+  </p>
+</div>
+{% endblock %}

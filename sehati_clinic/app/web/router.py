@@ -18,6 +18,7 @@ from fastapi import APIRouter
 from app.web.routes import (
     cache_stats,
     apotek,
+    audit_pasien,
     auth,
     booking,
     dokter,
@@ -73,6 +74,7 @@ router.include_router(finance_export.router)
 router.include_router(followup.router)
 router.include_router(obat_tertunda.router)
 router.include_router(membership_aktivasi.router)
+router.include_router(audit_pasien.router)
 router.include_router(settings.router)
 
 
