@@ -431,15 +431,35 @@ class KunjunganService:
         id_staf_fo: int,
         keluhan_utama: str = "",
         request: Optional[Request] = None,
+        *,
+        jenis_kunjungan: str = "KLINIS",
+        peresep_nama: Optional[str] = None,
+        peresep_asal: Optional[str] = None,
+        id_dokter: Optional[int] = None,
+        id_kunjungan_asal: Optional[int] = None,
     ) -> dict:
         """
-        FO flow untuk pasien yang langsung beli produk tanpa konsultasi.
+        Buat kunjungan "tanpa konsultasi" + N resep. Dipakai DUA pemanggil:
 
-        Atomic: validasi pasien, generate antrian, create kunjungan dengan
-        status=ANTRI_BAYAR, create N kunjungan_resep (status=PENDING).
-        Kasir tinggal proses tagihan dengan produk yang sudah ditambahkan.
+        1. **FO — beli produk** (perilaku lama, `jenis_kunjungan="KLINIS"`).
+        2. **Apoteker — penebusan resep** (2026-09-25), dengan tiga asal:
+           - `RESEP_LUAR`   → peresep di luar klinik. `peresep_nama` WAJIB.
+                              Komisi dilewati eksplisit di `kasir_service.proses_bayar`.
+           - `RESEP_ONLINE` → dokter internal jarak jauh. `id_dokter` WAJIB dan diisi ke
+                              `id_staf_dokter_assigned`, sehingga aturan komisi produk
+                              yang sudah ada bekerja sendiri tanpa kode baru.
+           - `TEBUS_LANJUT` → resep lama ditebus belakangan. `id_kunjungan_asal` WAJIB;
+                              dokter diwarisi dari kunjungan asal supaya komisi jatuh ke
+                              **peresep asli**, bukan apoteker dan bukan kosong.
 
-        produk_list format: [{"id_produk": int, "qty": float, "aturan_pakai": str}, ...]
+        Atomic: validasi pasien, nomor antrian, kunjungan `ANTRI_BAYAR`, N
+        `kunjungan_resep` (PENDING). Kasir menagih, apotek menyerahkan.
+
+        produk_list: [{"id_produk": int, "qty": float, "aturan_pakai": str,
+                       "id_resep_asal": int|None}, ...]
+        `id_resep_asal` hanya untuk TEBUS_LANJUT — keberadaan salinan inilah yang menandai
+        baris asal sudah ditebus (anti tebus ganda), jadi tidak ada kolom penanda terpisah
+        yang bisa berselisih dengan kenyataan.
         """
         from app.db.models import KunjunganResep
         from app.repositories.pemeriksaan_repo import PemeriksaanRepository
@@ -452,17 +472,63 @@ class KunjunganService:
                 detail=f"Pasien dengan ID {id_pasien} tidak ditemukan.",
             )
 
-        # Duplicate guard - sama dengan kunjungan_lama
-        existing = self.kunjungan_repo.get_active_kunjungan_today(id_pasien)
-        if existing is not None:
+        _JENIS_TEBUS = {"RESEP_LUAR", "RESEP_ONLINE", "TEBUS_LANJUT"}
+        jenis_kunjungan = (jenis_kunjungan or "KLINIS").upper()
+        if jenis_kunjungan not in _JENIS_TEBUS | {"KLINIS"}:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"jenis_kunjungan '{jenis_kunjungan}' tidak dikenal.")
+
+        # ---- Syarat khusus tiap asal resep --------------------------------
+        if jenis_kunjungan == "RESEP_LUAR" and not (peresep_nama or "").strip():
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Pasien '{pasien.nama}' sudah ada di antrian hari ini "
-                    f"(no.antrean #{existing.nomor_antrean}, status "
-                    f"{existing.status_antrian}). Tidak boleh daftar 2x."
-                ),
+                status.HTTP_400_BAD_REQUEST,
+                "Nama dokter peresep WAJIB diisi untuk resep dari luar klinik.",
             )
+        if jenis_kunjungan == "RESEP_ONLINE" and not id_dokter:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Dokter internal WAJIB dipilih untuk resep konsultasi online.",
+            )
+        kunj_asal = None
+        if jenis_kunjungan == "TEBUS_LANJUT":
+            if not id_kunjungan_asal:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    "Kunjungan asal WAJIB untuk penebusan resep lama.")
+            kunj_asal = self.kunjungan_repo.get_by_id(id_kunjungan_asal)
+            if kunj_asal is None or kunj_asal.id_pasien != id_pasien:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Kunjungan asal tidak ditemukan atau bukan milik pasien ini.",
+                )
+            # Komisi harus jatuh ke PERESEP ASLI. Kalau kunjungan asal tidak punya dokter
+            # assigned, pakai penulis SOAP pertamanya — fallback yang sama dengan task #52.
+            id_dokter = id_dokter or kunj_asal.id_staf_dokter_assigned
+            if not id_dokter:
+                from app.db.models import PemeriksaanKlinis as _PK
+                from sqlalchemy import select as _sel
+                id_dokter = self.db.execute(
+                    _sel(_PK.id_staf_dokter)
+                    .where(_PK.id_kunjungan == id_kunjungan_asal,
+                           _PK.id_staf_dokter.is_not(None),
+                           _PK.status_soap == "FINAL")
+                    .order_by(_PK.id_pemeriksaan.asc()).limit(1)
+                ).scalar_one_or_none()
+
+        # Duplicate guard - sama dengan kunjungan_lama.
+        # DIKECUALIKAN untuk penebusan resep: pasien yang pagi berkonsultasi berhak
+        # menebus resep siang harinya. Guard ini dimaksudkan mencegah pendaftaran antrean
+        # ganda, bukan mencegah pembelian yang sah.
+        if jenis_kunjungan not in _JENIS_TEBUS:
+            existing = self.kunjungan_repo.get_active_kunjungan_today(id_pasien)
+            if existing is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Pasien '{pasien.nama}' sudah ada di antrian hari ini "
+                        f"(no.antrean #{existing.nomor_antrean}, status "
+                        f"{existing.status_antrian}). Tidak boleh daftar 2x."
+                    ),
+                )
 
         # Validasi produk_list tidak kosong
         valid_produk = [p for p in produk_list if p.get("id_produk")]
@@ -492,6 +558,13 @@ class KunjunganService:
                 nomor_antrean=nomor_antrean,
                 sumber_pendaftaran="WALK_IN",
                 tgl_kunjungan=datetime.now(),  # explicit untuk konsistensi timezone
+                jenis_kunjungan=jenis_kunjungan,
+                peresep_luar_nama=(peresep_nama or "").strip() or None,
+                peresep_luar_asal=(peresep_asal or "").strip() or None,
+                id_kunjungan_asal=id_kunjungan_asal,
+                # Inilah yang membuat komisi bekerja tanpa kode baru: aturan komisi produk
+                # yang sudah ada membaca kolom ini.
+                id_staf_dokter_assigned=id_dokter,
             )
             self.kunjungan_repo.create(kunjungan)
             id_kunjungan_baru = kunjungan.id_kunjungan
@@ -504,6 +577,10 @@ class KunjunganService:
                     qty=float(p.get("qty") or 1.0),
                     aturan_pakai=(p.get("aturan_pakai") or "").strip() or None,
                     id_staf_input=id_staf_fo,
+                    # Hanya terisi pada TEBUS_LANJUT. Keberadaan salinan ini yang
+                    # menandai baris asal sudah ditebus.
+                    id_resep_asal=(int(p["id_resep_asal"])
+                                   if p.get("id_resep_asal") else None),
                 )
                 pemeriksaan_repo.add_resep(resep)
 
@@ -518,6 +595,11 @@ class KunjunganService:
                     "status_antrian": "ANTRI_BAYAR",
                     "sumber_pendaftaran": "WALK_IN",
                     "flow": "BELI_PRODUK_ONLY",
+                    "jenis_kunjungan": jenis_kunjungan,
+                    "peresep_luar_nama": (peresep_nama or "").strip() or None,
+                    "peresep_luar_asal": (peresep_asal or "").strip() or None,
+                    "id_kunjungan_asal": id_kunjungan_asal,
+                    "id_staf_dokter_assigned": id_dokter,
                     "jumlah_resep": len(valid_produk),
                 },
                 request=request,

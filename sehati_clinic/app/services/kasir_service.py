@@ -758,15 +758,36 @@ class KasirService:
             )
 
             # K-L2 (DEC-087): catat komisi (snapshot) — ikut transaksi atomik.
-            KomisiService(self.db).catat_komisi_transaksi(
-                id_transaksi=id_trx_baru,
-                id_kunjungan=payload.id_kunjungan,
-                id_pasien=kunjungan.id_pasien if kunjungan else None,
-                id_dokter_assigned=kunjungan.id_staf_dokter_assigned if kunjungan else None,
-                rincian_produk=tagihan.rincian_produk,
-                rincian_racikan=tagihan.rincian_racikan,
-                request=request,
-            )
+            #
+            # RESEP_LUAR dilewati SECARA EKSPLISIT. Peresepnya dokter di luar klinik, jadi
+            # tidak ada dasar komisi. Sekarang hasilnya kebetulan sudah nol karena
+            # `komisi_service` membutuhkan dokter internal — tapi kebetulan itu rapuh:
+            # task #52 baru saja menambahkan fallback ke penulis SOAP pertama, dan satu
+            # fallback baru lagi bisa membuat komisi mengalir ke dokter yang tidak
+            # meresepkan apa pun. Aturannya dinyatakan, bukan disimpulkan.
+            _jenis_kunj = getattr(kunjungan, "jenis_kunjungan", "KLINIS") if kunjungan else "KLINIS"
+            if _jenis_kunj == "RESEP_LUAR":
+                self.audit.log(
+                    aksi="KOMISI_DILEWATI",
+                    id_staf=id_staf_kasir,
+                    tabel_target="transaksi_kasir",
+                    id_target=id_trx_baru,
+                    keterangan=(
+                        "Komisi tidak dicatat: resep dari dokter LUAR klinik "
+                        f"({getattr(kunjungan, 'peresep_luar_nama', None) or '-'})."
+                    ),
+                    request=request,
+                )
+            else:
+                KomisiService(self.db).catat_komisi_transaksi(
+                    id_transaksi=id_trx_baru,
+                    id_kunjungan=payload.id_kunjungan,
+                    id_pasien=kunjungan.id_pasien if kunjungan else None,
+                    id_dokter_assigned=kunjungan.id_staf_dokter_assigned if kunjungan else None,
+                    rincian_produk=tagihan.rincian_produk,
+                    rincian_racikan=tagihan.rincian_racikan,
+                    request=request,
+                )
 
             self.db.commit()
             return {

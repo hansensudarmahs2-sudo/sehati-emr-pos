@@ -241,6 +241,72 @@ class ApotekService:
             })
         return out
 
+    # =========================================================================
+    # PENEBUSAN RESEP LAMA (tebus lanjut / tebus sebagian)
+    # =========================================================================
+    MAX_UMUR_RESEP_HARI = 30  # lewat ini: DIPERINGATKAN, tetap boleh (keputusan #8)
+
+    def list_resep_belum_ditebus(self, id_pasien: int) -> list[dict]:
+        """Resep PENDING milik pasien dari kunjungan LAMA yang belum pernah ditebus.
+
+        "Belum ditebus" ditentukan dari **tidak adanya salinan** yang menunjuk ke baris
+        ini (`kunjungan_resep.id_resep_asal`). Sengaja tidak ada kolom "sudah_ditebus"
+        di baris asal: dua penanda untuk satu fakta bisa berselisih, dan yang berselisih
+        diam-diam adalah yang paling mahal (lihat pelajaran task #54).
+
+        Resep berumur lebih dari `MAX_UMUR_RESEP_HARI` tetap dikembalikan, tapi ditandai
+        `kedaluwarsa=True` supaya layar bisa memperingatkan. Keadaan pasien bisa berubah
+        dalam sebulan; memblokirnya akan memaksa konsultasi ulang untuk obat rutin.
+        """
+        from datetime import date as _date
+        from sqlalchemy import select as _sel
+        from sqlalchemy.orm import aliased as _aliased
+        from app.db.models import (
+            Kunjungan as _K, KunjunganResep as _KR, MasterProduk as _MP,
+            StatusItemResepEnum as _ST,
+        )
+
+        # Sudah ditebus = ADA baris LAIN yang `id_resep_asal`-nya menunjuk baris ini.
+        _salinan = _aliased(_KR)
+        sudah_ditebus = (
+            _sel(_salinan.id_resep)
+            .where(_salinan.id_resep_asal == _KR.id_resep)
+            .exists()
+        )
+
+        rows = self.db.execute(
+            _sel(_KR, _MP, _K)
+            .join(_MP, _MP.id_produk == _KR.id_produk)
+            .join(_K, _K.id_kunjungan == _KR.id_kunjungan)
+            .where(
+                _K.id_pasien == id_pasien,
+                _KR.status_item == _ST.PENDING,
+                _KR.id_resep_asal.is_(None),   # jangan tawarkan salinan sebagai sumber
+                ~sudah_ditebus,
+            )
+            .order_by(_K.tgl_kunjungan.desc(), _KR.id_resep.asc())
+        ).all()
+
+        hari_ini = _date.today()
+        out = []
+        for kr, mp, kj in rows:
+            tgl = kj.tgl_kunjungan.date() if kj.tgl_kunjungan else None
+            umur = (hari_ini - tgl).days if tgl else None
+            out.append({
+                "id_resep": kr.id_resep,
+                "id_kunjungan": kj.id_kunjungan,
+                "tgl_kunjungan": tgl,
+                "umur_hari": umur,
+                "kedaluwarsa": umur is not None and umur > self.MAX_UMUR_RESEP_HARI,
+                "id_produk": mp.id_produk,
+                "nama_produk": mp.nama_produk,
+                "kode_produk": mp.kode_produk,
+                "qty": float(kr.qty or 0),
+                "aturan_pakai": kr.aturan_pakai or "",
+                "stok_terkini": float(mp.stok_terkini or 0),
+            })
+        return out
+
     def tunda_serah_obat(
         self,
         id_kunjungan: int,

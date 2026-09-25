@@ -70,6 +70,24 @@ class Kunjungan(Base):
         String(50), default="WALK_IN", server_default="WALK_IN", nullable=True
     )
 
+    # --- Asal resep (task apotek 2026-09-25) --------------------------------
+    # Sebelum ini TIDAK ADA kolom yang membedakan kunjungan konsultasi dari
+    # beli-produk-saja; pembedanya cuma `"flow": "BELI_PRODUK_ONLY"` di JSON audit_log,
+    # yang tidak bisa di-query untuk UI maupun laporan.
+    jenis_kunjungan: Mapped[str] = mapped_column(
+        String(20), default="KLINIS", server_default="KLINIS", nullable=False,
+        comment="KLINIS / RESEP_LUAR / RESEP_ONLINE / TEBUS_LANJUT",
+    )
+    # Diisi hanya untuk RESEP_LUAR. Diletakkan di kunjungan, bukan kunjungan_resep:
+    # satu lembar resep berlaku untuk semua obat di dalamnya.
+    peresep_luar_nama: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    peresep_luar_asal: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    # TEBUS_LANJUT membuat kunjungan BARU yang menunjuk ke asalnya — bukan menghidupkan
+    # kunjungan lama, karena antrian kasir & apotek menyaring HARI INI.
+    id_kunjungan_asal: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan.id_kunjungan"), nullable=True
+    )
+
     keluhan_utama: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tgl_kontrol_selanjutnya: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     catatan_kontrol: Mapped[Optional[str]] = mapped_column(
@@ -212,6 +230,13 @@ class KunjunganResep(Base):
         ForeignKey("master_staf.id_staf"), nullable=True
     )
 
+    # Tebus lanjut: baris ini SALINAN dari resep lama yang baru ditebus sekarang.
+    # Keberadaan salinan = penanda baris asal SUDAH ditebus. Sengaja TIDAK ada kolom
+    # "sudah_ditebus" di baris asal: dua penanda untuk satu fakta bisa berselisih.
+    id_resep_asal: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_resep.id_resep"), nullable=True
+    )
+
 
 class KunjunganTindakan(Base):
     """Tabel `kunjungan_tindakan` — treatment yang dieksekusi per kunjungan."""
@@ -289,6 +314,30 @@ class PemeriksaanKlinis(Base):
         Text, nullable=True,
         comment="Instruksi pemakaian produk untuk pasien (cara pakai, dosis)",
     )
+
+    # --- Draf SOAP oleh apoteker (konsultasi online) ------------------------
+    # Apoteker menyalin inti percakapan jadi DRAF; dokter membaca, menyunting bila perlu,
+    # lalu menyetujuinya jadi SOAP miliknya. Draf menumpang tabel ini (bukan tabel
+    # terpisah) supaya begitu disetujui ia otomatis ikut ke riwayat, resume medis, dan
+    # tautan diagnosa.
+    #
+    # ⚠ KONSEKUENSI: setiap query atas tabel ini kini bisa ikut menarik draf yang BELUM
+    # disetujui. Semua harus menyaring `status_soap == "FINAL"` kecuali memang sengaja
+    # ingin melihat draf. Pola kegagalannya sama dengan `_produk_stok_sudah_dipotong`:
+    # satu tabel dipakai dua arti, query lama masih mengira artinya cuma satu.
+    status_soap: Mapped[str] = mapped_column(
+        String(20), default="FINAL", server_default="FINAL", nullable=False,
+        comment="DRAFT_APOTEK = belum disetujui dokter. FINAL = sah.",
+    )
+    # TIDAK dihapus saat dokter menyetujui: asal-usul catatan tetap terbaca, dan justru
+    # melindungi dokter — rantainya jelas kalau kelak ditanya atas dasar apa ia menyetujui.
+    id_staf_penyusun: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
+    )
+    # Dua waktu yang BERBEDA. SOAP yang disetujui tiga hari kemudian tidak boleh terbaca
+    # seolah pemeriksaannya terjadi hari itu.
+    waktu_konsultasi: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    waktu_disetujui: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp(), nullable=True
