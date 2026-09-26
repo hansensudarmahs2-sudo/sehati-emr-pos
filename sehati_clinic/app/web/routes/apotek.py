@@ -34,6 +34,228 @@ router = APIRouter(tags=["Web Apotek"])
 
 
 # =============================================================================
+# PENEBUSAN RESEP (2026-09-25) — tiga asal: RESEP_LUAR / RESEP_ONLINE / TEBUS_LANJUT
+# Desain: Project_Memory/DESAIN_RESEP_LUAR_APOTEK.md
+#
+# Apoteker TIDAK diberi akses modul pasien maupun kasir. Pencarian & pendaftaran
+# ringkas pasien disediakan DI SINI dalam bentuk sesempit mungkin: hanya mencari dan
+# membuat, tidak bisa mengubah data pasien dan tidak bisa membuka rekam medis.
+# =============================================================================
+def _daftar_dokter(db):
+    """Staf berperan DOKTER — untuk resep konsultasi online."""
+    from sqlalchemy import select
+    from app.db.models import MasterStaf, StafRoleEnum
+    return list(db.execute(
+        select(MasterStaf)
+        .where(MasterStaf.role == StafRoleEnum.DOKTER, MasterStaf.is_active.is_(True))
+        .order_by(MasterStaf.nama_staf.asc())
+    ).scalars().all())
+
+
+@router.get("/apotek/tebus-resep", response_class=HTMLResponse)
+def apotek_tebus_resep(request: Request, db: DbSession, q: str = "", id_pasien: str = ""):
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_apoteker_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from app.services.pasien_service import PasienService
+
+    svc_pasien = PasienService(db)
+    hasil_cari, pasien, resep_lama = [], None, []
+    _id = None
+    try:
+        _id = int(id_pasien) if id_pasien else None
+    except ValueError:
+        _id = None
+
+    if _id:
+        from app.db.models import Pasien
+        pasien = db.get(Pasien, _id)
+        if pasien is not None and not pasien.is_active:
+            pasien = None  # pasien nonaktif tidak boleh dipakai transaksi baru
+        if pasien is not None:
+            resep_lama = ApotekService(db).list_resep_belum_ditebus(_id)
+    elif q.strip():
+        hasil_cari = svc_pasien.search(keyword=q.strip(), limit=20)
+
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/apotek/tebus-resep",
+        page_subtitle="Tebus Resep",
+        q=q, hasil_cari=hasil_cari, pasien=pasien, resep_lama=resep_lama,
+        daftar_dokter=_daftar_dokter(db),
+        master_produks=MasterProdukService(db).list_all(only_active=True, limit=500),
+        max_umur=ApotekService.MAX_UMUR_RESEP_HARI,
+        ok=request.query_params.get("ok"), err=request.query_params.get("err"),
+    )
+    return templates.TemplateResponse(request, "apotek_tebus_resep.html", ctx)
+
+
+@router.post("/apotek/tebus-resep/pasien-baru", response_class=HTMLResponse)
+async def apotek_tebus_pasien_baru(request: Request, db: DbSession):
+    """Pendaftaran RINGKAS oleh apoteker — hanya membuat, tidak membuat kunjungan."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_apoteker_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from datetime import date as _date
+    from app.schemas.pasien import PasienBaruRequest
+    from app.services.pasien_service import DuplikatPasienError, PasienService
+
+    f = await request.form()
+    _tgl = (f.get("tgl_lahir") or "").strip()
+    try:
+        payload = PasienBaruRequest(
+            nama=(f.get("nama") or "").strip(),
+            jenis_kelamin=(f.get("jenis_kelamin") or "L").strip(),
+            nomor_telepon=(f.get("nomor_telepon") or "").strip(),
+            tgl_lahir=_date.fromisoformat(_tgl) if _tgl else None,
+        )
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(
+            url=f"/web/apotek/tebus-resep?err={quote(f'Data pasien tidak lengkap: {e}')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    try:
+        hasil = PasienService(db).register_pasien_baru(
+            payload=payload, id_staf_fo=user.id_staf, request=request,
+            buat_kunjungan=False,
+            konfirmasi_duplikat=(f.get("konfirmasi_duplikat") == "1"),
+        )
+    except DuplikatPasienError as e:
+        # Jangan diam-diam membuat pasien kembar dari meja apotek — arahkan mencari dulu.
+        _nama = (f.get("nama") or "").strip()
+        _pesan = ("Pasien serupa sudah ada — pilih dari hasil pencarian, "
+                  "atau daftarkan ulang dengan mencentang konfirmasi.")
+        return RedirectResponse(
+            url=f"/web/apotek/tebus-resep?q={quote(_nama)}&err={quote(_pesan)}",
+            status_code=status.HTTP_303_SEE_OTHER)
+    except HTTPException as e:
+        return RedirectResponse(
+            url=f"/web/apotek/tebus-resep?err={quote(str(e.detail))}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    _idp = (hasil.get("data") or {}).get("id_pasien") if isinstance(hasil, dict) else None
+    return RedirectResponse(
+        url=f"/web/apotek/tebus-resep?id_pasien={_idp}&ok={quote('Pasien terdaftar.')}",
+        status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/apotek/tebus-resep/simpan", response_class=HTMLResponse)
+async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_apoteker_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from app.services.kunjungan_service import KunjunganService
+
+    f = await request.form()
+    try:
+        id_pasien = int((f.get("id_pasien") or "").strip())
+    except (TypeError, ValueError):
+        return RedirectResponse(
+            url=f"/web/apotek/tebus-resep?err={quote('Pasien belum dipilih.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    jenis = (f.get("jenis") or "").strip().upper()
+    _kembali = f"/web/apotek/tebus-resep?id_pasien={id_pasien}"
+
+    produk_list, id_kunjungan_asal = [], None
+    if jenis == "TEBUS_LANJUT":
+        # Yang dicentang adalah baris resep LAMA; kita salin qty & aturan pakainya apa
+        # adanya, dan menautkan salinan ke asalnya (penanda anti tebus ganda).
+        from app.db.models import KunjunganResep
+        for raw in f.getlist("id_resep_asal"):
+            try:
+                _rid = int(str(raw).strip())
+            except (TypeError, ValueError):
+                continue
+            asal = db.get(KunjunganResep, _rid)
+            if asal is None:
+                continue
+            produk_list.append({
+                "id_produk": asal.id_produk, "qty": float(asal.qty or 0),
+                "aturan_pakai": asal.aturan_pakai or "", "id_resep_asal": _rid,
+            })
+            id_kunjungan_asal = id_kunjungan_asal or asal.id_kunjungan
+        if not produk_list:
+            return RedirectResponse(
+                url=f"{_kembali}&err={quote('Belum ada resep lama yang dicentang.')}",
+                status_code=status.HTTP_303_SEE_OTHER)
+    else:
+        ids = f.getlist("id_produk")
+        qtys = f.getlist("qty")
+        aturans = f.getlist("aturan_pakai")
+        for i, raw in enumerate(ids):
+            if not str(raw).strip():
+                continue
+            try:
+                produk_list.append({
+                    "id_produk": int(raw),
+                    "qty": float(qtys[i]) if i < len(qtys) and qtys[i] else 1.0,
+                    "aturan_pakai": aturans[i] if i < len(aturans) else "",
+                })
+            except (TypeError, ValueError):
+                continue
+
+    _iddok = (f.get("id_dokter") or "").strip()
+    try:
+        hasil = KunjunganService(db).beli_produk_lengkap(
+            id_pasien=id_pasien,
+            produk_list=produk_list,
+            id_staf_fo=user.id_staf,
+            keluhan_utama=(f.get("keterangan") or "").strip(),
+            request=request,
+            jenis_kunjungan=jenis,
+            peresep_nama=f.get("peresep_nama"),
+            peresep_asal=f.get("peresep_asal"),
+            id_dokter=int(_iddok) if _iddok else None,
+            id_kunjungan_asal=id_kunjungan_asal,
+        )
+    except HTTPException as e:
+        return RedirectResponse(url=f"{_kembali}&err={quote(str(e.detail))}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(url=f"{_kembali}&err={quote(f'Gagal: {e!s}')}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+
+    _data = hasil.get("data") if isinstance(hasil, dict) else {}
+    _no = (_data or {}).get("nomor_antrean")
+
+    # Draf SOAP dari percakapan online — disimpan sebagai baris `pemeriksaan_klinis`
+    # dengan dokter masih KOSONG dan status DRAFT_APOTEK. Dokter yang dituju akan
+    # membacanya, menyunting bila perlu, lalu menjadikannya SOAP miliknya.
+    _draf = (f.get("draf_soap") or "").strip()
+    if jenis == "RESEP_ONLINE" and _draf and _data:
+        from datetime import datetime as _dt
+        from app.db.models import PemeriksaanKlinis
+        _raw_wk = (f.get("waktu_konsultasi") or "").strip()
+        try:
+            _wk = _dt.fromisoformat(_raw_wk) if _raw_wk else _dt.now()
+        except ValueError:
+            _wk = _dt.now()
+        db.add(PemeriksaanKlinis(
+            id_kunjungan=_data["id_kunjungan"],
+            id_pasien=id_pasien,
+            id_staf_dokter=None,              # belum ada yang bertanggung jawab
+            anamnesa=_draf,
+            status_soap="DRAFT_APOTEK",
+            id_staf_penyusun=user.id_staf,
+            waktu_konsultasi=_wk,             # KAPAN percakapannya, bukan kapan dicatat
+        ))
+        db.commit()
+    return RedirectResponse(
+        url=f"/web/apotek/tebus-resep?ok="
+            f"{quote(f'Tersimpan. Antrian bayar no. {_no} — arahkan pasien ke kasir.')}",
+        status_code=status.HTTP_303_SEE_OTHER)
+
+
+# =============================================================================
 # GET /web/apotek - page shell antrian
 # =============================================================================
 @router.get("/apotek", response_class=HTMLResponse)

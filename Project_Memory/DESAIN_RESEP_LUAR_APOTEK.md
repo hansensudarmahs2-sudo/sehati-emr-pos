@@ -191,6 +191,7 @@ tidak meresepkan apa pun. Aturannya harus dinyatakan, bukan disimpulkan.
 | **R5** | Layar apoteker tiga mode | **uji desktop** |
 | **R6** | Draf SOAP apoteker + antrian dokter + tombol setujui; **sapu semua query `pemeriksaan_klinis`** | **uji desktop** |
 | **R7** | Badge riwayat + label kasir + asal-usul SOAP di resume medis | **uji desktop** |
+| **R8** | "Sisakan untuk nanti" di kasir — lihat §11 | **uji desktop** |
 
 ## 8. Uji terima
 
@@ -230,6 +231,32 @@ tidak meresepkan apa pun. Aturannya harus dinyatakan, bukan disimpulkan.
 - **Pembedaan OTC vs obat keras** — semua resep luar wajib peresep, tanpa kecuali.
 - **Racikan lewat jalur ini** — penebusan hanya untuk produk. Racikan ad-hoc oleh apoteker
   tanpa resep dokter adalah persoalan medikolegal tersendiri yang belum diputuskan.
+
+## 11. R8 — "Beli separuh di kasir" (ditemukan 2026-09-27, belum dibangun)
+
+Ditemukan saat dr. Hansen bertanya "di mana saya bisa gunakan tebus resep sebagian?".
+Jawabannya membuka lubang: yang sudah dibangun menangani **"pasien pulang tanpa membayar
+sama sekali, lalu kembali"** — BUKAN **"beli separuh di meja kasir"**. Keduanya terdengar
+mirip tapi terjadi di tempat dan waktu berbeda, dan yang kedua jauh lebih sering.
+
+**Keadaan sekarang**: kasir menagih SEMUA item PENDING kunjungan sekaligus. Satu-satunya
+tindakan per item adalah `void_item_resep` → `BATAL`, **permanen**. Jadi untuk pasien yang
+mau dua dari lima obat, kasir hanya punya dua pilihan dan keduanya salah: menagih semuanya,
+atau membatalkan sisanya selamanya.
+
+**Yang kurang**: di layar tagihan kasir, tiap item butuh pilihan **"sisakan untuk nanti"** —
+dikeluarkan dari tagihan hari ini tapi TIDAK dibatalkan, sehingga otomatis muncul di daftar
+"Tebus resep lama" yang sudah jadi.
+
+**Arah**: status baru `DITUNDA` pada `kunjungan_resep.status_item` (enum sudah pernah
+ditambah untuk `DISERAHKAN`, polanya sama — MySQL perlu MODIFY COLUMN dengan daftar
+lengkap). `get_tagihan` hanya mengambil PENDING → DITUNDA otomatis keluar dari tagihan.
+`list_resep_belum_ditebus` perlu menerima PENDING **dan** DITUNDA.
+⚠ Seperti biasa: setiap query yang mengasumsikan "PENDING = belum dibayar" harus ditinjau,
+karena kini ada dua status yang berarti belum dibayar.
+
+**Keputusan dr. Hansen 2026-09-27**: kerjakan **setelah R6–R7**, supaya modul yang sekarang
+utuh dulu.
 
 ## 10. Risiko yang disadari
 

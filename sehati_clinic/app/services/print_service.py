@@ -394,7 +394,9 @@ class PrintService:
         # 2. SOAP (ambil yang terbaru kalau ada multiple — defensive)
         soap_row = self.db.execute(
             select(PemeriksaanKlinis)
-            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan)
+            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan,
+                   # Resume medis TIDAK boleh mencetak draf yang belum disetujui dokter.
+                   PemeriksaanKlinis.status_soap == "FINAL")
             .order_by(PemeriksaanKlinis.id_pemeriksaan.desc())
             .limit(1)
         ).scalar_one_or_none()

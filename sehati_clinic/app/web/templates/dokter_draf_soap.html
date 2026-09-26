@@ -1,0 +1,94 @@
+{% extends "_app.html" %}
+{% block title %}Draf SOAP dari Apotek{% endblock %}
+{% block page_title %}📝 Draf SOAP dari Apotek{% endblock %}
+
+{% block page_content %}
+<div class="max-w-4xl">
+
+  {% if ok %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>{% endif %}
+  {% if err %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>{% endif %}
+
+  <div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg mb-4 text-sm">
+    Catatan ini disusun <b>apoteker</b> dari percakapan konsultasi online — <b>belum</b>
+    rekam medis. Ia tidak muncul di riwayat pasien, resume medis, laporan kinerja, maupun
+    dasar komisi sampai kamu menyetujuinya.
+    <br>Obatnya sudah diserahkan; yang dibutuhkan sekarang adalah catatan yang <b>benar</b>.
+    Sunting seperlunya sebelum menyetujui — yang tersimpan adalah versimu.
+  </div>
+
+  {% if not daftar %}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center text-slate-400">
+    <div class="text-4xl mb-2">✅</div>
+    <p class="text-sm">Tidak ada draf yang menunggu persetujuan.</p>
+  </div>
+  {% else %}
+
+  {% if lihat_semua %}
+  <p class="text-xs text-slate-500 mb-3">
+    Menampilkan draf untuk <b>semua dokter</b> — supaya antrian yang menumpuk terpantau.
+    Draf hanya boleh disetujui oleh dokter yang meresepkan.
+  </p>
+  {% endif %}
+
+  <div class="space-y-4">
+    {% for d in daftar %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div class="font-semibold text-slate-800">{{ d.nama_pasien }}</div>
+          <div class="font-mono text-xs text-slate-500">{{ d.no_rm }} · kunjungan #{{ d.id_kunjungan }}</div>
+        </div>
+        <div class="text-right text-xs text-slate-500">
+          <div>disusun: <b>{{ d.penyusun }}</b></div>
+          <div>dituju: <b>{{ d.dituju }}</b></div>
+          {% if d.waktu_konsultasi %}
+          <div>konsultasi: {{ d.waktu_konsultasi.strftime('%d %b %Y %H:%M') }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <form method="POST" action="/web/dokter/draf-soap/{{ d.id_pemeriksaan }}/setujui"
+            data-confirm="Setujui catatan ini menjadi SOAP Anda?&#10;&#10;Sejak disetujui, isinya menjadi tanggung jawab Anda. Nama apoteker penyusun tetap tercatat sebagai asal-usul.">
+        {{ csrf_input(request) }}
+        <div class="space-y-2">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              Anamnesa / inti percakapan <span class="text-slate-400">(dari apoteker — boleh disunting)</span>
+            </label>
+            <textarea name="anamnesa" rows="4"
+                      class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">{{ d.isi }}</textarea>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Pemeriksaan (opsional)</label>
+              <input type="text" name="pemeriksaan_fisik"
+                     class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Diagnosa (opsional)</label>
+              <input type="text" name="diagnosa"
+                     class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-3">
+          {% if d.milik_saya %}
+          <button type="submit"
+                  class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-semibold">
+            Setujui &amp; jadikan SOAP saya
+          </button>
+          {% else %}
+          <span class="text-xs text-slate-500">
+            Ditujukan kepada {{ d.dituju }} — hanya beliau yang bisa menyetujui.
+          </span>
+          {% endif %}
+          <a href="/web/dokter/kunjungan/{{ d.id_kunjungan }}"
+             class="text-xs text-blue-600 hover:underline">buka kunjungan →</a>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

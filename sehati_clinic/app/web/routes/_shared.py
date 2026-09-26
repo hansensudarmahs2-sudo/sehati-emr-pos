@@ -618,6 +618,31 @@ def build_shell_context(user: MasterStaf, db=None, current_path: str = "", **ext
             badge_counts = _tc.get_or_set("badge:antrian", 10.0, _bc)
         except Exception:
             badge_counts = {}
+    # Draf SOAP dari apotek yang menunggu persetujuan (2026-09-25).
+    # WAJIB disalin dulu: `badge_counts` datang dari cache BERSAMA antar pengguna,
+    # sedangkan angka ini PER DOKTER. Menambahkan langsung ke objek cache akan
+    # membocorkan hitungan dokter A ke dokter B.
+    badge_counts = dict(badge_counts or {})
+    if db is not None and user is not None:
+        try:
+            from sqlalchemy import func as _f2, select as _sel2
+            from app.db.models import (
+                Kunjungan as _K2, PemeriksaanKlinis as _PK2, StafRoleEnum as _Role2,
+            )
+            _q = (
+                _sel2(_f2.count(_PK2.id_pemeriksaan))
+                .join(_K2, _K2.id_kunjungan == _PK2.id_kunjungan)
+                .where(_PK2.status_soap == "DRAFT_APOTEK")
+            )
+            # Dokter melihat miliknya; Owner/Admin melihat seluruh antrian supaya
+            # tumpukan yang tak tergarap tidak tersembunyi di akun orang lain.
+            if user.role == _Role2.DOKTER:
+                _q = _q.where(_K2.id_staf_dokter_assigned == user.id_staf)
+            _n = db.execute(_q).scalar() or 0
+            if _n:
+                badge_counts["DRAF_SOAP"] = int(_n)
+        except Exception:
+            pass
     ctx["badge_counts"] = badge_counts
     # Obat Tertunda (P1-1): hitung untuk kartu dashboard + ikon notifikasi header.
     obat_tertunda = {"total": 0, "overdue": 0}

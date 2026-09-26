@@ -188,10 +188,12 @@ class TreatmentRepository:
         return (row[0], row[1]) if row else None
 
     def get_pemeriksaan_klinis(self, id_kunjungan: int) -> Optional[PemeriksaanKlinis]:
-        """1 SOAP terakhir untuk kunjungan ini."""
+        """1 SOAP terakhir untuk kunjungan ini. Draf apoteker DIKECUALIKAN — ruang
+        tindakan tidak boleh bekerja atas catatan yang belum disetujui dokter."""
         stmt = (
             select(PemeriksaanKlinis)
-            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan)
+            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan,
+                   PemeriksaanKlinis.status_soap == "FINAL")
             .order_by(PemeriksaanKlinis.created_at.desc())
             .limit(1)
         )

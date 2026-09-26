@@ -216,6 +216,8 @@ class ExportService:
         kons = dict(self.db.execute(
             select(func.date(Kunjungan.tgl_kunjungan), func.count(PemeriksaanKlinis.id_pemeriksaan))
             .join(Kunjungan, Kunjungan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
+            # Draf apoteker yang belum disetujui bukan konsultasi.
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
             .where(Kunjungan.tgl_kunjungan >= start_dt).where(Kunjungan.tgl_kunjungan <= end_dt)
             .group_by(func.date(Kunjungan.tgl_kunjungan))
         ).all())
@@ -955,6 +957,9 @@ class ExportService:
             )
             .join(Kunjungan, Kunjungan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
             .outerjoin(MasterStaf, MasterStaf.id_staf == PemeriksaanKlinis.id_staf_dokter)
+            # Ekspor rekam medis hanya memuat catatan yang SUDAH disetujui dokter —
+            # draf apoteker bukan dokumen medis yang sah untuk dikirim keluar.
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
             .where(Kunjungan.tgl_kunjungan >= start_dt)
             .where(Kunjungan.tgl_kunjungan <= end_dt)
             .order_by(Kunjungan.tgl_kunjungan, PemeriksaanKlinis.id_pemeriksaan)

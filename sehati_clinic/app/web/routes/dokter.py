@@ -41,6 +41,116 @@ from app.web.routes._shared import (
 router = APIRouter(tags=["Web Dokter"])
 
 
+# =============================================================================
+# DRAF SOAP DARI APOTEK (konsultasi online) — 2026-09-25
+# Apoteker menyalin inti percakapan jadi draf; dokter membaca, menyunting bila perlu,
+# lalu MENYETUJUINYA jadi SOAP miliknya. Nama apoteker penyusun TIDAK dihapus:
+# rantai asal-usulnya tetap terbaca, dan itu justru melindungi dokter.
+# =============================================================================
+@router.get("/dokter/draf-soap", response_class=HTMLResponse)
+def dokter_draf_soap(request: Request, db: DbSession):
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_dokter_antrian_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from app.db.models import MasterStaf, StafRoleEnum
+
+    repo = PemeriksaanRepository(db)
+    # Dokter melihat draf yang ditujukan kepadanya. Owner/Admin melihat semuanya —
+    # supaya antrian yang menumpuk bisa terpantau, bukan tersembunyi per akun.
+    _milik_sendiri = user.role == StafRoleEnum.DOKTER
+    rows = repo.list_draf_apotek(id_staf_dokter=user.id_staf if _milik_sendiri else None)
+
+    daftar = []
+    for soap, kunj, pasien in rows:
+        penyusun = db.get(MasterStaf, soap.id_staf_penyusun) if soap.id_staf_penyusun else None
+        dituju = (db.get(MasterStaf, kunj.id_staf_dokter_assigned)
+                  if kunj.id_staf_dokter_assigned else None)
+        daftar.append({
+            "id_pemeriksaan": soap.id_pemeriksaan,
+            "id_kunjungan": kunj.id_kunjungan,
+            "nama_pasien": pasien.nama, "no_rm": pasien.no_rm,
+            "isi": soap.anamnesa or "",
+            "penyusun": penyusun.nama_staf if penyusun else "—",
+            "dituju": dituju.nama_staf if dituju else "—",
+            "waktu_konsultasi": soap.waktu_konsultasi,
+            "milik_saya": kunj.id_staf_dokter_assigned == user.id_staf,
+        })
+
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/dokter/draf-soap",
+        page_subtitle="Draf SOAP dari Apotek",
+        daftar=daftar, lihat_semua=not _milik_sendiri,
+        ok=request.query_params.get("ok"), err=request.query_params.get("err"),
+    )
+    return templates.TemplateResponse(request, "dokter_draf_soap.html", ctx)
+
+
+@router.post("/dokter/draf-soap/{id_pemeriksaan}/setujui", response_class=HTMLResponse)
+async def dokter_draf_soap_setujui(id_pemeriksaan: int, request: Request, db: DbSession):
+    """Dokter mengambil alih draf jadi SOAP miliknya.
+
+    Isinya boleh disunting lebih dulu — yang tersimpan adalah versi dokter. Kalau dia
+    tidak setuju dengan tulisan apoteker, dia menulis ulang di sini; tidak ada alur
+    tolak-kembalikan, karena obatnya sudah terlanjur diserahkan dan yang dibutuhkan
+    adalah catatan yang BENAR, bukan bolak-balik.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_dokter_antrian_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from datetime import datetime as _dt
+    from urllib.parse import quote
+    from app.db.models import PemeriksaanKlinis
+    from app.services.audit_service import AuditService
+
+    soap = db.get(PemeriksaanKlinis, id_pemeriksaan)
+    if soap is None or soap.status_soap != "DRAFT_APOTEK":
+        return RedirectResponse(
+            url=f"/web/dokter/draf-soap?err={quote('Draf tidak ditemukan atau sudah disetujui.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    # Hanya dokter yang MERESEPKAN yang boleh menyetujui. Tombolnya memang sudah
+    # disembunyikan di layar, tapi layar bukan pagar — catatan ini akan menyandang
+    # namanya, jadi tidak boleh ada jalan lain menuliskannya.
+    from app.db.models import Kunjungan as _Kunj, StafRoleEnum as _Role
+    _kunj = db.get(_Kunj, soap.id_kunjungan)
+    _dituju = _kunj.id_staf_dokter_assigned if _kunj else None
+    if _dituju and _dituju != user.id_staf and user.role == _Role.DOKTER:
+        return RedirectResponse(
+            url=f"/web/dokter/draf-soap?err="
+                f"{quote('Draf ini ditujukan kepada dokter lain — hanya beliau yang bisa menyetujui.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    f = await request.form()
+    soap.anamnesa = (f.get("anamnesa") or soap.anamnesa or "").strip() or None
+    soap.pemeriksaan_fisik = (f.get("pemeriksaan_fisik") or "").strip() or None
+    soap.diagnosa = (f.get("diagnosa") or "").strip() or None
+    soap.id_staf_dokter = user.id_staf      # sejak detik ini, ini catatan DIA
+    soap.status_soap = "FINAL"
+    soap.waktu_disetujui = _dt.now()
+    # id_staf_penyusun SENGAJA tidak disentuh.
+
+    AuditService(db).log(
+        aksi="SOAP_DRAF_DISETUJUI", id_staf=user.id_staf,
+        tabel_target="pemeriksaan_klinis", id_target=id_pemeriksaan,
+        data_baru={"status_soap": "FINAL", "id_staf_dokter": user.id_staf,
+                   "id_staf_penyusun": soap.id_staf_penyusun,
+                   "waktu_konsultasi": str(soap.waktu_konsultasi or "")},
+        keterangan=("Draf apoteker disetujui menjadi SOAP dokter. Penyusun asli tetap "
+                    "tercatat."),
+        request=request,
+    )
+    db.commit()
+    return RedirectResponse(
+        url=f"/web/dokter/draf-soap?ok={quote('Draf disetujui dan menjadi SOAP Anda.')}",
+        status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.get("/dokter/antrian", response_class=HTMLResponse)
 def dokter_antrian_page(request: Request, db: DbSession):
     user = get_user_from_cookie(request, db)

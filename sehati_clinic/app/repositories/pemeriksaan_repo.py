@@ -144,13 +144,43 @@ class PemeriksaanRepository:
         Service `input_medis_lengkap` selalu INSERT (audit trail-friendly),
         jadi bisa ada multi-row per kunjungan — kita ambil yang terbaru.
         """
+        # Draf apoteker dikecualikan: pemanggil fungsi ini (form SOAP dokter, ruang
+        # tindakan, cetak) semuanya mengharapkan catatan yang SUDAH sah. Draf diambil
+        # lewat `get_draf_apotek` yang terpisah.
         stmt = (
             select(PemeriksaanKlinis)
-            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan)
+            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan,
+                   PemeriksaanKlinis.status_soap == "FINAL")
             .order_by(PemeriksaanKlinis.created_at.desc())
             .limit(1)
         )
         return self.db.execute(stmt).scalar_one_or_none()
+
+    def get_draf_apotek(self, id_kunjungan: int) -> Optional[PemeriksaanKlinis]:
+        """Draf SOAP yang disusun apoteker dan BELUM disetujui dokter."""
+        return self.db.execute(
+            select(PemeriksaanKlinis)
+            .where(PemeriksaanKlinis.id_kunjungan == id_kunjungan,
+                   PemeriksaanKlinis.status_soap == "DRAFT_APOTEK")
+            .order_by(PemeriksaanKlinis.id_pemeriksaan.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def list_draf_apotek(self, id_staf_dokter: Optional[int] = None) -> list:
+        """Antrian draf yang menunggu persetujuan. `id_staf_dokter` = dokter yang dituju
+        (diambil dari `kunjungan.id_staf_dokter_assigned`)."""
+        from app.db.models import Kunjungan, Pasien
+
+        stmt = (
+            select(PemeriksaanKlinis, Kunjungan, Pasien)
+            .join(Kunjungan, Kunjungan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
+            .join(Pasien, Pasien.id_pasien == PemeriksaanKlinis.id_pasien)
+            .where(PemeriksaanKlinis.status_soap == "DRAFT_APOTEK")
+            .order_by(PemeriksaanKlinis.id_pemeriksaan.asc())
+        )
+        if id_staf_dokter is not None:
+            stmt = stmt.where(Kunjungan.id_staf_dokter_assigned == id_staf_dokter)
+        return list(self.db.execute(stmt).all())
 
     def get_riwayat_soap(
         self,
@@ -170,7 +200,9 @@ class PemeriksaanRepository:
         stmt = (
             select(PemeriksaanKlinis, MasterStaf)
             .outerjoin(MasterStaf, PemeriksaanKlinis.id_staf_dokter == MasterStaf.id_staf)
-            .where(PemeriksaanKlinis.id_pasien == id_pasien)
+            .where(PemeriksaanKlinis.id_pasien == id_pasien,
+                   # Riwayat pasien hanya memuat catatan yang SUDAH disetujui dokter.
+                   PemeriksaanKlinis.status_soap == "FINAL")
             .order_by(PemeriksaanKlinis.created_at.desc())
             .limit(over_fetch)
         )

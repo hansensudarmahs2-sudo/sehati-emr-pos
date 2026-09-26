@@ -379,6 +379,8 @@ class ReportsService:
             )
             .join(Kunjungan, Kunjungan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
             .join(MasterStaf, MasterStaf.id_staf == PemeriksaanKlinis.id_staf_dokter)
+            # Kinerja dokter dihitung dari SOAP yang sah saja, bukan draf apoteker.
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
             .where(Kunjungan.tgl_kunjungan >= start)
             .where(Kunjungan.tgl_kunjungan <= end)
             .where(PemeriksaanKlinis.id_staf_dokter.is_not(None))
@@ -414,6 +416,7 @@ class ReportsService:
             )
             .join(Kunjungan, Kunjungan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
             .join(KunjunganTindakan, KunjunganTindakan.id_kunjungan == PemeriksaanKlinis.id_kunjungan)
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
             .join(MasterTreatment, MasterTreatment.id_treatment == KunjunganTindakan.id_treatment)
             .where(Kunjungan.tgl_kunjungan >= start)
             .where(Kunjungan.tgl_kunjungan <= end)

@@ -167,9 +167,13 @@ class KunjunganRepository:
         active_post = ["ANTRI_TREATMENT", "ON_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT"]
 
         # Subquery: id_kunjungan yang ada di pemeriksaan_klinis (any dokter)
+        # Draf apoteker (status_soap='DRAFT_APOTEK') BUKAN SOAP — ia belum disetujui
+        # dokter mana pun. Tanpa saringan ini, kunjungan resep online akan terlihat
+        # seolah konsulnya sudah selesai.
         soap_exists_subq = (
             select(PemeriksaanKlinis.id_kunjungan)
-            .where(PemeriksaanKlinis.id_kunjungan == Kunjungan.id_kunjungan)
+            .where(PemeriksaanKlinis.id_kunjungan == Kunjungan.id_kunjungan,
+                   PemeriksaanKlinis.status_soap == "FINAL")
             .exists()
         )
 
@@ -183,6 +187,7 @@ class KunjunganRepository:
                 .where(
                     PemeriksaanKlinis.id_kunjungan == Kunjungan.id_kunjungan,
                     PemeriksaanKlinis.id_staf_dokter == id_staf_dokter,
+                    PemeriksaanKlinis.status_soap == "FINAL",
                 )
                 .exists()
             )

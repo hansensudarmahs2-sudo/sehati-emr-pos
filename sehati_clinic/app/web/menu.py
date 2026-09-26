@@ -66,6 +66,16 @@ MENU_DOKTER_ANTRIAN = {
     "active_when": "/web/dokter",
     "badge_status": "ANTRI_KONSULTASI",
 }
+MENU_DRAF_SOAP = {
+    # Draf dari apotek (konsultasi online) yang menunggu persetujuan dokter.
+    "label": "Draf SOAP Apotek",
+    "url": "/web/dokter/draf-soap",
+    "icon": "📝",
+    "active_when": "/web/dokter/draf-soap",
+    # Angka merah di sidebar. Dihitung per dokter di build_shell_context —
+    # catatan medis yang belum rampung tidak boleh menunggu tanpa ada yang tahu.
+    "badge_status": "DRAF_SOAP",
+}
 MENU_RUANG_TINDAKAN = {
     "label": "Ruang Tindakan",
     "url": "/web/ruang-tindakan/antrian",
@@ -207,6 +217,13 @@ MENU_STAF = {
     "icon": "👤",
     "active_when": "/web/staf",
 }
+MENU_TEBUS_RESEP = {
+    # Kanal penebusan resep di apotek: resep luar, konsultasi online, tebus lanjut.
+    "label": "Tebus Resep",
+    "url": "/web/apotek/tebus-resep",
+    "icon": "🧾",
+    "active_when": "/web/apotek/tebus-resep",
+}
 MENU_AUDIT_PASIEN = {
     # Alat maintenance (task #18 Lapis-2), bukan menu harian. Sengaja hanya muncul
     # untuk Owner/Superadmin: layarnya menampilkan data beberapa pasien berdampingan.
@@ -228,10 +245,10 @@ _MENU_BY_ROLE = {
     "Owner": [
         {"group": "Operasional", "items": [
             MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_APOTEK_STOK,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
-            MENU_DOKTER_ANTRIAN, MENU_RUANG_TINDAKAN,
+            MENU_DOKTER_ANTRIAN, MENU_DRAF_SOAP, MENU_RUANG_TINDAKAN,
         ]},
         {"group": "Pengadaan", "items": [
             MENU_PEMESANAN, MENU_OPNAME, MENU_RETUR, MENU_MUTASI,
@@ -250,10 +267,10 @@ _MENU_BY_ROLE = {
     "Superadmin": [
         {"group": "Operasional", "items": [
             MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_APOTEK_STOK,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
-            MENU_DOKTER_ANTRIAN, MENU_RUANG_TINDAKAN,
+            MENU_DOKTER_ANTRIAN, MENU_DRAF_SOAP, MENU_RUANG_TINDAKAN,
         ]},
         {"group": "Pengadaan", "items": [
             MENU_PEMESANAN, MENU_OPNAME, MENU_RETUR, MENU_MUTASI,
@@ -290,7 +307,7 @@ _MENU_BY_ROLE = {
     ],
     "Dokter": [
         {"group": "Klinis", "items": [
-            MENU_DOKTER_ANTRIAN, MENU_RUANG_TINDAKAN, MENU_PASIEN,
+            MENU_DOKTER_ANTRIAN, MENU_DRAF_SOAP, MENU_RUANG_TINDAKAN, MENU_PASIEN,
         ]},
         # REPORTS-COMPART (#324): Dokter bisa akses Kinerja Saya
         {"group": "Laporan", "items": [
@@ -320,7 +337,7 @@ _MENU_BY_ROLE = {
     ],
     "Apoteker": [
         {"group": "Operasional", "items": [
-            MENU_APOTEK, MENU_APOTEK_STOK, MENU_OBAT_TERTUNDA,
+            MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK, MENU_OBAT_TERTUNDA,
         ]},
         {"group": "Pengadaan", "items": [
             MENU_PEMESANAN,

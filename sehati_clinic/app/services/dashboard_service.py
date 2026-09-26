@@ -138,6 +138,8 @@ class DashboardService:
         soap_count = self.db.execute(
             select(func.count(PemeriksaanKlinis.id_pemeriksaan))
             .where(PemeriksaanKlinis.id_staf_dokter == actor.id_staf)
+            # Draf apoteker tidak dihitung sebagai SOAP dokter ini.
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
             .where(PemeriksaanKlinis.created_at >= today_start)
             .where(PemeriksaanKlinis.created_at <= today_end)
         ).scalar() or 0

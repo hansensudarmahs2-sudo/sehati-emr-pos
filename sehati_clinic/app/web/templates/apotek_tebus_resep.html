@@ -1,0 +1,292 @@
+{% extends "_app.html" %}
+{% block title %}Tebus Resep{% endblock %}
+{% block page_title %}💊 Tebus Resep{% endblock %}
+
+{% block page_content %}
+<div class="max-w-5xl">
+
+  {% if ok %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>{% endif %}
+  {% if err %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>{% endif %}
+
+{% if not pasien %}
+  {# ---------- Langkah 1: pilih pasien ---------- #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    <h3 class="font-semibold text-slate-800 mb-1">1. Pilih pasien</h3>
+    <p class="text-xs text-slate-500 mb-3">
+      Pembeli wajib terdaftar — supaya obat yang pernah ditebus tercatat di riwayatnya.
+    </p>
+    <form method="GET" action="/web/apotek/tebus-resep" class="flex gap-2">
+      <input type="text" name="q" value="{{ q }}" autofocus
+             placeholder="nama / no RM / nomor telepon"
+             class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm">
+      <button type="submit" class="px-4 py-2 text-sm bg-slate-700 text-white rounded hover:bg-slate-800">Cari</button>
+    </form>
+
+    {% if q and not hasil_cari %}
+    <p class="text-sm text-slate-500 mt-3">Tidak ada yang cocok dengan “{{ q }}”.</p>
+    {% endif %}
+
+    {% if hasil_cari %}
+    <div class="mt-4 divide-y divide-slate-100 border border-slate-200 rounded-lg">
+      {% for p in hasil_cari %}
+      <a href="/web/apotek/tebus-resep?id_pasien={{ p.id_pasien }}"
+         class="flex items-center justify-between px-3 py-2 hover:bg-slate-50">
+        <div>
+          <div class="text-sm font-medium text-slate-800">{{ p.nama }}</div>
+          <div class="font-mono text-xs text-slate-500">{{ p.no_rm }}{% if p.nomor_telepon %} · {{ p.nomor_telepon }}{% endif %}</div>
+        </div>
+        <span class="text-xs text-blue-600">pilih →</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h3 class="font-semibold text-slate-800 mb-1">Pasien belum terdaftar?</h3>
+    <p class="text-xs text-slate-500 mb-3">
+      Daftarkan ringkas. Cari dulu di atas — kalau sudah ada, jangan buat yang kedua.
+    </p>
+    <form method="POST" action="/web/apotek/tebus-resep/pasien-baru"
+          class="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+      {{ csrf_input(request) }}
+      <div class="md:col-span-2">
+        <label class="block text-xs font-medium text-slate-600 mb-1">Nama *</label>
+        <input type="text" name="nama" required maxlength="100"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Kelamin *</label>
+        <select name="jenis_kelamin" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+          <option value="L">Laki-laki</option>
+          <option value="P">Perempuan</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Telepon</label>
+        <input type="text" name="nomor_telepon" maxlength="20"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Tgl lahir</label>
+        <input type="date" name="tgl_lahir"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </div>
+      <div class="md:col-span-2 flex items-center gap-2">
+        <input type="checkbox" name="konfirmasi_duplikat" value="1" id="kd" class="h-4 w-4">
+        <label for="kd" class="text-xs text-slate-600">Saya yakin ini orang berbeda (abaikan peringatan kembar)</label>
+      </div>
+      <div>
+        <button type="submit" class="w-full px-3 py-2 text-sm bg-teal-600 text-white rounded hover:bg-teal-700">
+          Daftarkan
+        </button>
+      </div>
+    </form>
+  </div>
+
+{% else %}
+  {# ---------- Langkah 2: isi resep ---------- #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex items-center justify-between">
+    <div>
+      <div class="font-semibold text-slate-800">{{ pasien.nama }}</div>
+      <div class="font-mono text-xs text-slate-500">
+        {{ pasien.no_rm }}{% if pasien.nomor_telepon %} · {{ pasien.nomor_telepon }}{% endif %}
+      </div>
+    </div>
+    <a href="/web/apotek/tebus-resep" class="text-xs text-blue-600 hover:underline">ganti pasien</a>
+  </div>
+
+  {# Mode dipilih lewat radio, bagian yang tidak relevan disembunyikan JS.
+     Tanpa HTMX: satu halaman, satu form, tidak ada fragmen yang bisa basi. #}
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+    <h3 class="font-semibold text-slate-800 mb-3">2. Asal resep</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <label class="border border-slate-300 rounded-lg p-3 cursor-pointer hover:bg-slate-50">
+        <input type="radio" name="mode" value="RESEP_LUAR" form="form-tebus" checked
+               onchange="pilihMode(this.value)" class="mr-1">
+        <span class="text-sm font-medium">Resep luar</span>
+        <div class="text-xs text-slate-500 mt-1">Dokter di luar klinik. Tanpa komisi.</div>
+      </label>
+      <label class="border border-slate-300 rounded-lg p-3 cursor-pointer hover:bg-slate-50">
+        <input type="radio" name="mode" value="RESEP_ONLINE" form="form-tebus"
+               onchange="pilihMode(this.value)" class="mr-1">
+        <span class="text-sm font-medium">Konsultasi online</span>
+        <div class="text-xs text-slate-500 mt-1">Dokter internal. Komisi berlaku.</div>
+      </label>
+      <label class="border border-slate-300 rounded-lg p-3 cursor-pointer hover:bg-slate-50
+                    {% if not resep_lama %}opacity-50{% endif %}">
+        <input type="radio" name="mode" value="TEBUS_LANJUT" form="form-tebus"
+               onchange="pilihMode(this.value)" class="mr-1"
+               {% if not resep_lama %}disabled{% endif %}>
+        <span class="text-sm font-medium">Tebus resep lama</span>
+        <div class="text-xs text-slate-500 mt-1">
+          {% if resep_lama %}{{ resep_lama|length }} item menunggu ditebus{% else %}tidak ada resep menggantung{% endif %}
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <form id="form-tebus" method="POST" action="/web/apotek/tebus-resep/simpan">
+    {{ csrf_input(request) }}
+    <input type="hidden" name="id_pasien" value="{{ pasien.id_pasien }}">
+    <input type="hidden" name="jenis" id="jenis" value="RESEP_LUAR">
+
+    {# --- Peresep luar --- #}
+    <div id="blok-luar" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+      <h3 class="font-semibold text-slate-800 mb-3">Dokter peresep (luar klinik)</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Nama dokter *</label>
+          <input type="text" name="peresep_nama" maxlength="100"
+                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Asal klinik / RS</label>
+          <input type="text" name="peresep_asal" maxlength="150"
+                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+        </div>
+      </div>
+      <p class="text-xs text-slate-400 mt-2">
+        Lembar resep fisiknya tetap diarsipkan apotek seperti biasa.
+      </p>
+    </div>
+
+    {# --- Dokter internal --- #}
+    <div id="blok-online" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4" style="display:none">
+      <h3 class="font-semibold text-slate-800 mb-3">Dokter internal</h3>
+      <select name="id_dokter" class="w-full md:w-1/2 border border-slate-300 rounded px-2 py-1.5 text-sm">
+        <option value="">— pilih dokter —</option>
+        {% for d in daftar_dokter %}
+        <option value="{{ d.id_staf }}">{{ d.nama_staf }}</option>
+        {% endfor %}
+      </select>
+      <p class="text-xs text-slate-500 mt-2">
+        Komisi produk akan tercatat atas nama dokter ini.
+      </p>
+
+      <div class="mt-4 pt-4 border-t border-slate-200">
+        <label class="block text-xs font-medium text-slate-600 mb-1">
+          Catatan dari percakapan (draf untuk dokter)
+        </label>
+        <textarea name="draf_soap" rows="4"
+                  placeholder="Tulis inti percakapannya: keluhan pasien, apa yang disampaikan dokter, obat yang diresepkan…"
+                  class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm"></textarea>
+        <div class="flex flex-wrap items-end gap-3 mt-2">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Waktu konsultasi</label>
+            <input type="datetime-local" name="waktu_konsultasi"
+                   class="border border-slate-300 rounded px-2 py-1 text-sm">
+            <div class="text-xs text-slate-400 mt-1">kosongkan = sekarang</div>
+          </div>
+          <p class="text-xs text-slate-500 flex-1">
+            Catatan ini <b>belum jadi rekam medis</b>. Ia masuk antrian dokter yang dipilih;
+            setelah dokter menyetujui, barulah menjadi SOAP miliknya — dengan namamu tetap
+            tercatat sebagai penyusun.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {# --- Resep lama --- #}
+    {% if resep_lama %}
+    <div id="blok-lama" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4" style="display:none">
+      <h3 class="font-semibold text-slate-800 mb-1">Resep yang belum ditebus</h3>
+      <p class="text-xs text-slate-500 mb-3">
+        Centang yang ditebus hari ini. Yang tidak dicentang tetap bisa ditebus lain kali.
+      </p>
+      <div class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+        {% for r in resep_lama %}
+        <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="id_resep_asal" value="{{ r.id_resep }}" class="h-4 w-4">
+          <div class="flex-1">
+            <div class="text-sm text-slate-800">
+              {{ r.nama_produk }} <span class="text-slate-500">×{{ r.qty|int if r.qty == r.qty|int else r.qty }}</span>
+            </div>
+            <div class="text-xs text-slate-500">
+              {{ r.tgl_kunjungan }} · {{ r.umur_hari }} hari lalu · stok {{ r.stok_terkini|int }}
+              {% if r.aturan_pakai %} · {{ r.aturan_pakai }}{% endif %}
+            </div>
+            {% if r.kedaluwarsa %}
+            <div class="text-xs text-amber-700 font-medium mt-0.5">
+              ⚠ Lebih dari {{ max_umur }} hari — pertimbangkan konsultasi ulang. Tetap bisa ditebus.
+            </div>
+            {% endif %}
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# --- Daftar obat (resep luar & online) --- #}
+    <div id="blok-obat" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+      <h3 class="font-semibold text-slate-800 mb-3">Obat</h3>
+      <table class="w-full text-sm">
+        <thead class="text-xs text-slate-500 uppercase">
+          <tr>
+            <th class="text-left font-medium pb-1" style="width:55%">Produk</th>
+            <th class="text-left font-medium pb-1" style="width:12%">Qty</th>
+            <th class="text-left font-medium pb-1">Aturan pakai</th>
+          </tr>
+        </thead>
+        <tbody id="baris-obat">
+          {% for i in range(3) %}
+          <tr>
+            <td class="pr-2 pb-2">
+              <select name="id_produk" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm searchable-dropdown"
+                      data-placeholder="Cari obat...">
+                <option value="">— pilih —</option>
+                {% for p in master_produks %}
+                <option value="{{ p.id_produk }}" data-kandungan="{{ p.kandungan or '' }}">
+                  [{{ p.kode_produk }}] {{ p.nama_produk }}{% if p.kandungan %} — {{ p.kandungan }}{% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="pr-2 pb-2">
+              <input type="number" name="qty" min="0" step="0.5" value="1"
+                     class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            </td>
+            <td class="pb-2">
+              <input type="text" name="aturan_pakai" maxlength="100" placeholder="mis. 3 dd 1"
+                     class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <label class="block text-xs font-medium text-slate-600 mb-1">Keterangan (opsional)</label>
+      <input type="text" name="keterangan" maxlength="200"
+             placeholder="mis. keluhan yang disampaikan pasien"
+             class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3">
+      <button type="submit"
+              class="px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-semibold">
+        Simpan & kirim ke kasir
+      </button>
+      <p class="text-xs text-slate-500 mt-2">
+        Pasien membayar di kasir, lalu obatnya diserahkan lewat antrian apotek seperti biasa.
+      </p>
+    </div>
+  </form>
+
+  <script>
+  function pilihMode(v) {
+      document.getElementById('jenis').value = v;
+      var luar   = v === 'RESEP_LUAR';
+      var online = v === 'RESEP_ONLINE';
+      var lama   = v === 'TEBUS_LANJUT';
+      document.getElementById('blok-luar').style.display   = luar ? '' : 'none';
+      document.getElementById('blok-online').style.display = online ? '' : 'none';
+      var bl = document.getElementById('blok-lama');
+      if (bl) bl.style.display = lama ? '' : 'none';
+      // Saat menebus resep lama, obatnya berasal dari centang — bukan diketik ulang.
+      document.getElementById('blok-obat').style.display = lama ? 'none' : '';
+  }
+  (function(){ if (window.initTomSelect) window.initTomSelect(document); })();
+  </script>
+{% endif %}
+</div>
+{% endblock %}

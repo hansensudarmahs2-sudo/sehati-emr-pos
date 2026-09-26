@@ -105,6 +105,8 @@ class RekapHarianService:
         ).scalars().all())
         klinis_soap = set(db.execute(
             select(func.distinct(PemeriksaanKlinis.id_kunjungan))
+            # Draf apoteker belum menjadikan kunjungan itu "klinis".
+            .where(PemeriksaanKlinis.status_soap == "FINAL")
         ).scalars().all())
         klinis_set = klinis_tindakan | klinis_soap
 

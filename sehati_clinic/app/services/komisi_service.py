@@ -79,6 +79,10 @@ class KomisiService:
                 .where(
                     _PK.id_kunjungan == id_kunjungan,
                     _PK.id_staf_dokter.is_not(None),
+                    # Draf apoteker tidak boleh jadi dasar komisi. Saat ini draf memang
+                    # selalu ber-dokter NULL sehingga tersaring sendiri — tapi jangan
+                    # bergantung pada kebetulan itu.
+                    _PK.status_soap == "FINAL",
                 )
                 .order_by(_PK.id_pemeriksaan.asc())
                 .limit(1)
