@@ -257,6 +257,26 @@
       </table>
     </div>
 
+    {# --- Racikan (R9) --- #}
+    {# Apoteker MENYALIN racikan dari lembar resep; ia tidak mengarang. Peresepnya
+       tercatat di blok atas (dokter luar) atau dokter internal yang dipilih.
+       Kartunya berkas yang sama dengan SOAP dokter — hitungannya identik. #}
+    <div id="blok-racik" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold text-slate-800">Racikan (bila ada di resep)</h3>
+        <button type="button"
+                class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                hx-get="/web/apotek/_racik-card"
+                hx-target="#racik-list"
+                hx-swap="beforeend">+ Racik</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">
+        Salin persis dari lembar resep: bahan, dosis per unit, jumlah unit, aturan pakai.
+        Harga terkunci saat disimpan — kasir tidak menghitung ulang.
+      </p>
+      <div id="racik-list"></div>
+    </div>
+
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
       <label class="block text-xs font-medium text-slate-600 mb-1">Keterangan (opsional)</label>
       <input type="text" name="keterangan" maxlength="200"
@@ -284,6 +304,12 @@
       if (bl) bl.style.display = lama ? '' : 'none';
       // Saat menebus resep lama, obatnya berasal dari centang — bukan diketik ulang.
       document.getElementById('blok-obat').style.display = lama ? 'none' : '';
+      // Racikan hanya untuk resep yang ditulis ulang apoteker. Penebusan resep lama
+      // belum menyalin racikan (server pun mengabaikannya) — jadi kartunya dibuang
+      // sekalian supaya tidak ada isian yang diam-diam hilang.
+      var br = document.getElementById('blok-racik');
+      br.style.display = lama ? 'none' : '';
+      if (lama) document.getElementById('racik-list').innerHTML = '';
   }
   (function(){ if (window.initTomSelect) window.initTomSelect(document); })();
   </script>

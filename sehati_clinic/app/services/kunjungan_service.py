@@ -437,6 +437,7 @@ class KunjunganService:
         peresep_asal: Optional[str] = None,
         id_dokter: Optional[int] = None,
         id_kunjungan_asal: Optional[int] = None,
+        izinkan_tanpa_produk: bool = False,
     ) -> dict:
         """
         Buat kunjungan "tanpa konsultasi" + N resep. Dipakai DUA pemanggil:
@@ -530,9 +531,13 @@ class KunjunganService:
                     ),
                 )
 
-        # Validasi produk_list tidak kosong
+        # Validasi produk_list tidak kosong.
+        # `izinkan_tanpa_produk` HANYA dipakai penebusan resep yang isinya racikan saja
+        # (resep luar berupa kapsul/krim racikan tanpa obat paten). Pemanggil WAJIB sudah
+        # memastikan ada racikan — kalau tidak, lahir kunjungan kosong yang menyumbat
+        # antrian kasir.
         valid_produk = [p for p in produk_list if p.get("id_produk")]
-        if not valid_produk:
+        if not valid_produk and not izinkan_tanpa_produk:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Minimal 1 produk wajib dipilih untuk Beli Produk.",

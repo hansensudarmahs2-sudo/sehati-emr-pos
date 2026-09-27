@@ -229,8 +229,66 @@ tidak meresepkan apa pun. Aturannya harus dinyatakan, bukan disimpulkan.
   saat pemeriksaan (bukan disisir). Keputusan dr. Hansen: **belum perlu**; penomoran arsip
   diurus terpisah, penautan bisa menyusul kalau ternyata dibutuhkan saat pemeriksaan.
 - **Pembedaan OTC vs obat keras** — semua resep luar wajib peresep, tanpa kecuali.
-- **Racikan lewat jalur ini** — penebusan hanya untuk produk. Racikan ad-hoc oleh apoteker
-  tanpa resep dokter adalah persoalan medikolegal tersendiri yang belum diputuskan.
+- ~~**Racikan lewat jalur ini**~~ — **DIBATALKAN 2026-09-27, lihat §12.**
+  Alasan lama: "racikan ad-hoc oleh apoteker tanpa resep dokter adalah persoalan
+  medikolegal tersendiri." Itu benar, tapi **bukan kasus yang ada di klinik**.
+
+## 12. R9 — Input racikan di layar tebus resep (2026-09-27, dibangun)
+
+dr. Hansen: *"ada satu yang mengganjal. saat tebus obat luar, seharusnya ada input racikan"*.
+
+**Kenapa pengecualian §9 salah.** Saya menimbang skenario "apoteker mengarang racikan
+sendiri" — itu memang belum diputuskan. Yang sebenarnya terjadi: **dokter luar menulis
+racikan di lembar resepnya**, apoteker hanya **menyalin**. Peresepnya tercatat
+(`peresep_luar_nama` / `id_dokter` untuk resep online), lembar fisiknya diarsipkan apotek.
+Jadi tidak ada wewenang baru yang diberikan — yang ada justru resep sah yang tidak bisa
+dilayani sistem.
+
+**Bentuknya: mesin racikan yang sudah ada, dipakai ulang — bukan disalin.**
+Sebelum menyambungkan, dua blok logika dipindahkan dari `routes/dokter.py` ke
+`RacikanService` supaya tidak ada dua salinan yang pelan-pelan berbeda:
+
+| Dipindah ke service | Isinya |
+|---|---|
+| `RacikanService.parse_form_racikan(form)` | isian kartu → `racikan_list` untuk disimpan |
+| `RacikanService.parse_card_form(form, token)` | satu kartu → `(cur, bahan_rows)` untuk hitung ulang |
+| `RacikanService.build_card_ctx(token, cur, bahan_rows, endpoint=…)` | context render kartu |
+
+Alasannya bukan kerapian: **di kode inilah dulu lahir tiga bug token** (kartu tertukar
+identitas karena token dibaca dari body, kartu ke-2 lahir dari cache dengan token kartu
+ke-1, KRIM dikalikan 15). Dua salinan berarti dua kali membayar utang itu.
+
+`_racik_card.html` kini menerima `racik_endpoint`; dokter dan apotek punya rute
+hitung-ulang sendiri karena **penjaga perannya berbeda** (`require_apoteker_role`),
+tapi kartunya satu berkas:
+
+- `GET  /web/apotek/_racik-card`   → `Cache-Control: no-store` (wajib, alasan di atas)
+- `POST /web/apotek/_racik-hitung` → token dari **query param**, bukan body (wajib)
+
+**Resep boleh berisi racikan SAJA.** Resep luar bisa berupa kapsul racikan tanpa obat
+paten. `beli_produk_lengkap` dulu menolak `produk_list` kosong, jadi ditambah
+`izinkan_tanpa_produk` — dipakai HANYA kalau ada racikan. Rute memeriksa
+"tidak ada produk **dan** tidak ada racikan" → ditolak, supaya tidak lahir kunjungan
+tanpa tagihan yang menyumbat antrian kasir. Kasir sudah menagih racikan dari
+`kunjungan_racikan` secara terpisah, jadi tidak ada kode tagihan baru.
+
+**Kalau racikan gagal disimpan padahal kunjungan sudah jadi**, apoteker diberi pesan
+eksplisit berisi nomor kunjungan dan diminta void lalu ulangi — bukan didiamkan. Menelan
+error di sini berarti pasien membayar tagihan yang kurang.
+
+**Bug saat uji coba: racikan lenyap tanpa error.** Kunjungan dan obat tersimpan, racikan
+tidak, tagihan kurang, tidak ada pesan apa pun. Sebabnya: `save_kunjungan_racikan` hanya
+**FLUSH**, tidak commit — di alur SOAP dokter commit-nya menumpang penyimpanan SOAP
+sesudahnya. Di alur apotek tidak ada yang menyusul. **Pola berulang yang sama lagi:** satu
+fungsi dipakai dua pemanggil dengan asumsi transaksi yang berbeda. Kalau nanti ada
+pemanggil ketiga `save_kunjungan_racikan`, periksa dulu siapa yang commit.
+
+**Yang BELUM dibangun (sadar, bukan lupa):** `TEBUS_LANJUT` tidak menyalin racikan dari
+kunjungan lama — ia hanya menyalin baris `kunjungan_resep`. Racikan hidup di tabel
+`kunjungan_racikan` yang belum punya penanda asal (`id_kunjungan_racikan_asal`), jadi
+anti-tebus-ganda-nya belum ada. Kartunya karena itu **disembunyikan dan dikosongkan**
+saat mode resep lama dipilih, dan server pun mengabaikannya — supaya tidak ada isian
+yang diam-diam hilang. Kalau nanti dibutuhkan, polanya sama dengan `id_resep_asal`.
 
 ## 11. R8 — "Beli separuh di kasir" (ditemukan 2026-09-27, belum dibangun)
 

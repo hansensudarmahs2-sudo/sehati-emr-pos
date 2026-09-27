@@ -275,6 +275,146 @@ class RacikanService:
         }
 
     # ------------------------------------------- SNAPSHOT RESEP RACIKAN (SOAP)
+    def build_card_ctx(self, token: str, cur: dict, bahan_rows: list[dict],
+                       endpoint: str = "/web/dokter/_racik-hitung") -> dict:
+        """Context untuk merender satu Kartu Racik.
+
+        `endpoint` membuat kartu yang sama bisa dipakai di SOAP dokter MAUPUN di layar
+        tebus resep apotek — masing-masing punya rute hitung-ulang sendiri karena hak
+        aksesnya berbeda, tapi kartunya satu berkas.
+        """
+        from app.services.master_produk_service import MasterProdukService
+
+        spec = [
+            {"id_produk": r["id_produk"], "dosis": r["dosis"], "satuan": r["satuan"]}
+            for r in bahan_rows if r.get("id_produk")
+        ]
+        return {
+            "token": token, "cur": cur, "bahan_rows": bahan_rows,
+            "hitung": self.hitung_spec(cur.get("jenis"), cur.get("unit"), spec),
+            "formulas": self.list_formula(only_active=True),
+            "jenis_opts": self.list_biaya_racik(),
+            "master_produks": MasterProdukService(self.db).list_all(
+                only_active=True, limit=500),
+            "racik_endpoint": endpoint,
+        }
+
+    def parse_card_form(self, form, token: str) -> tuple[dict, list[dict]]:
+        """Baca SATU kartu (token tertentu) dari form hitung-ulang → (cur, bahan_rows).
+
+        Dipakai bersama oleh rute hitung-ulang dokter dan apotek. Jangan disalin:
+        di sinilah dulu lahir bug "kartu tertukar identitas".
+        """
+        def g(suffix, default=""):
+            return (form.get(f"f_{token}_{suffix}") or default)
+
+        id_racikan = (g("id_racikan") or "").strip()
+        prev_formula = (g("prev_formula") or "").strip()
+        try:
+            unit = int(g("unit", "15") or 15)
+        except (ValueError, TypeError):
+            unit = 15
+        _jenis = (g("jenis", "KAPSUL") or "KAPSUL").upper()
+        cur = {
+            "id_racikan": id_racikan, "nama": g("nama").strip(),
+            "jenis": _jenis,
+            # KRIM: penulis resep menulis TOTAL gram per pot, tidak ada pengali unit.
+            "unit": 1 if _jenis == "KRIM" else max(1, unit),
+            "aturan": g("aturan").strip(),
+        }
+
+        # Formula baru dipilih → muat komposisinya (menimpa isian bahan saat ini).
+        if id_racikan and id_racikan != prev_formula:
+            try:
+                f = self.get_formula(int(id_racikan))
+                cur["nama"] = f.nama
+                cur["jenis"] = f.jenis_racik
+                cur["unit"] = f.default_jumlah_unit or cur["unit"]
+                cur["aturan"] = f.default_aturan_pakai or cur["aturan"]
+                bahan_rows = [
+                    {"id_produk": str(b.id_produk), "dosis": float(b.dosis_per_unit),
+                     "satuan": b.satuan_dosis}
+                    for b in self.list_bahan(f.id_racikan)
+                ]
+            except HTTPException:
+                bahan_rows = []
+            return cur, bahan_rows
+
+        produk_l = form.getlist(f"b_{token}_produk")
+        dosis_l = form.getlist(f"b_{token}_dosis")
+        satuan_l = form.getlist(f"b_{token}_satuan")
+        bahan_rows = []
+        for i, pid in enumerate(produk_l):
+            if not str(pid).strip():
+                continue   # baris kosong diabaikan; template selalu menambah satu baris kosong
+            bahan_rows.append({
+                "id_produk": str(pid).strip(),
+                "dosis": (dosis_l[i] if i < len(dosis_l) else ""),
+                "satuan": (satuan_l[i] if i < len(satuan_l) else "mg"),
+            })
+        return cur, bahan_rows
+
+    @staticmethod
+    def parse_form_racikan(form_data) -> list[dict]:
+        """Ubah isian Kartu Racik di form menjadi `racikan_list` untuk disimpan.
+
+        DIPAKAI BERSAMA oleh SOAP dokter dan layar tebus resep apotek. Sengaja di sini,
+        bukan disalin di tiap route: penguraian token kartu inilah yang dulu melahirkan
+        tiga bug berturut-turut (token kembar dari cache browser, token tertukar karena
+        dikirim lewat body, kartu ganda). Dua salinan yang berbeda pelan-pelan akan
+        mengulang salah satunya.
+
+        Aturan yang dipertahankan:
+        - `rc_token` kembar dilewati — kartunya sama, jangan dihitung dua kali.
+        - Bahan tanpa dosis (> 0) diabaikan; kartu tanpa bahan sama sekali dibuang.
+        - KRIM tidak punya pengali unit (ditangani `hitung_spec`), di sini `unit`
+          diambil apa adanya dari form.
+        """
+        out: list[dict] = []
+        seen: set[str] = set()
+        for t in form_data.getlist("rc_token"):
+            t = (t or "").strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            pl = form_data.getlist(f"b_{t}_produk")
+            dl = form_data.getlist(f"b_{t}_dosis")
+            sl = form_data.getlist(f"b_{t}_satuan")
+            bahan = []
+            for i, pid in enumerate(pl):
+                if not str(pid).strip():
+                    continue
+                try:
+                    idp = int(pid)
+                except (ValueError, TypeError):
+                    continue
+                try:
+                    dos = float(dl[i]) if i < len(dl) and str(dl[i]).strip() else 0
+                except (ValueError, TypeError):
+                    dos = 0
+                if dos <= 0:
+                    continue
+                bahan.append({
+                    "id_produk": idp, "dosis": dos,
+                    "satuan": (sl[i] if i < len(sl) else "mg") or "mg",
+                })
+            if not bahan:
+                continue
+            try:
+                unit = int(form_data.get(f"f_{t}_unit") or 1)
+            except (ValueError, TypeError):
+                unit = 1
+            idr = (form_data.get(f"f_{t}_id_racikan") or "").strip()
+            out.append({
+                "id_racikan": int(idr) if idr.isdigit() else None,
+                "nama": (form_data.get(f"f_{t}_nama") or "").strip() or "Racikan",
+                "jenis_racik": (form_data.get(f"f_{t}_jenis") or "KAPSUL").upper(),
+                "jumlah_unit": max(1, unit),
+                "aturan_pakai": (form_data.get(f"f_{t}_aturan") or "").strip() or None,
+                "bahan": bahan,
+            })
+        return out
+
     def save_kunjungan_racikan(self, id_kunjungan: int, racikan_list: list[dict]) -> None:
         """Replace racikan BERSTATUS PENDING pada kunjungan dengan snapshot hasil hitung.
 

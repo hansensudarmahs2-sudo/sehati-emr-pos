@@ -52,6 +52,55 @@ def _daftar_dokter(db):
     ).scalars().all())
 
 
+# ----------------------------------------------------------------- KARTU RACIK
+# Resep luar / resep online bisa berisi racikan: apoteker TIDAK mengarang racikan,
+# ia menyalin resep penulis (dokter luar / dokter internal) yang namanya tercatat
+# di kunjungan. Mesin hitungnya sama persis dengan SOAP dokter — kartunya satu
+# berkas, parsingnya satu service. Yang beda hanya endpoint + penjaga peran.
+def _apotek_racik_ctx(db, token: str, cur: dict, bahan_rows: list[dict]):
+    from app.services.racikan_service import RacikanService
+    return RacikanService(db).build_card_ctx(
+        token, cur, bahan_rows, endpoint="/web/apotek/_racik-hitung")
+
+
+@router.get("/apotek/_racik-card", response_class=HTMLResponse)
+def apotek_racik_card(request: Request, db: DbSession):
+    """Kartu Racik baru (kosong) untuk layar tebus resep."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    if not require_apoteker_role(user):
+        return HTMLResponse("", status_code=403)
+    import uuid
+    token = uuid.uuid4().hex[:10]
+    cur = {"id_racikan": "", "nama": "", "jenis": "KAPSUL", "unit": 15, "aturan": ""}
+    resp = templates.TemplateResponse(
+        request, "_racik_card.html", _apotek_racik_ctx(db, token, cur, []))
+    # WAJIB no-store: URL-nya sama setiap klik "+ Racik", jadi browser bisa menyajikan
+    # kartu dari cache → kartu ke-2 lahir dengan token yang sama dengan kartu ke-1.
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.post("/apotek/_racik-hitung", response_class=HTMLResponse)
+async def apotek_racik_hitung(request: Request, db: DbSession):
+    """Hitung ulang & render ULANG kartu dari isian terkini (derived view)."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return HTMLResponse("", status_code=401)
+    if not require_apoteker_role(user):
+        return HTMLResponse("", status_code=403)
+    from app.services.racikan_service import RacikanService
+    form = await request.form()
+    # Token WAJIB dari query param — body bisa berisi rc_token milik kartu lain.
+    token = (request.query_params.get("tok") or "").strip()
+    if not token:
+        return HTMLResponse("", status_code=400)
+    cur, bahan_rows = RacikanService(db).parse_card_form(form, token)
+    return templates.TemplateResponse(
+        request, "_racik_card.html", _apotek_racik_ctx(db, token, cur, bahan_rows))
+
+
 @router.get("/apotek/tebus-resep", response_class=HTMLResponse)
 def apotek_tebus_resep(request: Request, db: DbSession, q: str = "", id_pasien: str = ""):
     user = get_user_from_cookie(request, db)
@@ -203,6 +252,19 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
             except (TypeError, ValueError):
                 continue
 
+    # Racikan (R9). Hanya untuk resep yang ditulis ulang apoteker dari lembar resep;
+    # TEBUS_LANJUT tidak menyalin racikan lama (lihat catatan di bawah).
+    from app.services.racikan_service import RacikanService
+    _racikan_list = ([] if jenis == "TEBUS_LANJUT"
+                     else RacikanService.parse_form_racikan(f))
+
+    # Resep boleh berisi racikan SAJA (mis. kapsul racikan tanpa obat paten), tapi tidak
+    # boleh kosong dua-duanya — itu akan melahirkan antrian kasir tanpa tagihan.
+    if not produk_list and not _racikan_list:
+        return RedirectResponse(
+            url=f"{_kembali}&err={quote('Belum ada obat maupun racikan yang diisi.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
     _iddok = (f.get("id_dokter") or "").strip()
     try:
         hasil = KunjunganService(db).beli_produk_lengkap(
@@ -216,6 +278,7 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
             peresep_asal=f.get("peresep_asal"),
             id_dokter=int(_iddok) if _iddok else None,
             id_kunjungan_asal=id_kunjungan_asal,
+            izinkan_tanpa_produk=bool(_racikan_list),
         )
     except HTTPException as e:
         return RedirectResponse(url=f"{_kembali}&err={quote(str(e.detail))}",
@@ -226,6 +289,27 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
 
     _data = hasil.get("data") if isinstance(hasil, dict) else {}
     _no = (_data or {}).get("nomor_antrean")
+
+    # Snapshot harga racikan dikunci DI SINI, sama seperti di SOAP dokter; kasir tidak
+    # menghitung ulang. Gagal menyimpan racikan tidak boleh menelan kunjungan yang sudah
+    # jadi — kalau error, apoteker harus tahu supaya bisa void di kasir, bukan menemukan
+    # tagihan yang kurang saat pasien sudah bayar.
+    if _racikan_list and _data:
+        try:
+            RacikanService(db).save_kunjungan_racikan(_data["id_kunjungan"], _racikan_list)
+            # WAJIB commit di sini. `save_kunjungan_racikan` hanya FLUSH — di alur SOAP
+            # dokter, commit-nya menumpang penyimpanan SOAP sesudahnya. Di alur apotek
+            # tidak ada yang menyusul, jadi tanpa baris ini racikan lenyap diam-diam saat
+            # request selesai: kunjungan & obat tersimpan, racikan tidak, dan tagihan
+            # kurang tanpa ada error apa pun.
+            db.commit()
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            _idk = _data["id_kunjungan"]
+            _msg = (f"Kunjungan #{_idk} dibuat, tapi racikan GAGAL disimpan: {e!s}. "
+                    f"Minta kasir void kunjungan ini lalu ulangi.")
+            return RedirectResponse(url=f"{_kembali}&err={quote(_msg)}",
+                                    status_code=status.HTTP_303_SEE_OTHER)
 
     # Draf SOAP dari percakapan online — disimpan sebagai baris `pemeriksaan_klinis`
     # dengan dokter masih KOSONG dan status DRAFT_APOTEK. Dokter yang dituju akan

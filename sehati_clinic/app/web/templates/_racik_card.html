@@ -32,7 +32,9 @@
      {# Token dikirim lewat URL, BUKAN body: body POST ikut membawa rc_token milik
         kartu lain, dan server mengambil nilai terakhir → kartu bisa saling tertukar
         identitas. Query param kebal terhadap duplikasi itu. #}
-     hx-post="/web/dokter/_racik-hitung?tok={{ token }}"
+     {# Endpoint dibuat berparameter: kartu yang sama dipakai SOAP dokter dan layar
+        tebus resep apotek, yang hak aksesnya berbeda. #}
+     hx-post="{{ racik_endpoint | default('/web/dokter/_racik-hitung') }}?tok={{ token }}"
      hx-trigger="change"
      hx-include="this, [name='csrf_token']"
      hx-target="this"
