@@ -39,7 +39,28 @@
             <tr class="hover:bg-amber-50/30 transition">
                 <td class="px-4 py-3 font-bold text-slate-700">#{{ item.nomor_antrean or "-" }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ item.no_rm }}</td>
-                <td class="px-4 py-3 font-medium text-slate-800">{{ item.nama_pasien }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">
+                    {{ item.nama_pasien }}
+                    {# Kasir perlu tahu ini bukan konsultasi biasa — terutama resep luar,
+                       yang tidak menghasilkan komisi dokter. #}
+                    {% set jk = item.jenis_kunjungan or "KLINIS" %}
+                    {% if jk == "RESEP_LUAR" %}
+                    <div class="mt-0.5">
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 text-[10px] font-medium">🧾 RESEP LUAR</span>
+                      {% if item.peresep_luar_nama %}
+                      <span class="text-[10px] text-slate-500 ml-1">dr. {{ item.peresep_luar_nama }}</span>
+                      {% endif %}
+                    </div>
+                    {% elif jk == "RESEP_ONLINE" %}
+                    <div class="mt-0.5">
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 text-[10px] font-medium">💬 KONSUL ONLINE</span>
+                    </div>
+                    {% elif jk == "TEBUS_LANJUT" %}
+                    <div class="mt-0.5">
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 text-[10px] font-medium">↩ TEBUS RESEP LAMA</span>
+                    </div>
+                    {% endif %}
+                </td>
                 <td class="px-4 py-3">
                     {% set tier = item.tipe_membership or "REGULAR" %}
                     {% if tier == "VVIP" %}

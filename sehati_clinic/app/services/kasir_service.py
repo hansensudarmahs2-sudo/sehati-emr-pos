@@ -101,6 +101,8 @@ class KasirService:
                 tipe_membership=tipe,
                 jumlah_tindakan=n_tindakan,
                 jumlah_resep=n_resep,
+                jenis_kunjungan=getattr(kunjungan, "jenis_kunjungan", "KLINIS"),
+                peresep_luar_nama=getattr(kunjungan, "peresep_luar_nama", None),
             ))
 
         # ====== Riwayat transaksi yang sudah lunas hari ini ======

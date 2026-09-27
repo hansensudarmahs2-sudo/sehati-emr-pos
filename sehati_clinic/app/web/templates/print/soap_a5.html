@@ -36,6 +36,23 @@
         <td class="muted">Dokter</td>
         <td>{{ dokter.nama_staf }}</td>
     </tr>
+    {# Asal-usul catatan konsultasi online. Dicetak supaya pembaca tahu ini disusun
+       apoteker lalu disetujui dokter — bukan pemeriksaan tatap muka. #}
+    {% if soap_penyusun %}
+    <tr>
+        <td class="muted">Asal catatan</td>
+        <td colspan="3" style="font-size:0.9em">
+            Disusun dari catatan apoteker <b>{{ soap_penyusun }}</b>, disetujui
+            <b>{{ dokter.nama_staf }}</b>
+            {% if soap_waktu_konsultasi %}
+            · konsultasi {{ soap_waktu_konsultasi.strftime("%d/%m/%Y %H:%M") }}
+            {% endif %}
+            {% if soap_waktu_disetujui %}
+            · disetujui {{ soap_waktu_disetujui.strftime("%d/%m/%Y %H:%M") }}
+            {% endif %}
+        </td>
+    </tr>
+    {% endif %}
     <tr>
         <td class="muted">L/P · Umur</td>
         <td>

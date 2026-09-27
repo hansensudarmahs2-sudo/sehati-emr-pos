@@ -211,6 +211,13 @@ class KunjunganRingkasItem(BaseModel):
     status_antrian: Optional[str] = None
     keluhan_utama: Optional[str] = None
     nomor_antrean: Optional[int] = None
+    # Asal resep (2026-09-25). Tanpa ini, kunjungan penebusan resep tampak sama
+    # persis dengan kunjungan konsultasi biasa di riwayat pasien — padahal
+    # peresepnya bisa dokter luar, dan itu penting diketahui pembaca rekam medis.
+    jenis_kunjungan: Optional[str] = None
+    peresep_luar_nama: Optional[str] = None
+    peresep_luar_asal: Optional[str] = None
+    id_kunjungan_asal: Optional[int] = None
 
 
 class RiwayatTreatmentItem(BaseModel):

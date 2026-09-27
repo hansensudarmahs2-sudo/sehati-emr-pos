@@ -98,7 +98,38 @@
                             <span class="text-slate-400">—</span>
                             {% endif %}
                         </td>
-                        <td class="py-2 text-slate-700">{{ k.keluhan_utama or "-" }}</td>
+                        <td class="py-2 text-slate-700">
+                            {{ k.keluhan_utama or "-" }}
+                            {# Asal resep: tanpa penanda ini, kunjungan penebusan tampak
+                               sama persis dengan konsultasi biasa — padahal peresepnya
+                               bisa dokter di luar klinik. #}
+                            {% set jk = k.jenis_kunjungan or "KLINIS" %}
+                            {% if jk == "RESEP_LUAR" %}
+                            <div class="mt-0.5">
+                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-orange-50 text-orange-700 font-medium">
+                                🧾 Resep luar
+                              </span>
+                              <span class="text-xs text-slate-500 ml-1">
+                                dr. {{ k.peresep_luar_nama or "—" }}{% if k.peresep_luar_asal %} · {{ k.peresep_luar_asal }}{% endif %}
+                              </span>
+                            </div>
+                            {% elif jk == "RESEP_ONLINE" %}
+                            <div class="mt-0.5">
+                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-sky-50 text-sky-700 font-medium">
+                                💬 Konsultasi online
+                              </span>
+                            </div>
+                            {% elif jk == "TEBUS_LANJUT" %}
+                            <div class="mt-0.5">
+                              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-violet-50 text-violet-700 font-medium">
+                                ↩ Tebus resep lama
+                              </span>
+                              {% if k.id_kunjungan_asal %}
+                              <span class="text-xs text-slate-500 ml-1">dari kunjungan #{{ k.id_kunjungan_asal }}</span>
+                              {% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

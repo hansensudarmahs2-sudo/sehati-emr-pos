@@ -414,6 +414,17 @@ class PrintService:
             if staf_row:
                 nama_dokter = staf_row.nama_staf or "—"
 
+        # Asal-usul catatan: kalau SOAP ini semula draf apoteker dari konsultasi online,
+        # resume medis WAJIB menyatakannya. Menghapus jejak itu membuat catatan tampak
+        # seperti pemeriksaan langsung — dan resume medis justru dokumen yang paling
+        # mungkin dibaca orang di luar klinik.
+        soap_penyusun = None
+        soap_waktu_konsultasi = getattr(soap_row, "waktu_konsultasi", None) if soap_row else None
+        soap_waktu_disetujui = getattr(soap_row, "waktu_disetujui", None) if soap_row else None
+        if soap_row and getattr(soap_row, "id_staf_penyusun", None):
+            _p = self.db.get(MasterStaf, soap_row.id_staf_penyusun)
+            soap_penyusun = _p.nama_staf if _p else None
+
         # 4. Tindakan diresepkan di kunjungan ini (semua status — supaya pasien tahu rencana)
         tindakan_rows = self.db.execute(
             select(KunjunganTindakan, MasterTreatment.nama_treatment)
@@ -516,6 +527,11 @@ class PrintService:
                 "nama_staf": nama_dokter,
             },
             "soap": soap_dict,
+            # Asal-usul catatan (konsultasi online): dicetak apa adanya supaya pembaca
+            # tahu ini disusun apoteker lalu disetujui dokter, bukan pemeriksaan langsung.
+            "soap_penyusun": soap_penyusun,
+            "soap_waktu_konsultasi": soap_waktu_konsultasi,
+            "soap_waktu_disetujui": soap_waktu_disetujui,
             "tindakan": tindakan_list,
             "resep": resep_list,
             "ttd_text": ttd_text,

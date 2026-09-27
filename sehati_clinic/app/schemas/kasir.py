@@ -37,6 +37,11 @@ class AntrianKasirItem(BaseModel):
     jumlah_tindakan: int = 0
     jumlah_resep: int = 0
 
+    # Asal resep — kasir perlu tahu ini BUKAN konsultasi biasa, terutama untuk
+    # resep luar (tidak ada komisi dokter) dan tebus lanjut (resep lama).
+    jenis_kunjungan: Optional[str] = "KLINIS"
+    peresep_luar_nama: Optional[str] = None
+
 
 class RiwayatBayarItem(BaseModel):
     """1 baris transaksi yang sudah lunas hari ini — untuk akses cetak nota."""
