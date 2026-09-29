@@ -491,6 +491,215 @@ class RacikanService:
                 ))
         self.db.flush()
 
+    def pecah_racikan(self, id_kunjungan_racikan: int, unit_ditunda: int) -> dict:
+        """R8 — pecah satu racikan PENDING jadi dua batch: yang ditagih & yang ditunda.
+
+        [Keputusan dr. Hansen 2026-09-27] "racikan 15 butir, lalu minta menyisakan, maka
+        akan popup service racik lagi dan input 10, dan tersisa 5 juga langsung masuk
+        perhitungan racikan berikutnya. untuk harga jelas pasien akan membayar 50rb lebih
+        mahal karena tiap racikan terkena biaya 50 ribu untuk biaya racik."
+
+        ONGKOS RACIK GANDA ITU BENAR, BUKAN BUG. Meracik 10 lalu meracik 5 di lain hari
+        adalah DUA pekerjaan meracik. Jangan "diperbaiki" jadi satu ongkos — itu justru
+        membuat klinik menanggung kerja yang tidak dibayar.
+
+        Kedua batch DIHITUNG ULANG penuh (`hitung_spec`), termasuk baris bahannya: jumlah
+        butir yang dipakai bergantung pada jumlah unit, jadi menyalin baris bahan lama apa
+        adanya akan salah.
+
+        ⚠ Pecahan TIDAK memakai `id_kunjungan_racikan_asal` — kolom itu berarti "salinan
+        yang dibuat saat penebusan" dan dipakai sebagai penanda anti-tebus-ganda. Lihat
+        alasan lengkapnya di `kasir_service.tunda_item_resep`.
+        """
+        rc = self.db.get(KunjunganRacikan, id_kunjungan_racikan)
+        if rc is None:
+            raise HTTPException(404, f"Racikan {id_kunjungan_racikan} tidak ditemukan.")
+        if rc.status_item != "PENDING":
+            raise HTTPException(
+                400, f"Racikan berstatus '{rc.status_item}' — hanya PENDING yang bisa dipecah.")
+
+        _total_unit = int(rc.jumlah_unit or 0)
+        unit_ditunda = int(unit_ditunda)
+        if (rc.jenis_racik or "").upper() == "KRIM":
+            raise HTTPException(
+                400,
+                "Racikan KRIM tidak bisa dipecah jumlahnya — isinya satu pot, dan "
+                "gramnya sudah ditulis sebagai total. Sisakan seluruhnya atau tidak "
+                "sama sekali.",
+            )
+        if not (0 < unit_ditunda < _total_unit):
+            raise HTTPException(
+                400,
+                f"Jumlah yang disisakan harus antara 1 dan {_total_unit - 1}. "
+                f"Kalau mau menyisakan semuanya, kosongkan kotaknya.",
+            )
+
+        bahan_lama = self.db.execute(
+            select(KunjunganRacikanBahan)
+            .where(KunjunganRacikanBahan.id_kunjungan_racikan == id_kunjungan_racikan)
+            .order_by(KunjunganRacikanBahan.id_kunjungan_racikan_bahan.asc())
+        ).scalars().all()
+        spec = [
+            {"id_produk": b.id_produk, "dosis": float(b.dosis_per_unit or 0),
+             "satuan": b.satuan_dosis}
+            for b in bahan_lama
+        ]
+        if not spec:
+            raise HTTPException(400, "Racikan ini tidak punya bahan — tidak bisa dipecah.")
+
+        _sisa_unit = _total_unit - unit_ditunda
+        h_tagih = self.hitung_spec(rc.jenis_racik, _sisa_unit, spec)
+        h_tunda = self.hitung_spec(rc.jenis_racik, unit_ditunda, spec)
+        for _h in (h_tagih, h_tunda):
+            if not _h["rincian"]:
+                raise HTTPException(
+                    400,
+                    "Racikan tidak bisa dipecah: "
+                    + "; ".join(_h.get("masalah") or ["bahan tidak lagi tersedia"]),
+                )
+
+        def _tulis_bahan(id_head: int, hasil: dict) -> None:
+            for d in hasil["rincian"]:
+                self.db.add(KunjunganRacikanBahan(
+                    id_kunjungan_racikan=id_head,
+                    id_produk=d["id_produk"], nama_snapshot=d["nama"][:100],
+                    dosis_per_unit=d["dosis_per_unit"], satuan_dosis=d["satuan_dosis"],
+                    kekuatan_snapshot=d["kekuatan_snapshot"], mode_hitung=d["mode"],
+                    dipakai=d["dipakai"], satuan_dipakai=d["satuan_dipakai"],
+                    harga_satuan=d["harga_satuan"], subtotal=d["subtotal"],
+                ))
+
+        # --- Batch yang DITAGIH hari ini: baris asli, dihitung ulang seutuhnya.
+        # Baris bahannya WAJIB diganti — `dipakai` bergantung pada jumlah unit.
+        self.db.execute(
+            sa_delete(KunjunganRacikanBahan)
+            .where(KunjunganRacikanBahan.id_kunjungan_racikan == id_kunjungan_racikan)
+        )
+        self.db.flush()
+        rc.jumlah_unit = h_tagih["jumlah_unit"]
+        rc.subtotal_bahan = h_tagih["subtotal_bahan"]
+        rc.biaya_racik = h_tagih["biaya_racik"]
+        rc.total = h_tagih["total"]
+        _tulis_bahan(rc.id_kunjungan_racikan, h_tagih)
+
+        # --- Batch yang DITUNDA: baris baru, saudara (bukan salinan penebusan).
+        pecahan = KunjunganRacikan(
+            id_kunjungan=rc.id_kunjungan,
+            id_racikan=rc.id_racikan,
+            nama_snapshot=rc.nama_snapshot,
+            jenis_racik=h_tunda["jenis_racik"],
+            jumlah_unit=h_tunda["jumlah_unit"],
+            aturan_pakai=rc.aturan_pakai,
+            subtotal_bahan=h_tunda["subtotal_bahan"],
+            biaya_racik=h_tunda["biaya_racik"],
+            total=h_tunda["total"],
+            status_item="DITUNDA",
+        )
+        self.db.add(pecahan)
+        self.db.flush()
+        _tulis_bahan(pecahan.id_kunjungan_racikan, h_tunda)
+        self.db.flush()
+
+        return {
+            "id_asal": rc.id_kunjungan_racikan,
+            "unit_ditagih": h_tagih["jumlah_unit"], "total_ditagih": h_tagih["total"],
+            "id_pecahan": pecahan.id_kunjungan_racikan,
+            "unit_ditunda": h_tunda["jumlah_unit"], "total_ditunda": h_tunda["total"],
+            "biaya_racik_ekstra": h_tunda["biaya_racik"],
+        }
+
+    def salin_racikan_ke_kunjungan(self, id_kunjungan_baru: int,
+                                   id_racikan_asal_list: list[int]) -> int:
+        """R8 — salin racikan PENDING/DITUNDA ke kunjungan penebusan. Return jumlah.
+
+        HARGA DIHITUNG ULANG dengan harga bahan HARI INI (keputusan dr. Hansen
+        2026-09-27), BUKAN menyalin snapshot lama. Ini pengecualian sadar atas aturan
+        snapshot kelas `KunjunganRacikan`, dan hanya sah karena baris asal **belum pernah
+        ditagih**. Baris DIBAYAR tidak boleh masuk ke sini — dijaga oleh filter status.
+
+        Salinannya menunjuk asalnya lewat `id_kunjungan_racikan_asal`; keberadaan salinan
+        itulah penanda "sudah ditebus" (pola sama dengan `kunjungan_resep.id_resep_asal`).
+        """
+        if not id_racikan_asal_list:
+            return 0
+
+        asal_rows = self.db.execute(
+            select(KunjunganRacikan)
+            .where(
+                KunjunganRacikan.id_kunjungan_racikan.in_(id_racikan_asal_list),
+                KunjunganRacikan.status_item.in_(["PENDING", "DITUNDA"]),
+            )
+        ).scalars().all()
+
+        n = 0
+        for asal in asal_rows:
+            # Sudah pernah disalin? Jangan ditebus dua kali.
+            sudah = self.db.execute(
+                select(KunjunganRacikan.id_kunjungan_racikan)
+                .where(KunjunganRacikan.id_kunjungan_racikan_asal
+                       == asal.id_kunjungan_racikan)
+                .limit(1)
+            ).scalar_one_or_none()
+            if sudah is not None:
+                continue
+
+            bahan_lama = self.db.execute(
+                select(KunjunganRacikanBahan)
+                .where(KunjunganRacikanBahan.id_kunjungan_racikan
+                       == asal.id_kunjungan_racikan)
+                .order_by(KunjunganRacikanBahan.id_kunjungan_racikan_bahan.asc())
+            ).scalars().all()
+            spec = [
+                {"id_produk": b.id_produk, "dosis": float(b.dosis_per_unit or 0),
+                 "satuan": b.satuan_dosis}
+                for b in bahan_lama
+            ]
+            if not spec:
+                continue
+
+            h = self.hitung_spec(asal.jenis_racik, asal.jumlah_unit, spec)
+            if not h["rincian"]:
+                # Bahan bisa sudah dinonaktifkan/dihapus sejak diresepkan. Jangan diam:
+                # apoteker harus tahu agar bisa menawarkan pengganti ke pasien.
+                raise HTTPException(
+                    400,
+                    f"Racikan {asal.nama_snapshot!r} tidak bisa ditebus: "
+                    + "; ".join(h.get("masalah") or ["bahan tidak lagi tersedia"]),
+                )
+
+            head = KunjunganRacikan(
+                id_kunjungan=id_kunjungan_baru,
+                id_racikan=asal.id_racikan,
+                nama_snapshot=asal.nama_snapshot,
+                jenis_racik=h["jenis_racik"],
+                jumlah_unit=h["jumlah_unit"],
+                aturan_pakai=asal.aturan_pakai,
+                subtotal_bahan=h["subtotal_bahan"],
+                biaya_racik=h["biaya_racik"],
+                total=h["total"],
+                status_item="PENDING",
+                id_kunjungan_racikan_asal=asal.id_kunjungan_racikan,
+            )
+            self.db.add(head)
+            self.db.flush()
+            for d in h["rincian"]:
+                self.db.add(KunjunganRacikanBahan(
+                    id_kunjungan_racikan=head.id_kunjungan_racikan,
+                    id_produk=d["id_produk"],
+                    nama_snapshot=d["nama"][:100],
+                    dosis_per_unit=d["dosis_per_unit"],
+                    satuan_dosis=d["satuan_dosis"],
+                    kekuatan_snapshot=d["kekuatan_snapshot"],
+                    mode_hitung=d["mode"],
+                    dipakai=d["dipakai"],
+                    satuan_dipakai=d["satuan_dipakai"],
+                    harga_satuan=d["harga_satuan"],
+                    subtotal=d["subtotal"],
+                ))
+            n += 1
+        self.db.flush()
+        return n
+
     def get_kunjungan_racikan(self, id_kunjungan: int) -> list[dict]:
         """Racikan tersimpan pada kunjungan (untuk mode Ubah SOAP, kasir, cetak)."""
         out = []

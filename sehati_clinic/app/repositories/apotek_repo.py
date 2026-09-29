@@ -98,7 +98,11 @@ class ApotekRepository:
             select(KunjunganResep, MasterProduk)
             .join(MasterProduk, KunjunganResep.id_produk == MasterProduk.id_produk)
             .where(KunjunganResep.id_kunjungan == id_kunjungan)
-            .where(KunjunganResep.status_item != "BATAL")
+            # R8: DITUNDA ikut dikecualikan. Item yang "disisakan untuk nanti" belum
+            # dibayar dan bukan urusan penyerahan hari ini — ia akan muncul lagi lewat
+            # layar Tebus Resep. Menampilkannya di sini membuat apoteker mengira ada
+            # obat yang tertinggal untuk diserahkan.
+            .where(KunjunganResep.status_item.notin_(["BATAL", "DITUNDA"]))
             .order_by(KunjunganResep.id_resep.asc())
         )
         rows = self.db.execute(stmt).all()
@@ -135,7 +139,8 @@ class ApotekRepository:
         heads = self.db.execute(
             select(KunjunganRacikan)
             .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
-            .where(KunjunganRacikan.status_item != "BATAL")
+            # R8: sama alasannya dengan resep di atas.
+            .where(KunjunganRacikan.status_item.notin_(["BATAL", "DITUNDA"]))
             .order_by(KunjunganRacikan.id_kunjungan_racikan.asc())
         ).scalars().all()
         out = []

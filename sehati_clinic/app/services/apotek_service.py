@@ -280,7 +280,11 @@ class ApotekService:
             .join(_K, _K.id_kunjungan == _KR.id_kunjungan)
             .where(
                 _K.id_pasien == id_pasien,
-                _KR.status_item == _ST.PENDING,
+                # R8: DUA status berarti "belum dibayar" —
+                #   PENDING = pasien pulang tanpa membayar sama sekali
+                #   DITUNDA = pasien beli separuh di meja kasir, sisanya disisakan
+                # Keduanya sah untuk ditebus belakangan.
+                _KR.status_item.in_([_ST.PENDING, _ST.DITUNDA]),
                 _KR.id_resep_asal.is_(None),   # jangan tawarkan salinan sebagai sumber
                 ~sudah_ditebus,
             )
@@ -304,6 +308,73 @@ class ApotekService:
                 "qty": float(kr.qty or 0),
                 "aturan_pakai": kr.aturan_pakai or "",
                 "stok_terkini": float(mp.stok_terkini or 0),
+            })
+        return out
+
+    def list_racikan_belum_ditebus(self, id_pasien: int) -> list[dict]:
+        """Racikan pasien yang belum ditebus — padanan `list_resep_belum_ditebus` (R8).
+
+        Pola anti-tebus-ganda SAMA PERSIS: "sudah ditebus" = ADA baris lain yang
+        `id_kunjungan_racikan_asal`-nya menunjuk baris ini. Tidak ada kolom penanda
+        terpisah.
+
+        ⚠ HARGA YANG DIKEMBALIKAN DI SINI hanya untuk ANCAR-ANCAR di layar. Harga yang
+        ditagih DIHITUNG ULANG saat penebusan (keputusan dr. Hansen 2026-09-27), karena
+        baris ini belum pernah ditagih dan harga bahan bisa sudah berubah.
+        """
+        from datetime import date as _date
+        from sqlalchemy import select as _sel
+        from sqlalchemy.orm import aliased as _aliased
+        from app.db.models import Kunjungan as _K
+        from app.db.models.racikan import (
+            KunjunganRacikan as _KRC, KunjunganRacikanBahan as _KRCB,
+        )
+
+        _salinan = _aliased(_KRC)
+        sudah_ditebus = (
+            _sel(_salinan.id_kunjungan_racikan)
+            .where(_salinan.id_kunjungan_racikan_asal == _KRC.id_kunjungan_racikan)
+            .exists()
+        )
+
+        rows = self.db.execute(
+            _sel(_KRC, _K)
+            .join(_K, _K.id_kunjungan == _KRC.id_kunjungan)
+            .where(
+                _K.id_pasien == id_pasien,
+                _KRC.status_item.in_(["PENDING", "DITUNDA"]),
+                _KRC.id_kunjungan_racikan_asal.is_(None),
+                ~sudah_ditebus,
+            )
+            .order_by(_K.tgl_kunjungan.desc(), _KRC.id_kunjungan_racikan.asc())
+        ).all()
+
+        hari_ini = _date.today()
+        out = []
+        for rc, kj in rows:
+            bahan = self.db.execute(
+                _sel(_KRCB)
+                .where(_KRCB.id_kunjungan_racikan == rc.id_kunjungan_racikan)
+                .order_by(_KRCB.id_kunjungan_racikan_bahan.asc())
+            ).scalars().all()
+            tgl = kj.tgl_kunjungan.date() if kj.tgl_kunjungan else None
+            umur = (hari_ini - tgl).days if tgl else None
+            out.append({
+                "id_kunjungan_racikan": rc.id_kunjungan_racikan,
+                "id_kunjungan": kj.id_kunjungan,
+                "tgl_kunjungan": tgl,
+                "umur_hari": umur,
+                "kedaluwarsa": umur is not None and umur > self.MAX_UMUR_RESEP_HARI,
+                "nama": rc.nama_snapshot,
+                "jenis_racik": rc.jenis_racik,
+                "jumlah_unit": int(rc.jumlah_unit or 0),
+                "aturan_pakai": rc.aturan_pakai or "",
+                "total_dulu": float(rc.total or 0),   # ancar-ancar saja, lihat docstring
+                "bahan": [
+                    {"id_produk": b.id_produk, "nama": b.nama_snapshot,
+                     "dosis": float(b.dosis_per_unit or 0), "satuan": b.satuan_dosis}
+                    for b in bahan
+                ],
             })
         return out
 

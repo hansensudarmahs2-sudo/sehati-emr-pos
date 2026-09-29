@@ -144,6 +144,16 @@ class KunjunganRacikan(Base):
     id_transaksi: Mapped[Optional[int]] = mapped_column(
         ForeignKey("transaksi_kasir.id_transaksi"), nullable=True
     )
+    # R8: racikan DITUNDA yang ditebus belakangan disalin ke kunjungan baru. Keberadaan
+    # SALINAN inilah penanda "sudah ditebus" — tidak ada kolom penanda terpisah yang bisa
+    # berselisih dengan kenyataan. Pola sama dengan `kunjungan_resep.id_resep_asal`.
+    # CATATAN HARGA: salinan DIHITUNG ULANG dengan harga hari penebusan (keputusan
+    # dr. Hansen 2026-09-27) — pengecualian sadar atas aturan snapshot di docstring kelas
+    # ini, sah karena baris DITUNDA belum pernah ditagih. Baris DIBAYAR tetap tak boleh
+    # dihitung ulang.
+    id_kunjungan_racikan_asal: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=True
+    )
     # Task #54 — racikan bersifat all-or-nothing (satu wadah tidak bisa dibagi), tapi
     # tetap perlu jejak SIAPA dan KAPAN, sama seperti item resep biasa.
     waktu_serah: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP, nullable=True)

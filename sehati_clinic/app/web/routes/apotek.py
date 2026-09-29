@@ -112,7 +112,7 @@ def apotek_tebus_resep(request: Request, db: DbSession, q: str = "", id_pasien: 
     from app.services.pasien_service import PasienService
 
     svc_pasien = PasienService(db)
-    hasil_cari, pasien, resep_lama = [], None, []
+    hasil_cari, pasien, resep_lama, racikan_lama = [], None, [], []
     _id = None
     try:
         _id = int(id_pasien) if id_pasien else None
@@ -125,7 +125,9 @@ def apotek_tebus_resep(request: Request, db: DbSession, q: str = "", id_pasien: 
         if pasien is not None and not pasien.is_active:
             pasien = None  # pasien nonaktif tidak boleh dipakai transaksi baru
         if pasien is not None:
-            resep_lama = ApotekService(db).list_resep_belum_ditebus(_id)
+            _apotek = ApotekService(db)
+            resep_lama = _apotek.list_resep_belum_ditebus(_id)
+            racikan_lama = _apotek.list_racikan_belum_ditebus(_id)
     elif q.strip():
         hasil_cari = svc_pasien.search(keyword=q.strip(), limit=20)
 
@@ -133,6 +135,7 @@ def apotek_tebus_resep(request: Request, db: DbSession, q: str = "", id_pasien: 
         user, db=db, current_path="/web/apotek/tebus-resep",
         page_subtitle="Tebus Resep",
         q=q, hasil_cari=hasil_cari, pasien=pasien, resep_lama=resep_lama,
+        racikan_lama=racikan_lama,
         daftar_dokter=_daftar_dokter(db),
         master_produks=MasterProdukService(db).list_all(only_active=True, limit=500),
         max_umur=ApotekService.MAX_UMUR_RESEP_HARI,
@@ -214,7 +217,7 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
     jenis = (f.get("jenis") or "").strip().upper()
     _kembali = f"/web/apotek/tebus-resep?id_pasien={id_pasien}"
 
-    produk_list, id_kunjungan_asal = [], None
+    produk_list, id_kunjungan_asal, _racik_asal_ids = [], None, []
     if jenis == "TEBUS_LANJUT":
         # Yang dicentang adalah baris resep LAMA; kita salin qty & aturan pakainya apa
         # adanya, dan menautkan salinan ke asalnya (penanda anti tebus ganda).
@@ -232,7 +235,21 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
                 "aturan_pakai": asal.aturan_pakai or "", "id_resep_asal": _rid,
             })
             id_kunjungan_asal = id_kunjungan_asal or asal.id_kunjungan
-        if not produk_list:
+
+        # R8: racikan lama yang dicentang. Disalin SETELAH kunjungan dibuat (butuh
+        # id_kunjungan baru), tapi id kunjungan asal diambil sekarang supaya penebusan
+        # yang HANYA berisi racikan tetap tertaut ke kunjungan aslinya.
+        for raw in f.getlist("id_racikan_asal"):
+            try:
+                _racik_asal_ids.append(int(str(raw).strip()))
+            except (TypeError, ValueError):
+                continue
+        if _racik_asal_ids and id_kunjungan_asal is None:
+            from app.db.models.racikan import KunjunganRacikan as _KRC0
+            _rc0 = db.get(_KRC0, _racik_asal_ids[0])
+            id_kunjungan_asal = _rc0.id_kunjungan if _rc0 is not None else None
+
+        if not produk_list and not _racik_asal_ids:
             return RedirectResponse(
                 url=f"{_kembali}&err={quote('Belum ada resep lama yang dicentang.')}",
                 status_code=status.HTTP_303_SEE_OTHER)
@@ -260,7 +277,7 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
 
     # Resep boleh berisi racikan SAJA (mis. kapsul racikan tanpa obat paten), tapi tidak
     # boleh kosong dua-duanya — itu akan melahirkan antrian kasir tanpa tagihan.
-    if not produk_list and not _racikan_list:
+    if not produk_list and not _racikan_list and not _racik_asal_ids:
         return RedirectResponse(
             url=f"{_kembali}&err={quote('Belum ada obat maupun racikan yang diisi.')}",
             status_code=status.HTTP_303_SEE_OTHER)
@@ -278,7 +295,7 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
             peresep_asal=f.get("peresep_asal"),
             id_dokter=int(_iddok) if _iddok else None,
             id_kunjungan_asal=id_kunjungan_asal,
-            izinkan_tanpa_produk=bool(_racikan_list),
+            izinkan_tanpa_produk=bool(_racikan_list or _racik_asal_ids),
         )
     except HTTPException as e:
         return RedirectResponse(url=f"{_kembali}&err={quote(str(e.detail))}",
@@ -294,9 +311,15 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
     # menghitung ulang. Gagal menyimpan racikan tidak boleh menelan kunjungan yang sudah
     # jadi — kalau error, apoteker harus tahu supaya bisa void di kasir, bukan menemukan
     # tagihan yang kurang saat pasien sudah bayar.
-    if _racikan_list and _data:
+    if (_racikan_list or _racik_asal_ids) and _data:
         try:
-            RacikanService(db).save_kunjungan_racikan(_data["id_kunjungan"], _racikan_list)
+            if _racikan_list:
+                RacikanService(db).save_kunjungan_racikan(
+                    _data["id_kunjungan"], _racikan_list)
+            if _racik_asal_ids:
+                # R8: harga DIHITUNG ULANG di dalam sini, bukan disalin.
+                RacikanService(db).salin_racikan_ke_kunjungan(
+                    _data["id_kunjungan"], _racik_asal_ids)
             # WAJIB commit di sini. `save_kunjungan_racikan` hanya FLUSH — di alur SOAP
             # dokter, commit-nya menumpang penyimpanan SOAP sesudahnya. Di alur apotek
             # tidak ada yang menyusul, jadi tanpa baris ini racikan lenyap diam-diam saat

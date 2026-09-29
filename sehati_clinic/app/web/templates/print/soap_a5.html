@@ -123,7 +123,12 @@
         <tbody>
             {% for r in resep %}
             <tr>
-                <td>{{ r.nama_produk }}</td>
+                <td>
+                    {{ r.nama_produk }}
+                    {% if r.status_item == "DITUNDA" %}
+                    <span class="muted" style="font-size:0.85em">(belum ditebus)</span>
+                    {% endif %}
+                </td>
                 <td class="mono">{{ "%g"|format(r.qty) }}</td>
                 <td>{{ r.aturan_pakai or "—" }}</td>
             </tr>

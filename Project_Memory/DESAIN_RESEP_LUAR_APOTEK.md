@@ -316,6 +316,122 @@ karena kini ada dua status yang berarti belum dibayar.
 **Keputusan dr. Hansen 2026-09-27**: kerjakan **setelah R6–R7**, supaya modul yang sekarang
 utuh dulu.
 
+### 11b. R8 — keputusan & rancangan final (2026-09-27)
+
+**Keputusan dr. Hansen:**
+1. **Racikan ikut bisa ditunda**, bukan hanya obat jadi. Konsekuensinya besar dan disadari:
+   racikan yang ditunda harus bisa **disalin ke kunjungan penebusan**, dan mesin itu belum
+   ada — jadi `id_kunjungan_racikan_asal` (yang di §12 ditandai "belum dibangun") masuk ke
+   dalam R8.
+2. **Cukup kasir**, tanpa PIN dokter/admin. Alasan: menunda tidak merusak apa pun — obat
+   tidak dibatalkan dan tetap bisa ditebus. Memanggil dokter ke meja kasir untuk tiap pasien
+   yang beli separuh akan sering dan menghambat antrean. Tetap tercatat di audit log.
+3. **Racikan yang ditunda DIHITUNG ULANG dengan harga hari penebusan**, bukan harga
+   terkunci saat diresepkan. Ini **pengecualian sadar** terhadap aturan snapshot di §12 dan
+   di docstring `KunjunganRacikan`. Dasarnya: baris DITUNDA **belum pernah ditagih**, jadi
+   tidak ada nota yang perlu dijaga keutuhannya; dan perlakuannya jadi sama dengan obat
+   jadi, yang harganya memang diambil dari master saat ditagih. Kalau harga bahan naik dan
+   pasien menunda tiga minggu, klinik tidak menjual di bawah modal.
+   ⚠ Snapshot tetap berlaku mutlak untuk baris yang sudah DIBAYAR — jangan pernah hitung
+   ulang baris bernota.
+
+**Keputusan saya (Claude), kecuali dr. Hansen menolak:** kasir **tidak boleh menunda
+SELURUH** item. Minimal satu harus dibayar. Kalau semuanya ditunda, artinya pasien batal
+membeli — jalurnya void kunjungan, bukan transaksi Rp 0 yang mengotori laporan.
+
+**Perubahan data:**
+- `kunjungan_resep.status_item` — ENUM, perlu `MODIFY COLUMN` dengan daftar lengkap:
+  `PENDING, BATAL, DIBAYAR, DISERAHKAN, DITUNDA`.
+- `kunjungan_racikan.status_item` — **String(20), tidak perlu ALTER** (sengaja dibuat
+  String saat menambah DISERAHKAN; keputusan itu berbuah di sini).
+- `kunjungan_racikan.id_kunjungan_racikan_asal` — kolom baru, penanda anti-tebus-ganda,
+  pola sama persis dengan `kunjungan_resep.id_resep_asal`.
+
+**Sisir status (hasil pemeriksaan 2026-09-27, 9 titik).** Bahayanya selalu sama: satu kolom
+kini punya DUA nilai yang berarti "belum dibayar".
+
+| Berkas | Sekarang | Tindakan |
+|---|---|---|
+| `kasir_repo` tagihan & mark-dibayar (4 titik) | `== PENDING` | aman — DITUNDA keluar sendiri |
+| `apotek_repo:101` daftar serah | `!= BATAL` | **kecualikan DITUNDA** — belum dibayar, jangan muncul untuk diserahkan |
+| `print_service:454`, `:201` cetak | `!= BATAL` | **kecualikan DITUNDA** — jangan tercetak seolah diserahkan |
+| `apotek_service:283` resep belum ditebus | `== PENDING` | **jadi PENDING atau DITUNDA** |
+| `kasir_service:304` tampilan sudah-lunas | `!= BATAL` | tampilkan berlabel "Ditunda", **jangan dihitung** |
+| `dokter.py:348` kunci SOAP basi | `!= PENDING` | tinjau — obat ditunda jangan mengunci suntingan SOAP |
+
+### 11c. Pemecahan JUMLAH (ditemukan dr. Hansen 2026-09-27, sebelum uji coba)
+
+Pertanyaan beliau: *"bilamana ada obat cefixime 200 mg no XV, ditebus hanya 10 apakah ini
+bisa?"* Jawabannya waktu itu **tidak bisa** — dan itu kekeliruan saya membaca kebutuhan.
+
+Saya menerjemahkan "beli separuh" sebagai **separuh dari DAFTAR obat**, padahal di apotek
+yang jauh lebih sering adalah **separuh dari JUMLAH**: uangnya cukup untuk 10, sisanya
+menyusul. Dengan R8 versi per-baris, skenario "hanya cefixime XV" bahkan **buntu total** —
+menyisakan seluruhnya akan ditolak pagar "jangan kosongkan tagihan", sehingga pasien tidak
+terlayani sama sekali.
+
+**Bentuk akhirnya:** kotak jumlah di samping tombol Sisakan.
+- Kosong → seluruh baris jadi DITUNDA (perilaku semula).
+- Diisi `n` (0 < n < qty) → baris **DIPECAH**: baris asli turun jadi `qty − n` dan tetap
+  PENDING (ditagih hari ini), lahir baris baru berisi `n` berstatus DITUNDA.
+
+Pagar "jangan kosongkan tagihan" **tidak berlaku untuk pemecahan**, karena pemecahan
+selalu menyisakan bagian yang ditagih.
+
+**⚠ Jebakan yang sengaja dihindari — pecahan TIDAK memakai `id_resep_asal`.** Kolom itu
+sudah punya arti lain: "baris ini SALINAN yang dibuat saat penebusan", sekaligus penanda
+anti-tebus-ganda. Kalau dipakai juga untuk menandai pecahan, dua hal rusak sekaligus:
+1. `list_resep_belum_ditebus` menyaring `id_resep_asal IS NULL` → pecahan DITUNDA tidak
+   akan pernah muncul untuk ditebus; dan
+2. baris asal dianggap "sudah ditebus" padahal belum.
+
+Ini persis pola **"satu kolom dua arti"** yang berulang kali memakan waktu di proyek ini
+(`_produk_stok_sudah_dipotong`, draf SOAP di `pemeriksaan_klinis`). Pecahan adalah
+**saudara**, bukan salinan: `id_resep_asal`-nya tetap NULL, dan jejak pemecahan hidup di
+`audit_log` (aksi `TUNDA_ITEM`, memuat id & qty kedua baris).
+
+### 11d. Racikan juga dipecah — dan ongkos racik ganda itu BENAR (2026-09-27)
+
+Rencana awal saya: racikan tidak dipecah. Dibatalkan setelah uji coba menemui jalan buntu
+pada kunjungan #23 (pasien **hanya** punya satu racikan 15 butir): pagar "jangan kosongkan
+tagihan" menolak, sehingga pasien tidak terlayani sama sekali.
+
+[Keputusan dr. Hansen] *"racikan 15 butir, lalu minta menyisakan maka akan popup service
+racik lagi dan input 10 (misalnya) dan tersisa 5 juga langsung masuk perhitungan racikan
+berikutnya. untuk harga jelas pasien akan membayar 50rb lebih mahal karena tiap racikan
+terkena biaya 50 ribu untuk biaya racik."*
+
+**Ongkos racik dikenakan DUA kali, dan itu disengaja.** Meracik 10 hari ini lalu meracik 5
+minggu depan adalah dua pekerjaan. Menggabungkannya jadi satu ongkos berarti klinik
+menanggung kerja yang tidak dibayar. **Jangan "perbaiki" ini di kemudian hari** — kalau ada
+yang melaporkannya sebagai bug, tunjuk paragraf ini.
+
+Kedua batch **dihitung ulang penuh** lewat `hitung_spec`, termasuk baris bahannya: jumlah
+butir yang dipakai bergantung pada jumlah unit, jadi menyalin baris bahan lama apa adanya
+akan salah.
+
+**KRIM tidak bisa dipecah** — isinya satu pot dan gramnya ditulis sebagai TOTAL, bukan per
+unit. Kotak jumlahnya pun tidak ditampilkan untuk KRIM.
+
+Pecahan racikan juga **tidak** memakai `id_kunjungan_racikan_asal`, alasan sama dengan
+resep di §11c.
+
+### Pagar "jangan kosongkan tagihan" — DIPUTUSKAN TETAP (2026-09-27)
+
+Saya sempat menyimpulkan pagar itu salah setelah menemui jalan buntu di kunjungan #23.
+**Kesimpulan saya keliru; pagarnya benar.**
+
+[Keputusan dr. Hansen] *"bila menunda seluruhnya memang benar sebaiknya dipagar dan
+disarankan void. tidak ada tagihan kosong, pagar anda seluruhnya benar."*
+
+Jalan buntu #23 bukan disebabkan pagarnya, melainkan karena racikan waktu itu belum bisa
+dipecah jumlahnya. Setelah §11d, pasien yang tidak mampu menebus seluruhnya tetap
+terlayani lewat pemecahan. Yang benar-benar tersisa — pasien tidak membeli apa pun — memang
+bukan "penundaan", melainkan **pembatalan**, dan jalurnya void.
+
+**Aturan tetap: tidak boleh ada tagihan kosong.** Jangan cabut pagar ini, dan jangan
+tambahkan jalur "tutup tanpa tagihan".
+
 ## 10. Risiko yang disadari
 
 **Obat keluar sebelum dokter menyetujui** (keputusan #10). Dasarnya masuk akal: keputusan

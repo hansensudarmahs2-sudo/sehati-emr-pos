@@ -113,14 +113,18 @@
         <span class="text-sm font-medium">Konsultasi online</span>
         <div class="text-xs text-slate-500 mt-1">Dokter internal. Komisi berlaku.</div>
       </label>
+      {# R8: RACIKAN yang menggantung juga menghidupkan mode ini. Sebelumnya hanya
+         `resep_lama` yang dihitung, sehingga racikan yang disisakan di kasir tidak
+         pernah bisa ditebus — radionya mati dan tertulis "tidak ada resep menggantung". #}
+      {% set _n_lama = (resep_lama|length) + (racikan_lama|length) %}
       <label class="border border-slate-300 rounded-lg p-3 cursor-pointer hover:bg-slate-50
-                    {% if not resep_lama %}opacity-50{% endif %}">
+                    {% if not _n_lama %}opacity-50{% endif %}">
         <input type="radio" name="mode" value="TEBUS_LANJUT" form="form-tebus"
                onchange="pilihMode(this.value)" class="mr-1"
-               {% if not resep_lama %}disabled{% endif %}>
+               {% if not _n_lama %}disabled{% endif %}>
         <span class="text-sm font-medium">Tebus resep lama</span>
         <div class="text-xs text-slate-500 mt-1">
-          {% if resep_lama %}{{ resep_lama|length }} item menunggu ditebus{% else %}tidak ada resep menggantung{% endif %}
+          {% if _n_lama %}{{ _n_lama }} item menunggu ditebus{% else %}tidak ada resep menggantung{% endif %}
         </div>
       </label>
     </div>
@@ -188,12 +192,13 @@
     </div>
 
     {# --- Resep lama --- #}
-    {% if resep_lama %}
+    {% if resep_lama or racikan_lama %}
     <div id="blok-lama" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-4" style="display:none">
       <h3 class="font-semibold text-slate-800 mb-1">Resep yang belum ditebus</h3>
       <p class="text-xs text-slate-500 mb-3">
         Centang yang ditebus hari ini. Yang tidak dicentang tetap bisa ditebus lain kali.
       </p>
+      {% if resep_lama %}
       <div class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
         {% for r in resep_lama %}
         <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
@@ -215,6 +220,44 @@
         </label>
         {% endfor %}
       </div>
+      {% endif %}
+
+      {# R8: racikan yang belum ditebus. Dipisah dari daftar obat karena harganya
+         diperlakukan berbeda — dihitung ulang, bukan memakai angka lama. #}
+      {% if racikan_lama %}
+      <div class="mt-4">
+        <div class="text-xs font-semibold text-slate-600 mb-1">Racikan belum ditebus</div>
+        <div class="divide-y divide-slate-100 border border-indigo-200 bg-indigo-50 rounded-lg">
+          {% for rc in racikan_lama %}
+          <label class="flex items-center gap-3 px-3 py-2 hover:bg-indigo-100 cursor-pointer">
+            <input type="checkbox" name="id_racikan_asal" value="{{ rc.id_kunjungan_racikan }}" class="h-4 w-4">
+            <div class="flex-1">
+              <div class="text-sm text-slate-800">
+                ⚗️ {{ rc.nama }}
+                <span class="text-slate-500">({{ rc.jenis_racik }}) ×{{ rc.jumlah_unit }}</span>
+              </div>
+              <div class="text-xs text-slate-500">
+                {{ rc.tgl_kunjungan }} · {{ rc.umur_hari }} hari lalu
+                {% if rc.aturan_pakai %} · {{ rc.aturan_pakai }}{% endif %}
+              </div>
+              <div class="text-xs text-slate-500">
+                {% for b in rc.bahan %}{{ b.nama }} {{ b.dosis }} {{ b.satuan }}{% if not loop.last %} · {% endif %}{% endfor %}
+              </div>
+              <div class="text-xs text-indigo-700 mt-0.5">
+                Dulu Rp {{ "{:,.0f}".format(rc.total_dulu).replace(",", ".") }} —
+                <b>harga dihitung ulang</b> saat disimpan, bisa berbeda.
+              </div>
+              {% if rc.kedaluwarsa %}
+              <div class="text-xs text-amber-700 font-medium mt-0.5">
+                ⚠ Lebih dari {{ max_umur }} hari — pertimbangkan konsultasi ulang. Tetap bisa ditebus.
+              </div>
+              {% endif %}
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
 

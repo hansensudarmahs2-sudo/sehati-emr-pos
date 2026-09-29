@@ -346,7 +346,13 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
         import uuid as _uuid
         for _r in _existing_racikan:
             if (_r.get("status_item") or "PENDING") != "PENDING":
-                continue  # DIBAYAR/BATAL → tampil terkunci, tidak boleh disunting
+                # DIBAYAR/BATAL → tampil terkunci, tidak boleh disunting.
+                # R8: DITUNDA juga terkunci, dan itu DISENGAJA. Pasien sudah menolak
+                # membelinya di meja kasir hari ini; kalau dokter diam-diam mengubah
+                # isinya, yang ditebus pasien nanti bukan lagi yang ia lihat. Baris
+                # DITUNDA juga aman dari `save_kunjungan_racikan`, yang hanya menghapus
+                # baris PENDING.
+                continue
             _bahan_rows = [
                 {
                     "id_produk": str(_b["id_produk"]),

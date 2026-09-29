@@ -445,7 +445,10 @@ class PrintService:
                 "waktu_selesai": kt.waktu_selesai,
             })
 
-        # 5. Resep diresepkan (semua kecuali BATAL — supaya pasien tahu apa yang diresep)
+        # 5. Resep diresepkan (semua kecuali BATAL — supaya pasien tahu apa yang diresep).
+        # R8: baris DITUNDA SENGAJA tetap ikut — ia benar-benar diresepkan, cuma belum
+        # ditebus. Template menandainya "belum ditebus" supaya tidak terbaca seolah sudah
+        # diserahkan. (Bandingkan nota kasir, yang justru memakai daftar-putih DIBAYAR.)
         from app.db.models import StatusItemResepEnum
         resep_rows = self.db.execute(
             select(KunjunganResep, MasterProduk.nama_produk)

@@ -121,6 +121,12 @@ class StatusItemResepEnum(str, enum.Enum):
     BATAL = "BATAL"
     DIBAYAR = "DIBAYAR"
     DISERAHKAN = "DISERAHKAN"
+    # DITUNDA (R8, 2026-09-27): pasien beli separuh di meja kasir. Dikeluarkan dari
+    # tagihan hari ini TAPI tidak dibatalkan — masih bisa ditebus lain hari.
+    # ⚠ Sejak ini ADA DUA status yang berarti "belum dibayar": PENDING dan DITUNDA.
+    # Query yang menulis `!= BATAL` untuk memaksudkan "masih berlaku" kini ikut
+    # menarik baris DITUNDA. Lihat DESAIN_RESEP_LUAR_APOTEK.md §11b.
+    DITUNDA = "DITUNDA"
 
 
 class StatusRencanaTreatmentEnum(str, enum.Enum):

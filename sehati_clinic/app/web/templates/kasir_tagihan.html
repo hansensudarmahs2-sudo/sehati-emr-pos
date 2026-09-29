@@ -332,13 +332,35 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">DIBAYAR</span>
                         {% elif p.status_item == "BATAL" %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">BATAL</span>
+                        {% elif p.status_item == "DITUNDA" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-sky-50 text-sky-700 font-medium">DITUNDA</span>
                         {% else %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">PENDING</span>
                         {% endif %}
                     </td>
                     {% if not tagihan.sudah_lunas %}
-                    <td class="py-2 text-right">
+                    <td class="py-2 text-right whitespace-nowrap">
                         {% if p.status_item == "PENDING" %}
+                        {# R8: "Sisakan" sengaja di KIRI Void dan berwarna netral — ia
+                           pilihan yang lazim dan tidak merusak, sedangkan Void permanen. #}
+                        {# Kotak jumlah dibiarkan KOSONG = sisakan seluruhnya. Diisi =
+                           baris dipecah. Sengaja tidak diberi nilai awal: angka yang
+                           sudah terisi mudah tertekan tanpa dibaca. #}
+                        <form method="POST" action="/web/kasir/tagihan/{{ tagihan.id_kunjungan }}/tunda"
+                              class="inline-flex items-center gap-1"
+                              onsubmit="return cekSisakan(this, {{ p.qty }}, {{ p.nama_produk|tojson|forceescape }});">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="id_resep" value="{{ p.id_resep }}">
+                            <input type="number" name="qty_tunda" min="0" max="{{ p.qty }}" step="0.5"
+                                   placeholder="semua"
+                                   title="Berapa yang DISISAKAN untuk nanti. Kosongkan untuk menyisakan seluruhnya."
+                                   class="w-16 border border-slate-300 rounded px-1 py-1 text-xs text-right">
+                            <button type="submit"
+                                    title="Keluarkan dari tagihan hari ini tanpa membatalkan — pasien bisa menebusnya lain hari"
+                                    class="inline-flex items-center px-2 py-1 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition">
+                                Sisakan
+                            </button>
+                        </form>
                         <button type="button"
                                 onclick='openVoidModal({{ p.id_resep }}, {{ p.nama_produk|tojson|forceescape }})'
                                 class="inline-flex items-center px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 transition">
@@ -371,6 +393,9 @@
                     <th class="text-right py-2 font-medium">Ongkos Racik</th>
                     <th class="text-right py-2 font-medium">Subtotal</th>
                     <th class="text-center py-2 font-medium">Status</th>
+                    {% if not tagihan.sudah_lunas %}
+                    <th class="text-right py-2 font-medium">Aksi</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -392,17 +417,44 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium">DIBAYAR</span>
                         {% elif r.status_item == "BATAL" %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">BATAL</span>
+                        {# R8: tanpa cabang ini, DITUNDA jatuh ke "else" dan terbaca
+                           PENDING — kasir mengira masih akan ditagih hari ini. #}
+                        {% elif r.status_item == "DITUNDA" %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-sky-50 text-sky-700 font-medium">DITUNDA</span>
                         {% else %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 font-medium">PENDING</span>
                         {% endif %}
                     </td>
+                    {% if not tagihan.sudah_lunas %}
+                    <td class="py-2 text-right whitespace-nowrap">
+                        {% if r.status_item == "PENDING" %}
+                        <form method="POST" action="/web/kasir/tagihan/{{ tagihan.id_kunjungan }}/tunda"
+                              class="inline-flex items-center gap-1"
+                              onsubmit="return cekSisakanRacik(this, {{ r.jumlah_unit }}, {{ r.nama|tojson|forceescape }}, {{ r.biaya_racik|float }}, {{ (r.jenis_racik == 'KRIM')|tojson }});">
+                            {{ csrf_input(request) }}
+                            <input type="hidden" name="id_kunjungan_racikan" value="{{ r.id_kunjungan_racikan }}">
+                            {% if r.jenis_racik != 'KRIM' %}
+                            <input type="number" name="unit_tunda" min="0" max="{{ r.jumlah_unit }}" step="1"
+                                   placeholder="semua"
+                                   title="Berapa UNIT yang disisakan. Kosongkan untuk menyisakan seluruhnya. Memecah = dua kali ongkos racik."
+                                   class="w-16 border border-slate-300 rounded px-1 py-1 text-xs text-right">
+                            {% endif %}
+                            <button type="submit"
+                                    class="inline-flex items-center px-2 py-1 text-xs bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition">
+                                Sisakan
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         <p class="text-xs text-slate-400 mt-2">
-            Harga racikan dikunci saat dokter menyimpan SOAP. Perubahan harga bahan setelah itu
-            tidak mengubah tagihan ini.
+            Harga racikan dikunci saat diresepkan. Perubahan harga bahan setelah itu tidak
+            mengubah tagihan ini — <b>kecuali</b> racikan yang disisakan untuk nanti, yang
+            dihitung ulang saat ditebus karena belum pernah ditagih.
         </p>
     </div>
     {% endif %}
@@ -616,6 +668,64 @@
 <script>
     var TOTAL_TAGIHAN = {{ (tagihan.ringkasan_biaya.total_tagihan or 0)|float }};
     var ID_KUNJUNGAN = {{ tagihan.id_kunjungan|tojson }};
+
+    // R8: konfirmasi yang MENYEBUT ANGKANYA. Kasir sedang mengetik di depan pasien;
+    // salah baca "yang disisakan" vs "yang dibayar" berarti pasien pulang membawa
+    // jumlah yang keliru. Jadi kalimatnya menyebut dua-duanya.
+    function cekSisakan(form, qtyTotal, namaProduk) {
+        var raw = (form.qty_tunda.value || '').trim();
+        if (raw === '') {
+            return confirm('Sisakan SELURUH ' + qtyTotal + ' ' + namaProduk +
+                           ' untuk nanti?\n\nTidak ada yang ditagih hari ini untuk obat ini.');
+        }
+        var n = parseFloat(raw);
+        if (isNaN(n) || n <= 0) {
+            alert('Jumlah yang disisakan harus lebih dari 0. Kosongkan kalau mau menyisakan semuanya.');
+            return false;
+        }
+        if (n > qtyTotal) {
+            alert('Tidak bisa menyisakan ' + n + ' — yang diresepkan cuma ' + qtyTotal + '.');
+            return false;
+        }
+        if (n === qtyTotal) {
+            return confirm('Sisakan SELURUH ' + qtyTotal + ' ' + namaProduk + ' untuk nanti?');
+        }
+        return confirm(namaProduk + ':\n\n' + (qtyTotal - n) + ' DITAGIH hari ini\n' +
+                       n + ' disisakan untuk ditebus nanti\n\nLanjutkan?');
+    }
+
+    // Racikan: memecah jumlah berarti DUA kali meracik, jadi ongkos racik dikenakan
+    // dua kali. Itu disengaja — tapi kasir WAJIB tahu sebelum menekan, karena pasien
+    // akan membayar lebih dari angka yang tertera sekarang.
+    function cekSisakanRacik(form, unitTotal, nama, biayaRacik, isKrim) {
+        var el = form.unit_tunda;
+        var raw = el ? (el.value || '').trim() : '';
+        if (isKrim || raw === '') {
+            return confirm('Sisakan SELURUH racikan "' + nama + '" untuk nanti?' +
+                (isKrim ? '\n\nKrim tidak bisa dipecah — isinya satu pot.' : '') +
+                '\n\nHarganya DIHITUNG ULANG saat ditebus, jadi bisa berbeda.');
+        }
+        var n = parseInt(raw, 10);
+        if (isNaN(n) || n <= 0) {
+            alert('Jumlah unit yang disisakan harus lebih dari 0. Kosongkan kalau mau menyisakan semuanya.');
+            return false;
+        }
+        if (n > unitTotal) {
+            alert('Tidak bisa menyisakan ' + n + ' unit — yang diresepkan cuma ' + unitTotal + '.');
+            return false;
+        }
+        if (n === unitTotal) {
+            return confirm('Sisakan SELURUH racikan "' + nama + '" untuk nanti?');
+        }
+        var rupiah = 'Rp ' + Math.round(biayaRacik).toLocaleString('id-ID');
+        return confirm(
+            nama + ' dipecah jadi DUA racikan:\n\n' +
+            '  ' + (unitTotal - n) + ' unit DITAGIH hari ini\n' +
+            '  ' + n + ' unit disisakan untuk ditebus nanti\n\n' +
+            'Ongkos racik ' + rupiah + ' dikenakan DUA kali — ini memang dua kali\n' +
+            'pekerjaan meracik, jadi total yang dibayar pasien bertambah.\n\n' +
+            'Lanjutkan?');
+    }
 
     function openVoidModal(id_resep, nama_produk) {
         document.getElementById('void-id-resep').value = id_resep;

@@ -826,6 +826,243 @@ class KasirService:
             )
 
     # =========================================================================
+    # R8 — "SISAKAN UNTUK NANTI" (DITUNDA). Tanpa PIN: tindakannya tidak merusak.
+    # =========================================================================
+    def _sisa_item_ditagih(self, id_kunjungan: int, *,
+                           kecuali_resep: Optional[int] = None,
+                           kecuali_racikan: Optional[int] = None) -> int:
+        """Berapa item yang MASIH akan ditagih kalau satu item lagi ditunda.
+
+        Dipakai untuk pagar "tidak boleh menunda SEMUANYA": kunjungan tanpa satu pun item
+        berbayar akan melahirkan transaksi Rp 0 yang mengotori laporan. Kalau pasien batal
+        membeli seluruhnya, jalurnya void kunjungan — bukan menunda satu per satu.
+        Tindakan ikut dihitung: pasien yang sudah dirawat tetap punya tagihan.
+        """
+        from app.db.models import KunjunganResep as _KR
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+        from sqlalchemy import select as _sel, func as _f
+
+        q_resep = (_sel(_f.count(_KR.id_resep))
+                   .where(_KR.id_kunjungan == id_kunjungan,
+                          _KR.status_item == "PENDING"))
+        if kecuali_resep is not None:
+            q_resep = q_resep.where(_KR.id_resep != kecuali_resep)
+        n = int(self.db.execute(q_resep).scalar() or 0)
+
+        q_rac = (_sel(_f.count(_KRC.id_kunjungan_racikan))
+                 .where(_KRC.id_kunjungan == id_kunjungan,
+                        _KRC.status_item == "PENDING"))
+        if kecuali_racikan is not None:
+            q_rac = q_rac.where(_KRC.id_kunjungan_racikan != kecuali_racikan)
+        n += int(self.db.execute(q_rac).scalar() or 0)
+
+        n += len(self.repo.get_tindakan_selesai_for_billing(id_kunjungan))
+        return n
+
+    _PESAN_SEMUA_DITUNDA = (
+        "Tidak bisa menunda item terakhir — tagihan akan jadi kosong. "
+        "Kalau pasien batal membeli seluruhnya, batalkan kunjungannya (void), "
+        "jangan menunda satu per satu."
+    )
+
+    def tunda_item_resep(self, id_resep: int, id_staf_kasir: int,
+                         qty_tunda: Optional[float] = None,
+                         request: Optional[Request] = None) -> dict:
+        """"Sisakan untuk nanti" — seluruh baris ATAU sebagian jumlahnya.
+
+        `qty_tunda=None` atau >= qty → SELURUH baris jadi DITUNDA.
+        `0 < qty_tunda < qty`        → baris DIPECAH: baris asli turun jumlahnya dan tetap
+                                       PENDING (ditagih hari ini), lahir baris BARU berisi
+                                       sisanya dengan status DITUNDA.
+
+        Kasus nyata yang memaksa pemecahan ini (dr. Hansen, 2026-09-27): "Cefixime 200mg
+        no. XV, ditebus 10 dulu". Menebus sebagian JUMLAH jauh lebih sering daripada
+        menebus sebagian DAFTAR.
+
+        ⚠ JEBAKAN YANG SENGAJA DIHINDARI: baris pecahan TIDAK memakai `id_resep_asal`.
+        Kolom itu punya arti lain — "baris ini SALINAN yang dibuat saat penebusan" — dan
+        dipakai sebagai penanda anti-tebus-ganda. Kalau dipakai juga untuk pemecahan:
+          (a) `list_resep_belum_ditebus` menyaring `id_resep_asal IS NULL`, jadi pecahan
+              DITUNDA tidak akan pernah muncul untuk ditebus; dan
+          (b) baris asal akan dianggap "sudah ditebus" padahal belum.
+        Inilah pola "satu kolom dua arti" yang sudah berkali-kali menggigit proyek ini.
+        Pecahan adalah SAUDARA, bukan salinan: `id_resep_asal` tetap NULL, dan jejak
+        pemecahannya hidup di audit_log.
+        """
+        # Enum ini TIDAK diimpor di tingkat modul — berkas ini mengimpornya lokal di tiap
+        # metode yang butuh. Ikuti polanya, jangan andalkan ingatan.
+        from app.db.models import KunjunganResep as _KR, StatusItemResepEnum
+
+        resep = self.repo.get_resep_by_id(id_resep)
+        if resep is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                f"Resep {id_resep} tidak ditemukan.")
+        _st = (resep.status_item.value if hasattr(resep.status_item, "value")
+               else str(resep.status_item or ""))
+        if _st != "PENDING":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Resep #{id_resep} berstatus '{_st}' — hanya item PENDING yang bisa "
+                f"ditunda. Item yang sudah dibayar tidak bisa ditarik kembali di sini.",
+            )
+
+        _qty_total = float(resep.qty or 0)
+        _pecah = qty_tunda is not None and 0 < float(qty_tunda) < _qty_total
+        if qty_tunda is not None and float(qty_tunda) <= 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Jumlah yang disisakan harus lebih dari 0.")
+
+        # Pagar "jangan kosongkan tagihan" HANYA berlaku untuk penundaan seluruh baris.
+        # Pemecahan selalu menyisakan bagian yang ditagih, jadi tidak mungkin mengosongkan.
+        if not _pecah and self._sisa_item_ditagih(
+                resep.id_kunjungan, kecuali_resep=id_resep) < 1:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, self._PESAN_SEMUA_DITUNDA)
+
+        try:
+            if _pecah:
+                _sisa = round(_qty_total - float(qty_tunda), 3)
+                _dibayar = round(float(qty_tunda), 3)
+                # Baris asli: yang DIBAYAR hari ini. Perhatikan qty_tunda adalah jumlah
+                # yang DISISAKAN, jadi baris asli menerima selisihnya.
+                resep.qty = _sisa
+                pecahan = _KR(
+                    id_kunjungan=resep.id_kunjungan,
+                    id_produk=resep.id_produk,
+                    qty=_dibayar,
+                    aturan_pakai=resep.aturan_pakai,
+                    status_item=StatusItemResepEnum.DITUNDA,
+                    # Kolom NOT NULL. Peresep aslinya yang dipertahankan — pecahan ini
+                    # tetap obat yang DIA resepkan, kasir cuma memecah penebusannya.
+                    id_staf_input=(getattr(resep, "id_staf_input", None) or id_staf_kasir),
+                )
+                self.db.add(pecahan)
+                self.db.flush()
+                self.audit.log(
+                    id_staf=id_staf_kasir, aksi="TUNDA_ITEM",
+                    tabel_target="kunjungan_resep", id_target=id_resep,
+                    data_lama={"qty": _qty_total, "status_item": "PENDING"},
+                    data_baru={"qty": _sisa, "status_item": "PENDING",
+                               "pecahan_ditunda": {"id_resep": pecahan.id_resep,
+                                                   "qty": _dibayar}},
+                    keterangan=(f"Resep #{id_resep} DIPECAH oleh kasir_id={id_staf_kasir}: "
+                                f"{_sisa} ditagih hari ini, {_dibayar} disisakan sebagai "
+                                f"resep #{pecahan.id_resep} (DITUNDA)."),
+                    request=request,
+                )
+                self.db.commit()
+                return {"status": "success", "id_resep": id_resep,
+                        "qty_ditagih": _sisa, "qty_ditunda": _dibayar,
+                        "id_resep_ditunda": pecahan.id_resep}
+
+            resep.status_item = StatusItemResepEnum.DITUNDA
+            self.audit.log(
+                id_staf=id_staf_kasir, aksi="TUNDA_ITEM", tabel_target="kunjungan_resep",
+                id_target=id_resep,
+                data_lama={"status_item": "PENDING"},
+                data_baru={"status_item": "DITUNDA"},
+                keterangan=(f"Item resep #{id_resep} ({_qty_total}) disisakan SELURUHNYA "
+                            f"untuk nanti oleh kasir_id={id_staf_kasir}."),
+                request=request,
+            )
+            self.db.commit()
+            return {"status": "success", "id_resep": id_resep,
+                    "status_item_baru": "DITUNDA", "qty_ditunda": _qty_total}
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.db.rollback()
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                f"Gagal menunda item: {e!s}")
+
+    def tunda_racikan(self, id_kunjungan_racikan: int, id_staf_kasir: int,
+                      unit_tunda: Optional[int] = None,
+                      request: Optional[Request] = None) -> dict:
+        """"Sisakan untuk nanti" untuk racikan — seluruhnya ATAU sebagian jumlah unit.
+
+        `unit_tunda` kosong / >= jumlah_unit → seluruh racikan jadi DITUNDA.
+        `0 < unit_tunda < jumlah_unit`       → dipecah jadi dua batch (lihat
+                                               `RacikanService.pecah_racikan`).
+        Pemecahan menambah ongkos racik satu kali lagi — itu disengaja dan disetujui
+        dr. Hansen: dua batch = dua pekerjaan meracik.
+        """
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+        from app.services.racikan_service import RacikanService
+
+        rc = self.db.get(_KRC, id_kunjungan_racikan)
+        if rc is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                f"Racikan {id_kunjungan_racikan} tidak ditemukan.")
+        if rc.status_item != "PENDING":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Racikan #{id_kunjungan_racikan} berstatus '{rc.status_item}' — hanya "
+                f"PENDING yang bisa ditunda.",
+            )
+
+        _total_unit = int(rc.jumlah_unit or 0)
+        _pecah = unit_tunda is not None and 0 < int(unit_tunda) < _total_unit
+        if _pecah:
+            # Pemecahan selalu menyisakan bagian yang ditagih → pagar tidak berlaku.
+            try:
+                hasil = RacikanService(self.db).pecah_racikan(
+                    id_kunjungan_racikan, int(unit_tunda))
+                self.audit.log(
+                    id_staf=id_staf_kasir, aksi="TUNDA_ITEM",
+                    tabel_target="kunjungan_racikan", id_target=id_kunjungan_racikan,
+                    data_lama={"jumlah_unit": _total_unit, "status_item": "PENDING"},
+                    data_baru={"jumlah_unit": hasil["unit_ditagih"],
+                               "pecahan_ditunda": {
+                                   "id": hasil["id_pecahan"],
+                                   "unit": hasil["unit_ditunda"]}},
+                    keterangan=(
+                        f"Racikan #{id_kunjungan_racikan} ({rc.nama_snapshot!r}) DIPECAH "
+                        f"oleh kasir_id={id_staf_kasir}: {hasil['unit_ditagih']} unit "
+                        f"ditagih, {hasil['unit_ditunda']} unit disisakan sebagai racikan "
+                        f"#{hasil['id_pecahan']}. Ongkos racik dikenakan DUA kali "
+                        f"(tambahan Rp {hasil['biaya_racik_ekstra']}) karena ini dua "
+                        f"pekerjaan meracik."),
+                    request=request,
+                )
+                self.db.commit()
+                return {"status": "success", **hasil}
+            except HTTPException:
+                self.db.rollback()
+                raise
+            except Exception as e:  # noqa: BLE001
+                self.db.rollback()
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                    f"Gagal memecah racikan: {e!s}")
+
+        if unit_tunda is not None and int(unit_tunda) <= 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Jumlah yang disisakan harus lebih dari 0.")
+        if self._sisa_item_ditagih(rc.id_kunjungan,
+                                   kecuali_racikan=id_kunjungan_racikan) < 1:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, self._PESAN_SEMUA_DITUNDA)
+
+        try:
+            rc.status_item = "DITUNDA"
+            self.audit.log(
+                id_staf=id_staf_kasir, aksi="TUNDA_ITEM", tabel_target="kunjungan_racikan",
+                id_target=id_kunjungan_racikan,
+                data_lama={"status_item": "PENDING"},
+                data_baru={"status_item": "DITUNDA"},
+                keterangan=(f"Racikan #{id_kunjungan_racikan} ({rc.nama_snapshot!r}) "
+                            f"disisakan untuk nanti oleh kasir_id={id_staf_kasir}. "
+                            f"Harga akan DIHITUNG ULANG saat ditebus."),
+                request=request,
+            )
+            self.db.commit()
+            return {"status": "success", "id_kunjungan_racikan": id_kunjungan_racikan,
+                    "status_item_baru": "DITUNDA"}
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.db.rollback()
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                f"Gagal menunda racikan: {e!s}")
+
+    # =========================================================================
     # VOID ITEM — PIN dokter/admin
     # =========================================================================
     def void_item_resep(

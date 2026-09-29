@@ -506,6 +506,68 @@ def kasir_bayar_sukses(
 
 
 # =============================================================================
+# POST /web/kasir/tagihan/{id_kunjungan}/tunda - R8 "sisakan untuk nanti"
+#
+# TANPA PIN (keputusan dr. Hansen 2026-09-27): menunda tidak merusak apa pun — obat
+# tidak dibatalkan dan tetap bisa ditebus lewat layar Tebus Resep. Memanggil dokter ke
+# meja kasir untuk tiap pasien yang beli separuh akan menghambat antrean.
+# =============================================================================
+@router.post("/kasir/tagihan/{id_kunjungan}/tunda", response_class=HTMLResponse)
+async def kasir_tunda_item(id_kunjungan: int, request: Request, db: DbSession):
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from urllib.parse import quote
+    f = await request.form()
+    _id_resep = (f.get("id_resep") or "").strip()
+    _id_racik = (f.get("id_kunjungan_racikan") or "").strip()
+    _kembali = f"/web/kasir/tagihan/{id_kunjungan}"
+
+    try:
+        svc = KasirService(db)
+        if _id_resep:
+            # Kosong = sisakan SELURUH baris. Diisi = pecah jumlahnya.
+            _raw_qty = (f.get("qty_tunda") or "").strip()
+            _qty = float(_raw_qty) if _raw_qty else None
+            hasil = svc.tunda_item_resep(int(_id_resep), user.id_staf,
+                                         qty_tunda=_qty, request=request)
+            if hasil.get("qty_ditagih") is not None:
+                _pesan = (f"{hasil['qty_ditunda']:g} disisakan untuk nanti, "
+                          f"{hasil['qty_ditagih']:g} ditagih hari ini.")
+            else:
+                _pesan = ("Obat disisakan seluruhnya — tetap bisa ditebus lewat "
+                          "Tebus Resep.")
+        elif _id_racik:
+            _raw_unit = (f.get("unit_tunda") or "").strip()
+            _unit = int(float(_raw_unit)) if _raw_unit else None
+            hasil = svc.tunda_racikan(int(_id_racik), user.id_staf,
+                                      unit_tunda=_unit, request=request)
+            if hasil.get("unit_ditagih") is not None:
+                _pesan = (f"Racikan dipecah: {hasil['unit_ditagih']} unit ditagih hari "
+                          f"ini, {hasil['unit_ditunda']} unit disisakan. Ongkos racik "
+                          f"dikenakan dua kali karena ini dua kali pekerjaan meracik.")
+            else:
+                _pesan = ("Racikan disisakan seluruhnya. Harganya dihitung ulang saat "
+                          "ditebus, jadi bisa berbeda dari hari ini.")
+        else:
+            return RedirectResponse(
+                url=f"{_kembali}?err={quote('Tidak ada item yang dipilih.')}",
+                status_code=status.HTTP_303_SEE_OTHER)
+    except HTTPException as e:
+        return RedirectResponse(url=f"{_kembali}?err={quote(str(e.detail))}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(url=f"{_kembali}?err={quote(f'Gagal menunda: {e!s}')}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+
+    return RedirectResponse(url=f"{_kembali}?ok={quote(_pesan)}",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+# =============================================================================
 # POST /web/kasir/tagihan/{id_kunjungan}/void - void item resep (PIN auth)
 # =============================================================================
 @router.post("/kasir/tagihan/{id_kunjungan}/void", response_class=HTMLResponse)
