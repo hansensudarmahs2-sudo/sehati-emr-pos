@@ -54,3 +54,12 @@ cert.pem
 
 # ==== Dump clone DB desktop→mini PC (berisi staff/config, JANGAN commit) ====
 **/desktop_clone_*.sql
+
+# ==== PHI PASIEN — JANGAN commit (housekeeping 2026-09-29) ====
+# Ekspor finance pack memuat nama pasien, no. RM dan keluhan (778 kunjungan).
+# historical_excel memuat nama pasien + poliklinik "Kulit & Kelamin".
+# Keduanya sempat ter-commit sejak commit pertama; riwayat git sudah ditulis
+# ulang dengan git-filter-repo untuk membuangnya. Berkasnya TETAP di disk.
+# Kalau baris ini hilang lagi, berkasnya akan ikut ter-commit pada `git add -A`.
+**/exports/
+seed_data/historical_excel/*.xlsx
