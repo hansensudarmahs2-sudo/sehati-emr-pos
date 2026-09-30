@@ -122,5 +122,31 @@ sepanjang sesi ini: **menyimpulkan sebelum membuka kodenya.**
 - **Owner bisa override** pagar assign — disengaja, tapi berarti Owner yang menyimpan dari
   layar basi bisa menimpa.
 
-**Belum diverifikasi:** apakah menyimpan SOAP dua kali menggandakan baris resep (resep
-hanya INSERT, tidak pernah menghapus). Pertanyaan berbeda dari #51 — dicatat terpisah.
+## 9. Duplikat resep — DIPERIKSA & AMAN (2026-09-30)
+
+Pertanyaan yang saya buka sendiri: resep hanya INSERT, tidak pernah dihapus — apakah
+menyimpan SOAP dua kali menggandakannya? **Tidak.** Dua lapis melindunginya:
+
+1. **POST-Redirect-GET.** Rute simpan mengembalikan 303 ke `/web/dokter/antrian`. Back
+   tidak mengulang POST; ia kembali ke form lewat GET yang dirender ulang.
+2. **`<div id="resep-rows">` selalu KOSONG.** Baris resep hanya lahir saat dokter menekan
+   "+ Tambah Resep" di sesi halaman itu. Blok "Resep sebelumnya" punya NOL input — murni
+   tampilan. Halaman yang dimuat ulang tidak membawa baris resep untuk dikirim.
+
+Diuji dr. Hansen di dua tab (satu incognito): simpan → Back → simpan ulang, dan dua tab
+simpan hampir bersamaan. **Tidak ada duplikat.**
+
+Sisa yang tidak tercakup uji itu: klik-ganda sangat cepat dalam SATU tab yang berisi baris
+resep. Sempit; penutupnya remeh (nonaktifkan tombol saat submit). Belum dikerjakan.
+
+## 10. Catatan cara kerja — untuk sesi berikutnya
+
+Sepanjang 2026-09-30 saya **tiga kali** mengangkat risiko sebelum memeriksanya, dan
+ketiganya dipatahkan dr. Hansen dengan pengujian: (a) pagar "tagihan kosong" saya sebut
+salah — ternyata benar; (b) "dua dokter bisa saling menimpa teks SOAP" — ternyata sudah
+dipagari 403 di `pemeriksaan_service.py:116`; (c) "kirim-ganda menggandakan resep" —
+ternyata dicegah POST-Redirect-GET.
+
+Polanya sama: membaca satu bagian kode, melihat sesuatu yang BISA salah, lalu
+melaporkannya seolah MEMANG salah. **Periksa dulu, baru bicara.** Ini disiplin yang sama
+yang dituliskan di dokumen-dokumen ini untuk orang lain.
