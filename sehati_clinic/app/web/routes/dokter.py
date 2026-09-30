@@ -158,7 +158,12 @@ def dokter_antrian_page(request: Request, db: DbSession):
         return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
     if not require_dokter_antrian_role(user):
         return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
-    ctx = build_shell_context(user, db=db, current_path="/web/dokter/antrian", page_subtitle="Auto-refresh 10s")
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/dokter/antrian", page_subtitle="Auto-refresh 10s",
+        # #51: halaman ini tujuan redirect setelah simpan SOAP. Tanpa meneruskan `ok`,
+        # peringatan "racikan dari layar lain dipertahankan" hilang diam-diam.
+        ok=request.query_params.get("ok"),
+    )
     return templates.TemplateResponse(request, "dokter_antrian.html", ctx)
 
 
@@ -370,6 +375,10 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
                     "jenis": _r.get("jenis_racik") or "KAPSUL",
                     "unit": _r.get("jumlah_unit") or 15,
                     "aturan": _r.get("aturan_pakai") or "",
+                    # #51: DI SINILAH identitas baris dulu hilang. Token kartunya acak
+                    # baru, jadi tanpa baris ini server tidak tahu kartu berasal dari
+                    # baris mana → terpaksa hapus-semua-lalu-tulis-ulang.
+                    "id_kunjungan_racikan": _r.get("id_kunjungan_racikan") or "",
                 },
                 _bahan_rows,
             ))
@@ -748,6 +757,7 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
         _dx_kode = form_data.getlist("dx_kode")
         _dx_nama = form_data.getlist("dx_nama")
         _dx_primer = form_data.getlist("dx_is_primer")
+        _dx_id_kd = form_data.getlist("dx_id_kd")   # #51: identitas baris DB tiap chip
         _dx_entries = []
         for _i, _nm in enumerate(_dx_nama):
             if not (_nm or "").strip():
@@ -756,21 +766,57 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
                 _idd = int(_dx_ids[_i]) if _i < len(_dx_ids) and str(_dx_ids[_i]).strip() else None
             except (ValueError, TypeError):
                 _idd = None
+            _raw_kd = str(_dx_id_kd[_i]).strip() if _i < len(_dx_id_kd) else ""
             _dx_entries.append({
+                "id_kunjungan_diagnosa": int(_raw_kd) if _raw_kd.isdigit() else None,
                 "id_diagnosa": _idd,
                 "sistem": _dx_sis[_i] if _i < len(_dx_sis) else None,
                 "kode": _dx_kode[_i] if _i < len(_dx_kode) else None,
                 "nama": _nm,
                 "is_primer": (_i < len(_dx_primer) and str(_dx_primer[_i]) == "1"),
             })
-        # Selalu simpan (replace) — supaya penghapusan semua diagnosa di mode ubah ikut tersimpan.
-        _primary_kontrol = DiagnosaService(db).save_kunjungan_diagnosa(id_kunjungan, _dx_entries)
+        # #51: hanya diagnosa yang TERLIHAT saat halaman dimuat yang boleh dihapus.
+        _dx_loaded = [
+            int(x) for x in form_data.getlist("dx_loaded_ids") if str(x).strip().isdigit()
+        ]
+        _dx_svc = DiagnosaService(db)
+        _primary_kontrol = _dx_svc.save_kunjungan_diagnosa(
+            id_kunjungan, _dx_entries, loaded_ids=_dx_loaded)
+        _dx_selamat = list(getattr(_dx_svc, "dipertahankan", []) or [])
 
         # Racikan (Fase 2) — snapshot harga dikunci di sini; kasir tidak menghitung
         # ulang. Penguraian kartunya dipakai BERSAMA dengan layar tebus resep apotek
         # (RacikanService.parse_form_racikan) — jangan disalin balik ke sini.
         _racikan_list = RacikanService.parse_form_racikan(form_data)
-        RacikanService(db).save_kunjungan_racikan(id_kunjungan, _racikan_list)
+        # #51: daftar racikan PENDING yang TERLIHAT saat halaman ini dimuat. Yang tidak
+        # ada di daftar ini berarti lahir sesudahnya (tab lain / dokter lain) dan TIDAK
+        # boleh dihapus oleh layar yang tidak pernah melihatnya.
+        _racik_loaded = [
+            int(x) for x in form_data.getlist("racik_loaded_ids") if str(x).strip().isdigit()
+        ]
+        _hasil_racik = RacikanService(db).save_kunjungan_racikan(
+            id_kunjungan, _racikan_list, loaded_ids=_racik_loaded)
+        # Jangan diam. Dokter mengira layarnya adalah kebenaran; kalau ada baris asing
+        # yang diselamatkan, ia harus tahu — kalau tidak, ia akan bingung melihat
+        # racikan/diagnosa yang tidak ia buat.
+        _racik_selamat = list(_hasil_racik.get("dipertahankan") or [])
+        _bagian = []
+        if _racik_selamat:
+            _bagian.append(f"{len(_racik_selamat)} racikan")
+        if _dx_selamat:
+            _bagian.append(f"{len(_dx_selamat)} diagnosa")
+        if _bagian:
+            _pesan_racik_selamat = (
+                " dan ".join(_bagian)
+                + " yang dibuat di layar lain dipertahankan (tidak terhapus oleh"
+                  " halaman ini)."
+            )
+            import logging as _lg0
+            _lg0.getLogger("sehati.racik").info(
+                "TABRAKAN-SOAP kunjungan=%s racikan=%s diagnosa=%s",
+                id_kunjungan, _racik_selamat, _dx_selamat)
+        else:
+            _pesan_racik_selamat = None
         # Auto-fill tgl kontrol dari diagnosa primer bila dokter tidak mengisi manual
         if _tgl_kontrol is None and _primary_kontrol:
             from datetime import timedelta as _td
@@ -789,8 +835,13 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
             "GAGAL simpan blok kontrol/diagnosa/racikan untuk kunjungan=%s", id_kunjungan
         )
         db.rollback()
+        _pesan_racik_selamat = None
 
-    return RedirectResponse(url="/web/dokter/antrian", status_code=status.HTTP_303_SEE_OTHER)
+    _url = "/web/dokter/antrian"
+    if _pesan_racik_selamat:
+        from urllib.parse import quote as _q
+        _url += f"?ok={_q(_pesan_racik_selamat)}"
+    return RedirectResponse(url=_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 

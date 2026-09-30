@@ -5,6 +5,14 @@
 {% block page_content %}
 <div class="max-w-7xl">
 
+    {# #51: peringatan setelah simpan SOAP — mis. racikan dari layar lain yang
+       dipertahankan. Sengaja menonjol: dokter mengira layarnya adalah kebenaran. #}
+    {% if ok %}
+    <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-4 text-sm text-amber-900">
+        ⚠ {{ ok }}
+    </div>
+    {% endif %}
+
     {# Info bar — penjelasan filter #}
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-800">
         <strong>Filter aktif:</strong>

@@ -198,13 +198,48 @@ class DiagnosaService:
             "is_primer": bool(r.is_primer),
         } for r in rows]
 
-    def save_kunjungan_diagnosa(self, id_kunjungan: int, entries: list[dict]) -> Optional[int]:
-        """Replace semua diagnosa kunjungan. Return default_kontrol_hari dari diagnosa primer (atau None)."""
-        # hapus lama
-        for old in self.db.execute(
-            select(KunjunganDiagnosa).where(KunjunganDiagnosa.id_kunjungan == id_kunjungan)
-        ).scalars().all():
-            self.db.delete(old)
+    def save_kunjungan_diagnosa(self, id_kunjungan: int, entries: list[dict],
+                                loaded_ids: Optional[list[int]] = None) -> Optional[int]:
+        """Simpan diagnosa kunjungan dari chip di layar. Return default_kontrol_hari primer.
+
+        `loaded_ids` = id baris yang TERLIHAT saat halaman SOAP dimuat (task #51).
+
+        ======================= JANGAN HAPUS YANG TAK KAULIHAT ===========================
+        Sebelum #51, fungsi ini menghapus SELURUH diagnosa kunjungan lalu menulis ulang
+        dari chip di layar — **tanpa saringan status apa pun**. Ini lebih rawan daripada
+        racikan, yang setidaknya melindungi baris DIBAYAR/BATAL/DITUNDA. Halaman basi
+        (tab lama / dokter lain) menghapus diagnosa yang ditambahkan sesudahnya, dan
+        diagnosa yang hilang tidak meninggalkan jejak bahwa ia pernah ada.
+
+        `loaded_ids=None` mempertahankan perilaku lama (ganti semua) untuk pemanggil yang
+        memang tidak punya konsep "apa yang terlihat".
+
+        ⚠ `entries` memakai DAFTAR SEJAJAR dari form (dx_nama, dx_kode, … , dx_id_kd).
+        Kalau salah satu chip lupa mengirim SATU field saja, seluruh indeks bergeser dan
+        diagnosa tertukar identitasnya. Tiap chip WAJIB mengirim semua field, termasuk
+        nilai kosong untuk chip baru.
+        """
+        semua = {
+            r.id_kunjungan_diagnosa: r for r in self.db.execute(
+                select(KunjunganDiagnosa)
+                .where(KunjunganDiagnosa.id_kunjungan == id_kunjungan)
+            ).scalars().all()
+        }
+        _dikirim = {int(e["id_kunjungan_diagnosa"]) for e in entries
+                    if e.get("id_kunjungan_diagnosa")}
+
+        if loaded_ids is not None:
+            _terlihat = {int(x) for x in loaded_ids}
+            # Dibuang dokter di layar ini = terlihat saat dimuat tapi chipnya tak kembali.
+            hapus = (_terlihat & set(semua)) - _dikirim
+            self.dipertahankan = sorted(set(semua) - _terlihat)
+        else:
+            hapus = set(semua)
+            self.dipertahankan = []
+
+        for _id in hapus:
+            self.db.delete(semua[_id])
+        self.db.flush()
 
         primary_kontrol: Optional[int] = None
         has_primer = any(e.get("is_primer") for e in entries)
@@ -214,15 +249,35 @@ class DiagnosaService:
                 continue
             is_primer = bool(e.get("is_primer")) or (not has_primer and i == 0)
             id_diag = e.get("id_diagnosa")
-            self.db.add(KunjunganDiagnosa(
-                id_kunjungan=id_kunjungan,
-                id_diagnosa=id_diag,
-                sistem_snapshot=(e.get("sistem") or None),
-                kode_snapshot=(e.get("kode") or None),
-                nama_snapshot=nama[:255],
-                is_primer=is_primer,
-                urutan=i,
-            ))
+
+            # #51: chip yang membawa id → PERBARUI baris itu. Barisnya sengaja TIDAK
+            # dihapus di atas (ia ada di `_dikirim`), jadi tanpa cabang ini kita akan
+            # melahirkan duplikat. Id dari form tidak dipercaya begitu saja: harus milik
+            # kunjungan ini.
+            _row = None
+            _id_lama = e.get("id_kunjungan_diagnosa")
+            if _id_lama:
+                _row = semua.get(int(_id_lama))
+                if _row is not None and _row.id_kunjungan != id_kunjungan:
+                    _row = None
+
+            if _row is not None:
+                _row.id_diagnosa = id_diag
+                _row.sistem_snapshot = (e.get("sistem") or None)
+                _row.kode_snapshot = (e.get("kode") or None)
+                _row.nama_snapshot = nama[:255]
+                _row.is_primer = is_primer
+                _row.urutan = i
+            else:
+                self.db.add(KunjunganDiagnosa(
+                    id_kunjungan=id_kunjungan,
+                    id_diagnosa=id_diag,
+                    sistem_snapshot=(e.get("sistem") or None),
+                    kode_snapshot=(e.get("kode") or None),
+                    nama_snapshot=nama[:255],
+                    is_primer=is_primer,
+                    urutan=i,
+                ))
             if is_primer and primary_kontrol is None and id_diag:
                 ref = self.db.get(RefDiagnosa, id_diag)
                 if ref is not None:

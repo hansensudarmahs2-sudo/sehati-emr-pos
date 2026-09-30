@@ -321,6 +321,10 @@ class RacikanService:
             # KRIM: penulis resep menulis TOTAL gram per pot, tidak ada pengali unit.
             "unit": 1 if _jenis == "KRIM" else max(1, unit),
             "aturan": g("aturan").strip(),
+            # #51: identitas baris DB harus IKUT setiap kali kartu dirender ulang.
+            # Kalau hilang di sini, kartu lama lahir kembali sebagai baris baru dan
+            # baris aslinya dianggap dibuang dokter.
+            "id_kunjungan_racikan": (g("id_kr") or "").strip(),
         }
 
         # Formula baru dipilih → muat komposisinya (menimpa isian bahan saat ini).
@@ -405,7 +409,12 @@ class RacikanService:
             except (ValueError, TypeError):
                 unit = 1
             idr = (form_data.get(f"f_{t}_id_racikan") or "").strip()
+            # #51: identitas BARIS DB asal kartu ini (bukan id formula master). Kosong =
+            # kartu baru. Tanpa ini, simpan terpaksa hapus-semua-lalu-tulis-ulang, dan
+            # halaman basi menghapus racikan yang lahir sesudahnya.
+            _idkr = (form_data.get(f"f_{t}_id_kr") or "").strip()
             out.append({
+                "id_kunjungan_racikan": int(_idkr) if _idkr.isdigit() else None,
                 "id_racikan": int(idr) if idr.isdigit() else None,
                 "nama": (form_data.get(f"f_{t}_nama") or "").strip() or "Racikan",
                 "jenis_racik": (form_data.get(f"f_{t}_jenis") or "KAPSUL").upper(),
@@ -415,29 +424,64 @@ class RacikanService:
             })
         return out
 
-    def save_kunjungan_racikan(self, id_kunjungan: int, racikan_list: list[dict]) -> None:
-        """Replace racikan BERSTATUS PENDING pada kunjungan dengan snapshot hasil hitung.
+    def save_kunjungan_racikan(self, id_kunjungan: int, racikan_list: list[dict],
+                               loaded_ids: Optional[list[int]] = None) -> dict:
+        """Simpan racikan PENDING kunjungan dari kartu di layar. Return ringkasan.
 
-        racikan_list: [{id_racikan|None, nama, jenis_racik, jumlah_unit, aturan_pakai,
-                        bahan: [{id_produk, dosis, satuan}]}]
-        Harga DIKUNCI di sini — kasir tidak menghitung ulang.
+        racikan_list: [{id_kunjungan_racikan|None, id_racikan|None, nama, jenis_racik,
+                        jumlah_unit, aturan_pakai, bahan: [{id_produk, dosis, satuan}]}]
 
-        PENTING: racikan yang sudah DIBAYAR/BATAL TIDAK disentuh. Sebelumnya fungsi ini
-        menghapus SEMUA racikan kunjungan, sehingga dokter yang menyunting SOAP setelah
-        pasien membayar akan menghapus baris yang sudah ditagih dan melahirkannya lagi
-        sebagai PENDING baru → tertagih dua kali dan jejak transaksinya putus.
+        `loaded_ids` = id racikan PENDING yang TERLIHAT saat halaman SOAP dimuat (task #51).
+
+        ======================= ATURAN INTI: JANGAN HAPUS YANG TAK KAULIHAT ===============
+        Sebelum #51, fungsi ini menghapus SELURUH baris PENDING kunjungan lalu menulis
+        ulang dari kartu di layar. Halaman basi (tab lama / tablet lain / dokter lain)
+        punya kartu lebih sedikit, jadi "tulis ulang" berarti "hapus yang tidak kulihat" —
+        termasuk racikan yang lahir SETELAH halaman itu dibuka. Hilang tanpa peringatan.
+
+        Dengan `loaded_ids`:
+          - yang dihapus = `loaded_ids` − id yang dikirim kartu
+          - baris PENDING yang TIDAK ada di `loaded_ids` = lahir setelah halaman dimuat
+            → DIPERTAHANKAN, dan jumlahnya dilaporkan lewat `dipertahankan` supaya
+              pemanggil bisa memberi tahu dokter. Menyelamatkan data diam-diam tetap
+              membingungkan.
+
+        `loaded_ids=None` berarti pemanggil TIDAK tahu apa yang terlihat (mis. layar tebus
+        resep apotek yang selalu membuat kunjungan BARU dan kosong). Dalam hal itu perilaku
+        lama dipakai: semua PENDING diganti. Aman di sana justru karena kunjungannya baru.
+
+        PAGAR LAMA TETAP: racikan DIBAYAR / BATAL / DITUNDA tidak pernah disentuh. R8
+        bergantung pada ini — baris DITUNDA selamat justru karena saringan PENDING.
         """
-        # Hapus lama. WAJIB bulk DELETE berurutan (anak dulu, baru induk):
-        # session.delete() per objek membiarkan SQLAlchemy mengurutkan sendiri, dan
-        # karena kedua tabel ini tidak dihubungkan relationship(), induk bisa terhapus
-        # lebih dulu → ditolak foreign key → seluruh transaksi rollback tanpa jejak.
-        old_ids = self.db.execute(
+        _tahu_yang_terlihat = loaded_ids is not None
+        _terlihat = {int(x) for x in (loaded_ids or [])}
+        # id baris yang kartunya masih ada di layar (kartu lama yang dipertahankan dokter)
+        _dikirim = {
+            int(r["id_kunjungan_racikan"]) for r in racikan_list
+            if r.get("id_kunjungan_racikan")
+        }
+
+        semua_pending = set(self.db.execute(
             select(KunjunganRacikan.id_kunjungan_racikan)
             .where(
                 KunjunganRacikan.id_kunjungan == id_kunjungan,
                 KunjunganRacikan.status_item == "PENDING",
             )
-        ).scalars().all()
+        ).scalars().all())
+
+        if _tahu_yang_terlihat:
+            # Dibuang dokter di layar ini = terlihat saat dimuat, tapi kartunya tidak
+            # dikirim balik. Baris di luar `_terlihat` sengaja TIDAK ikut.
+            old_ids = list((_terlihat & semua_pending) - _dikirim)
+            dipertahankan = sorted(semua_pending - _terlihat)
+        else:
+            old_ids = list(semua_pending)
+            dipertahankan = []
+
+        # Hapus. WAJIB bulk DELETE berurutan (anak dulu, baru induk):
+        # session.delete() per objek membiarkan SQLAlchemy mengurutkan sendiri, dan
+        # karena kedua tabel ini tidak dihubungkan relationship(), induk bisa terhapus
+        # lebih dulu → ditolak foreign key → seluruh transaksi rollback tanpa jejak.
         if old_ids:
             self.db.execute(
                 sa_delete(KunjunganRacikanBahan)
@@ -449,6 +493,7 @@ class RacikanService:
             )
             self.db.flush()
 
+        n_baru = n_ubah = 0
         for r in racikan_list:
             bahan = r.get("bahan") or []
             if not bahan:
@@ -461,20 +506,55 @@ class RacikanService:
                     r.get("nama"), bahan, h.get("masalah"),
                 )
                 continue
-            head = KunjunganRacikan(
-                id_kunjungan=id_kunjungan,
-                id_racikan=r.get("id_racikan") or None,
-                nama_snapshot=(r.get("nama") or "Racikan")[:100],
-                jenis_racik=h["jenis_racik"],
-                jumlah_unit=h["jumlah_unit"],
-                aturan_pakai=(r.get("aturan_pakai") or None),
-                subtotal_bahan=h["subtotal_bahan"],
-                biaya_racik=h["biaya_racik"],
-                total=h["total"],
-                status_item="PENDING",
-            )
-            self.db.add(head)
-            self.db.flush()
+
+            # #51: kartu yang membawa id → PERBARUI baris itu, jangan lahirkan baris baru.
+            # Sebelumnya tiap simpan melahirkan id baru, itulah sebabnya "ID racikan
+            # PENDING berubah tiap simpan" tercatat sebagai gejala sejak 2026-09-21.
+            # Identitas yang stabil juga membuat jejak audit masuk akal.
+            head = None
+            _id_lama = r.get("id_kunjungan_racikan")
+            if _id_lama:
+                head = self.db.get(KunjunganRacikan, int(_id_lama))
+                # Jangan percaya id dari form begitu saja: ia harus milik kunjungan ini
+                # DAN masih PENDING. Kalau tidak, perlakukan sebagai kartu baru.
+                if head is not None and (head.id_kunjungan != id_kunjungan
+                                         or head.status_item != "PENDING"):
+                    head = None
+
+            if head is not None:
+                head.id_racikan = r.get("id_racikan") or None
+                head.nama_snapshot = (r.get("nama") or "Racikan")[:100]
+                head.jenis_racik = h["jenis_racik"]
+                head.jumlah_unit = h["jumlah_unit"]
+                head.aturan_pakai = (r.get("aturan_pakai") or None)
+                head.subtotal_bahan = h["subtotal_bahan"]
+                head.biaya_racik = h["biaya_racik"]
+                head.total = h["total"]
+                # Bahan WAJIB ditulis ulang — `dipakai` bergantung jumlah unit.
+                self.db.execute(
+                    sa_delete(KunjunganRacikanBahan)
+                    .where(KunjunganRacikanBahan.id_kunjungan_racikan
+                           == head.id_kunjungan_racikan)
+                )
+                self.db.flush()
+                n_ubah += 1
+            else:
+                head = KunjunganRacikan(
+                    id_kunjungan=id_kunjungan,
+                    id_racikan=r.get("id_racikan") or None,
+                    nama_snapshot=(r.get("nama") or "Racikan")[:100],
+                    jenis_racik=h["jenis_racik"],
+                    jumlah_unit=h["jumlah_unit"],
+                    aturan_pakai=(r.get("aturan_pakai") or None),
+                    subtotal_bahan=h["subtotal_bahan"],
+                    biaya_racik=h["biaya_racik"],
+                    total=h["total"],
+                    status_item="PENDING",
+                )
+                self.db.add(head)
+                self.db.flush()
+                n_baru += 1
+
             for d in h["rincian"]:
                 self.db.add(KunjunganRacikanBahan(
                     id_kunjungan_racikan=head.id_kunjungan_racikan,
@@ -490,6 +570,8 @@ class RacikanService:
                     subtotal=d["subtotal"],
                 ))
         self.db.flush()
+        return {"baru": n_baru, "diubah": n_ubah, "dihapus": len(old_ids),
+                "dipertahankan": dipertahankan}
 
     def pecah_racikan(self, id_kunjungan_racikan: int, unit_ditunda: int) -> dict:
         """R8 — pecah satu racikan PENDING jadi dua batch: yang ditagih & yang ditunda.

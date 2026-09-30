@@ -3,6 +3,10 @@
    Context: dx (dict). #}
 <div class="dx-chip flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white"
      data-dx-id="{{ dx.id_diagnosa }}" data-kontrol-hari="{{ dx.default_kontrol_hari or 0 }}">
+    {# #51: chip BARU belum punya baris DB → kosong. WAJIB tetap dikirim: field ini
+       daftar sejajar dengan dx_nama/dx_kode/dst., jadi satu chip yang melewatkannya
+       menggeser seluruh indeks dan menukar identitas diagnosa lain. #}
+    <input type="hidden" name="dx_id_kd" value="">
     <input type="hidden" name="dx_id_diagnosa" value="{{ dx.id_diagnosa }}">
     <input type="hidden" name="dx_sistem" value="{{ dx.sistem }}">
     <input type="hidden" name="dx_kode" value="{{ dx.kode }}">

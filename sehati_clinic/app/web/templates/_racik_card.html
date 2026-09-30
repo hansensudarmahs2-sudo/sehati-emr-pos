@@ -42,6 +42,10 @@
 
     <input type="hidden" name="rc_token" value="{{ token }}">
     <input type="hidden" name="f_{{ token }}_prev_formula" value="{{ cur.id_racikan or '' }}">
+    {# #51: identitas BARIS DB asal kartu ini. Kosong untuk kartu baru. Ikut dikirim
+       saat hitung-ulang supaya tidak hilang di tengah jalan — kartu yang kehilangan
+       identitasnya akan disimpan sebagai baris baru dan yang lama dianggap dibuang. #}
+    <input type="hidden" name="f_{{ token }}_id_kr" value="{{ cur.id_kunjungan_racikan or '' }}">
 
     <div class="racik-head">
         <div class="racik-title">⚗️ Racikan</div>

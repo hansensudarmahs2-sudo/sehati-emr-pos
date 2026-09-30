@@ -253,6 +253,8 @@
             <div id="diagnosa-list" class="flex flex-wrap gap-2 mt-2">
                 {% for d in existing_diagnosa %}
                 <div class="dx-chip flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white" data-dx-id="{{ d.id_diagnosa or '' }}" data-kontrol-hari="0">
+                    {# #51: identitas baris DB chip ini — lihat catatan di _diagnosa_add.html #}
+                    <input type="hidden" name="dx_id_kd" value="{{ d.id_kunjungan_diagnosa or '' }}">
                     <input type="hidden" name="dx_id_diagnosa" value="{{ d.id_diagnosa or '' }}">
                     <input type="hidden" name="dx_sistem" value="{{ d.sistem or '' }}">
                     <input type="hidden" name="dx_kode" value="{{ d.kode or '' }}">
@@ -450,6 +452,19 @@
                PENDING  = belum ditagih: akan diganti oleh kartu racik di bawah. #}
             {% set racikan_terkunci = existing_racikan | rejectattr('status_item', 'equalto', 'PENDING') | list %}
             {% set racikan_pending = existing_racikan | selectattr('status_item', 'equalto', 'PENDING') | list %}
+
+            {# #51: daftar racikan PENDING yang TERLIHAT saat halaman ini dimuat.
+               Saat simpan, server hanya boleh menghapus baris yang ADA di daftar ini.
+               Racikan yang lahir sesudahnya (tab lain / dokter lain) tidak terdaftar,
+               jadi halaman ini tidak akan menghapusnya. #}
+            {% for r in racikan_pending %}
+            <input type="hidden" name="racik_loaded_ids" value="{{ r.id_kunjungan_racikan }}">
+            {% endfor %}
+            {# #51: sama untuk diagnosa. Diagnosa TIDAK punya status, jadi tanpa daftar
+               ini halaman basi menghapus seluruh diagnosa kunjungan tanpa pengaman. #}
+            {% for d in existing_diagnosa %}
+            <input type="hidden" name="dx_loaded_ids" value="{{ d.id_kunjungan_diagnosa }}">
+            {% endfor %}
 
             {% if racikan_terkunci | length > 0 %}
             <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs">
