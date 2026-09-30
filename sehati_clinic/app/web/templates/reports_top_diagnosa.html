@@ -1,0 +1,165 @@
+{% extends "_app.html" %}
+{% block title %}Kasus Terbanyak{% endblock %}
+{% block page_title %}🩺 Kasus Terbanyak (Top Diagnosa){% endblock %}
+
+{# Kelas Tailwind HARUS statis DAN harus sudah ada di app.css (dikompilasi lebih
+   dulu). Diperiksa dengan `python -m scripts.cek_kelas_tailwind
+   reports_top_diagnosa.html` — lihat sehati-htmx-ui-gotcha. #}
+
+{% block page_content %}
+<div class="max-w-6xl">
+
+  {# ---------- SLICER ---------- #}
+  <form method="GET" action="/web/reports/top-diagnosa"
+        class="mb-4 p-3 border border-slate-200 rounded-lg bg-white flex flex-wrap items-end gap-3">
+    <label class="block">
+      <span class="block text-xs font-medium text-slate-600 mb-1">Dari</span>
+      <input type="date" name="tgl_dari" value="{{ tgl_dari_selected }}"
+             class="border border-slate-300 rounded px-2 py-1 text-sm">
+    </label>
+    <label class="block">
+      <span class="block text-xs font-medium text-slate-600 mb-1">Sampai</span>
+      <input type="date" name="tgl_sampai" value="{{ tgl_sampai_selected }}"
+             class="border border-slate-300 rounded px-2 py-1 text-sm">
+    </label>
+    <label class="block">
+      <span class="block text-xs font-medium text-slate-600 mb-1">Jenis</span>
+      <select name="sistem" class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <option value="SEMUA"   {% if sistem_selected == "SEMUA" %}selected{% endif %}>Semua</option>
+        <option value="ICD10"   {% if sistem_selected == "ICD10" %}selected{% endif %}>Medis (ICD-10)</option>
+        <option value="ESTETIK" {% if sistem_selected == "ESTETIK" %}selected{% endif %}>Estetik (JoDerma)</option>
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-xs font-medium text-slate-600 mb-1">Urut berdasar</span>
+      <select name="sort_by" class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <option value="pasien"    {% if sort_by_selected == "pasien" %}selected{% endif %}>Jumlah pasien</option>
+        <option value="kunjungan" {% if sort_by_selected == "kunjungan" %}selected{% endif %}>Jumlah kunjungan</option>
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-xs font-medium text-slate-600 mb-1">Tampil</span>
+      <select name="limit" class="border border-slate-300 rounded px-2 py-1 text-sm">
+        {% for n in [20, 50, 100, 200, 500] %}
+        <option value="{{ n }}" {% if limit_selected == n %}selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" name="primer" value="1"
+             {% if primer_selected %}checked{% endif %}>
+      <span>Diagnosa primer saja</span>
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+      Terapkan
+    </button>
+    <a href="{{ csv_url }}"
+       class="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700">
+      ⬇ CSV
+    </a>
+  </form>
+
+  {# ---------- RINGKASAN ---------- #}
+  <div class="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="p-3 border border-slate-200 rounded-lg bg-white">
+      <div class="text-xs text-slate-500">Diagnosa berbeda</div>
+      <div class="text-xl font-semibold text-slate-800">{{ data.total_diagnosa_unik }}</div>
+    </div>
+    <div class="p-3 border border-slate-200 rounded-lg bg-white">
+      <div class="text-xs text-slate-500">Total pencatatan</div>
+      <div class="text-xl font-semibold text-slate-800">{{ data.total_kunjungan }}</div>
+    </div>
+    <div class="p-3 border border-slate-200 rounded-lg bg-white">
+      <div class="text-xs text-slate-500">Pasien berbeda</div>
+      <div class="text-xl font-semibold text-slate-800">{{ data.total_pasien_unik }}</div>
+    </div>
+    <div class="p-3 border border-slate-200 rounded-lg bg-white">
+      <div class="text-xs text-slate-500">Ditampilkan</div>
+      <div class="text-xl font-semibold text-slate-800">{{ data.ditampilkan }}</div>
+    </div>
+  </div>
+
+  {# Penjelasan ini BUKAN hiasan: dua kolom hitungan yang berbeda arti adalah
+     tempat paling mudah salah baca, dan salah bacanya tidak terlihat. #}
+  <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-900">
+    <div><b>Dua kolom, dua pertanyaan berbeda.</b></div>
+    <div class="mt-1">
+      <b>Pasien</b> = berapa ORANG berbeda punya diagnosa ini (prevalensi).
+      <b>Kunjungan</b> = berapa kali diagnosa ini dicatat (beban kerja).
+      Pasien akne yang kontrol 5×: 1 pasien, 5 kunjungan.
+      <b>Kunj/pasien</b> mendekati 1 = sekali datang; jauh di atas 2 = kontrol berulang.
+    </div>
+    <div class="mt-1">
+      ⚠ Kolom <b>Pasien</b> tidak boleh dijumlahkan — satu orang bisa punya beberapa
+      diagnosa, jadi ia akan terhitung berkali-kali. Angka "Pasien berbeda" di atas
+      ({{ data.total_pasien_unik }}) adalah hitungan yang benar; menjumlahkan kolom
+      menghasilkan {{ data.jumlah_pasien_terjumlah }}.
+    </div>
+  </div>
+
+  {# ---------- TABEL ---------- #}
+  {% if data.items %}
+  <div class="border border-slate-200 rounded-lg overflow-hidden bg-white">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs text-slate-500 border-b border-slate-200">
+        <tr>
+          <th class="px-3 py-2 text-left">#</th>
+          <th class="px-3 py-2 text-left">Jenis</th>
+          <th class="px-3 py-2 text-left">Kode</th>
+          <th class="px-3 py-2 text-left">Diagnosa</th>
+          <th class="px-3 py-2 text-right">Pasien</th>
+          <th class="px-3 py-2 text-right">Kunjungan</th>
+          <th class="px-3 py-2 text-right">Kunj/pasien</th>
+          <th class="px-3 py-2 text-right">Primer</th>
+          <th class="px-3 py-2 text-right">% kunj</th>
+          <th class="px-3 py-2 text-left">Terakhir</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in data['items'] %}
+        <tr class="border-b border-slate-100">
+          <td class="px-3 py-1.5 text-slate-400">{{ it.rank }}</td>
+          <td class="px-3 py-1.5">
+            {% if it.sistem == "ESTETIK" %}
+            <span class="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-800 rounded">Estetik</span>
+            {% else %}
+            <span class="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-800 rounded">Medis</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5 font-mono text-xs">{{ it.kode_diagnosa }}</td>
+          <td class="px-3 py-1.5">{{ it.nama_diagnosa }}</td>
+          <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ it.jumlah_pasien }}</td>
+          <td class="px-3 py-1.5 text-right font-mono">{{ it.jumlah_kunjungan }}</td>
+          <td class="px-3 py-1.5 text-right font-mono
+                     {% if it.kunjungan_per_pasien >= 2 %}text-amber-700{% endif %}">
+            {{ it.kunjungan_per_pasien }}
+          </td>
+          <td class="px-3 py-1.5 text-right font-mono text-slate-500">{{ it.jumlah_primer }}</td>
+          <td class="px-3 py-1.5 text-right font-mono text-slate-500">{{ it.persen_kunjungan }}%</td>
+          <td class="px-3 py-1.5 text-xs text-slate-500">
+            {{ it.terakhir.strftime("%Y-%m-%d") if it.terakhir else "—" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-6 border border-slate-200 rounded-lg bg-white text-center text-sm text-slate-500">
+    Tidak ada diagnosa tercatat pada rentang ini.
+    <div class="mt-1 text-xs">
+      Kalau ini tidak diharapkan: diagnosa terkode diisi di lembar SOAP, terpisah
+      dari kolom teks “diagnosa”. Laporan ini hanya membaca yang terkode.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="mt-3 text-xs text-slate-500">
+    Sumber: <span class="font-mono">kunjungan_diagnosa</span> (snapshot kode &amp; nama
+    saat diagnosa dibuat, bukan master hari ini). Pasien yang sudah digabungkan
+    terhitung satu orang.
+  </div>
+
+</div>
+{% endblock %}

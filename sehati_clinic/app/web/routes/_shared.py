@@ -286,6 +286,23 @@ def require_reports_role(user: MasterStaf) -> bool:
 
 # REPORTS-COMPART (#324): per-role compartmentalized reports
 # Dokter bisa akses Kinerja Dokter dengan auto-filter ke diri sendiri
+# Untuk: laporan Kasus Terbanyak (Top Diagnosa) — Owner/Superadmin/Admin + DOKTER.
+#
+# ⚠ SENGAJA BUKAN REPORTS_ROLES. Laporan ini mula-mula memakai REPORTS_ROLES
+#   karena disalin dari Top Treatment — dan itu keliru: Top Treatment dibatasi
+#   karena memuat HARGA dan ESTIMASI OMZET. Top Diagnosa tidak memuat uang
+#   maupun identitas pasien, hanya kode diagnosa dan hitungan.
+#   [dr. Hansen 2026-09-30] Dokter boleh melihat; ia justru pembaca yang paling
+#   tepat untuk "kasus apa yang paling sering kita tangani".
+#   Kalau kelak REPORTS_ROLES diperketat karena alasan keuangan, laporan klinis
+#   ini TIDAK ikut terkunci — itu sebabnya himpunannya sendiri.
+TOP_DIAGNOSA_ROLES = {
+    StafRoleEnum.OWNER,
+    StafRoleEnum.SUPERADMIN,
+    StafRoleEnum.ADMIN,
+    StafRoleEnum.DOKTER,
+}
+
 KINERJA_DOKTER_ROLES = {
     StafRoleEnum.OWNER,
     StafRoleEnum.SUPERADMIN,
@@ -346,6 +363,15 @@ def require_audit_pasien_role(user: MasterStaf) -> bool:
 def require_finance_export_role(user: MasterStaf) -> bool:
     """True kalau user boleh Export ke Finance sekarang (Owner/Superadmin)."""
     return user.role in FINANCE_EXPORT_ROLES
+
+
+def require_top_diagnosa_role(user: MasterStaf) -> bool:
+    """True kalau user boleh melihat Kasus Terbanyak (+ Dokter).
+
+    Laporan KLINIS tanpa uang dan tanpa identitas pasien — lihat catatan di
+    TOP_DIAGNOSA_ROLES kenapa ia tidak memakai REPORTS_ROLES.
+    """
+    return user.role in TOP_DIAGNOSA_ROLES
 
 
 def require_clinical_export_role(user: MasterStaf) -> bool:
@@ -738,6 +764,7 @@ __all__ = [
     "FINANCE_EXPORT_ROLES", "require_finance_export_role",
     "CLINICAL_EXPORT_ROLES", "require_clinical_export_role",
     "KINERJA_DOKTER_ROLES", "REKAP_KASIR_ROLES",
+    "TOP_DIAGNOSA_ROLES", "require_top_diagnosa_role",
     "PURCHASING_FULL_ROLES", "PURCHASING_PRODUK_RETAIL_ROLES",
     "PURCHASING_APPROVE_CANCEL_ROLES", "OPNAME_APPROVE_ROLES",
     "TIER_OWNER", "TIER_SUPERADMIN", "TIER_ADMIN", "TIER_OPERATIONAL",

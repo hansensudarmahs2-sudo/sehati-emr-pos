@@ -21,6 +21,7 @@ from app.web.routes._shared import (
     require_apoteker_role,
     require_master_data_role,
     require_reports_role,
+    require_top_diagnosa_role,
     templates,
 )
 
@@ -90,6 +91,7 @@ def reports_landing(request: Request, db: DbSession):
         # Conditional cards: kasih flag per access type
         can_see_omzet=require_reports_role(user),
         can_see_top_treatment=require_reports_role(user),
+        can_see_top_diagnosa=require_top_diagnosa_role(user),
         can_see_kinerja_dokter=require_kinerja_dokter_role(user),
         can_see_rekap_kasir=require_rekap_kasir_role(user),
         can_see_tutup_kasir=require_rekap_kasir_role(user),
@@ -1217,3 +1219,145 @@ def reports_komisi(
         selected_staf=force_id,
     )
     return templates.TemplateResponse(request, "reports_komisi.html", ctx)
+
+
+# =============================================================================
+# Top Diagnosa — "kasus terbanyak" (Langkah 4, 2026-09-30)
+# =============================================================================
+# Role: require_reports_role (Owner/Superadmin/Admin) — sama dengan Top Treatment.
+# Laporan ini TIDAK menampilkan identitas pasien: hanya agregat per diagnosa.
+def _tgl_rentang(tgl_dari, tgl_sampai, default_hari=364):
+    """Rentang tanggal dari query string, dengan default & tahan input ngawur.
+
+    Default 365 hari (bukan 30): pertanyaan "kasus terbanyak" dan "pasien hilang
+    tanpa kontrol" hanya terjawab kalau jendelanya cukup panjang. Jendela 30 hari
+    membuat kasus musiman terlihat seperti kasus langka.
+    """
+    today = date.today()
+    try:
+        sampai = date.fromisoformat(tgl_sampai) if tgl_sampai else today
+    except ValueError:
+        sampai = today
+    try:
+        dari = (date.fromisoformat(tgl_dari) if tgl_dari
+                else sampai - timedelta(days=default_hari))
+    except ValueError:
+        dari = sampai - timedelta(days=default_hari)
+    if dari > sampai:
+        dari, sampai = sampai, dari
+    return dari, sampai
+
+
+@router.get("/reports/top-diagnosa", response_class=HTMLResponse)
+def reports_top_diagnosa(
+    request: Request,
+    db: DbSession,
+    tgl_dari: Optional[str] = None,
+    tgl_sampai: Optional[str] = None,
+    sistem: str = "SEMUA",
+    primer: str = "",
+    sort_by: str = "pasien",
+    limit: int = 50,
+):
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_top_diagnosa_role(user):
+        return _403()
+
+    d_dari, d_sampai = _tgl_rentang(tgl_dari, tgl_sampai)
+    if sistem not in ("SEMUA", "ICD10", "ESTETIK"):
+        sistem = "SEMUA"
+    if sort_by not in ("pasien", "kunjungan"):
+        sort_by = "pasien"
+    if limit not in (20, 50, 100, 200, 500):
+        limit = 50
+    hanya_primer = bool((primer or "").strip())
+
+    try:
+        data = ReportsService(db).get_top_diagnosa(
+            tgl_dari=d_dari, tgl_sampai=d_sampai, sistem=sistem,
+            hanya_primer=hanya_primer, sort_by=sort_by, limit=limit,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        return HTMLResponse(
+            f"<div style='padding:2rem;font-family:sans-serif'>"
+            f"<h3>500 - Error</h3><p>{e!s}</p>"
+            f"<a href='/web/reports'>← Kembali</a></div>", status_code=500)
+
+    from urllib.parse import urlencode
+    q = {"tgl_dari": d_dari.isoformat(), "tgl_sampai": d_sampai.isoformat(),
+         "sistem": sistem, "sort_by": sort_by, "limit": limit}
+    if hanya_primer:
+        q["primer"] = "1"
+
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/reports/top-diagnosa",
+        page_subtitle="Kasus Terbanyak (Top Diagnosa)",
+        data=data,
+        tgl_dari_selected=d_dari.isoformat(),
+        tgl_sampai_selected=d_sampai.isoformat(),
+        sistem_selected=sistem, sort_by_selected=sort_by,
+        primer_selected=hanya_primer, limit_selected=limit,
+        csv_url="/web/reports/top-diagnosa/csv?" + urlencode(q),
+    )
+    return templates.TemplateResponse(request, "reports_top_diagnosa.html", ctx)
+
+
+@router.get("/reports/top-diagnosa/csv")
+def reports_top_diagnosa_csv(
+    request: Request,
+    db: DbSession,
+    tgl_dari: Optional[str] = None,
+    tgl_sampai: Optional[str] = None,
+    sistem: str = "SEMUA",
+    primer: str = "",
+    sort_by: str = "pasien",
+    limit: int = 50,
+):
+    """CSV agregat. TIDAK memuat identitas pasien — hanya hitungan per diagnosa.
+
+    Berbeda dari paket klinis: berkas ini boleh dibuka di Excel dan dibahas,
+    karena satu baris = satu diagnosa, bukan satu orang.
+    """
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_top_diagnosa_role(user):
+        return _403()
+
+    d_dari, d_sampai = _tgl_rentang(tgl_dari, tgl_sampai)
+    data = ReportsService(db).get_top_diagnosa(
+        tgl_dari=d_dari, tgl_sampai=d_sampai,
+        sistem=sistem if sistem in ("ICD10", "ESTETIK") else "SEMUA",
+        hanya_primer=bool((primer or "").strip()),
+        sort_by=sort_by if sort_by in ("pasien", "kunjungan") else "pasien",
+        limit=limit if limit in (20, 50, 100, 200, 500) else 50,
+    )
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["rank", "sistem", "kode_diagnosa", "nama_diagnosa",
+                "jumlah_pasien",
+                "jumlah_kunjungan", "kunjungan_per_pasien", "jumlah_primer",
+                "persen_kunjungan", "pertama", "terakhir"])
+    for it in data["items"]:
+        w.writerow([it.get("rank", ""), it["sistem"],
+                    it["kode_diagnosa"], it["nama_diagnosa"],
+                    it["jumlah_pasien"], it["jumlah_kunjungan"],
+                    it["kunjungan_per_pasien"], it["jumlah_primer"],
+                    it.get("persen_kunjungan", ""),
+                    it["pertama"], it["terakhir"]])
+    buf.seek(0)
+    nama = f"top_diagnosa_{d_dari}_{d_sampai}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue().encode("utf-8-sig")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{nama}"'})

@@ -1540,3 +1540,141 @@ class ReportsService:
             total_racikan_batch=tot_batch,
             total_nominal_racikan=tot_nom_racik,
         )
+
+    # =========================================================================
+    # Top Diagnosa — "kasus terbanyak" (Langkah 4, 2026-09-30)
+    # =========================================================================
+    def get_top_diagnosa(
+        self,
+        tgl_dari: date,
+        tgl_sampai: date,
+        sistem: str = "SEMUA",       # SEMUA | ICD10 | ESTETIK
+        hanya_primer: bool = False,
+        sort_by: str = "pasien",     # pasien | kunjungan
+        limit: int = 50,
+    ) -> dict:
+        """Ranking diagnosa dari `kunjungan_diagnosa`.
+
+        ⚠ APA YANG DIHITUNG SEBAGAI "SATU KASUS" — ini mengubah JAWABANNYA,
+          bukan sekadar tampilannya:
+
+            jumlah_kunjungan  = berapa kali diagnosa ini dicatat.
+                                Pasien akne yang kontrol 5x = 5.
+                                Menjawab: BEBAN KERJA.
+            jumlah_pasien     = berapa ORANG berbeda yang punya diagnosa ini.
+                                Pasien akne yang kontrol 5x = 1.
+                                Menjawab: PREVALENSI.
+
+          Keduanya ditampilkan berdampingan supaya tidak ada yang salah baca.
+          Rasio `kunjungan_per_pasien` adalah yang paling dekat dengan
+          pertanyaan "kasus ini berulang atau sekali datang".
+
+        ⚠ Memakai SNAPSHOT (`kode_snapshot`/`nama_snapshot`), bukan join ke
+          `ref_diagnosa`. Yang dilaporkan adalah kode & nama yang BERLAKU SAAT
+          diagnosa dibuat. Kalau master diagnosa kelak diganti namanya, laporan
+          historis tidak ikut berubah — itu yang benar untuk rekam medis.
+
+        ⚠ `jumlah_pasien` memakai `kunjungan.id_pasien`. Pasien yang sudah
+          DIGABUNGKAN sudah dipindah barisnya oleh `gabungkan()`, jadi ia
+          terhitung satu orang — bukan dua. Lihat `sehati-gabung-pasien`.
+        """
+        from app.db.models import Kunjungan, KunjunganDiagnosa
+
+        if tgl_dari > tgl_sampai:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "tgl_dari > tgl_sampai")
+
+        start = datetime.combine(tgl_dari, time.min)
+        end = datetime.combine(tgl_sampai, time.max)
+
+        stmt = (
+            select(
+                KunjunganDiagnosa.sistem_snapshot,
+                KunjunganDiagnosa.kode_snapshot,
+                KunjunganDiagnosa.nama_snapshot,
+                func.count(KunjunganDiagnosa.id_kunjungan_diagnosa).label("n_kunj"),
+                func.count(func.distinct(Kunjungan.id_pasien)).label("n_pasien"),
+                func.sum(case((KunjunganDiagnosa.is_primer.is_(True), 1), else_=0))
+                    .label("n_primer"),
+                func.min(Kunjungan.tgl_kunjungan).label("pertama"),
+                func.max(Kunjungan.tgl_kunjungan).label("terakhir"),
+            )
+            .join(Kunjungan, Kunjungan.id_kunjungan == KunjunganDiagnosa.id_kunjungan)
+            .where(Kunjungan.tgl_kunjungan >= start)
+            .where(Kunjungan.tgl_kunjungan <= end)
+            .group_by(
+                KunjunganDiagnosa.sistem_snapshot,
+                KunjunganDiagnosa.kode_snapshot,
+                KunjunganDiagnosa.nama_snapshot,
+            )
+        )
+        if sistem in ("ICD10", "ESTETIK"):
+            stmt = stmt.where(KunjunganDiagnosa.sistem_snapshot == sistem)
+        if hanya_primer:
+            stmt = stmt.where(KunjunganDiagnosa.is_primer.is_(True))
+
+        rows = self.db.execute(stmt).all()
+
+        items = []
+        for r in rows:
+            n_kunj, n_pasien = int(r[3] or 0), int(r[4] or 0)
+            items.append({
+                "sistem": r[0] or "—",
+                # `kode_diagnosa`/`nama_diagnosa`, BUKAN `kode`/`nama`. Kunci
+                # bernama `nama` di konteks pasien berarti nama ORANG — pemeriksa
+                # otomatis menandainya sebagai kebocoran identitas, dan ia benar
+                # untuk curiga. Satu kata dua arti adalah pola yang berulang
+                # menggigit proyek ini; diberi nama tegas sekalian.
+                "kode_diagnosa": r[1] or "—",
+                "nama_diagnosa": r[2] or "—",
+                "jumlah_kunjungan": n_kunj,
+                "jumlah_pasien": n_pasien,
+                "jumlah_primer": int(r[5] or 0),
+                # Dibulatkan 2 desimal: 1.0 = sekali datang, >2 = kontrol berulang.
+                "kunjungan_per_pasien": round(n_kunj / n_pasien, 2) if n_pasien else 0,
+                "pertama": r[6],
+                "terakhir": r[7],
+            })
+
+        kunci = "jumlah_pasien" if sort_by == "pasien" else "jumlah_kunjungan"
+        # Kunci kedua supaya urutan STABIL — tanpa ini, baris berskor sama bisa
+        # bertukar posisi antar muat-ulang dan terlihat seperti data berubah.
+        items.sort(key=lambda x: (x[kunci], x["jumlah_kunjungan"],
+                          x["nama_diagnosa"]),
+                   reverse=True)
+
+        total_kunj = sum(i["jumlah_kunjungan"] for i in items)
+        total_pasien_baris = sum(i["jumlah_pasien"] for i in items)
+        for i, it in enumerate(items[:limit], 1):
+            it["rank"] = i
+            it["persen_kunjungan"] = (
+                round(it["jumlah_kunjungan"] * 100.0 / total_kunj, 1)
+                if total_kunj else 0.0)
+
+        # Pasien unik SEBENARNYA (bukan jumlah kolom di atas): satu pasien bisa
+        # punya beberapa diagnosa berbeda, jadi menjumlahkan kolom jumlah_pasien
+        # akan menghitungnya berkali-kali. Angka ini dipakai di ringkasan.
+        q_unik = (
+            select(func.count(func.distinct(Kunjungan.id_pasien)))
+            .join(KunjunganDiagnosa,
+                  KunjunganDiagnosa.id_kunjungan == Kunjungan.id_kunjungan)
+            .where(Kunjungan.tgl_kunjungan >= start)
+            .where(Kunjungan.tgl_kunjungan <= end)
+        )
+        if sistem in ("ICD10", "ESTETIK"):
+            q_unik = q_unik.where(KunjunganDiagnosa.sistem_snapshot == sistem)
+        if hanya_primer:
+            q_unik = q_unik.where(KunjunganDiagnosa.is_primer.is_(True))
+        pasien_unik = int(self.db.execute(q_unik).scalar() or 0)
+
+        return {
+            "tgl_dari": tgl_dari, "tgl_sampai": tgl_sampai,
+            "sistem": sistem, "hanya_primer": hanya_primer, "sort_by": sort_by,
+            "items": items[:limit],
+            "total_diagnosa_unik": len(items),
+            "total_kunjungan": total_kunj,
+            "total_pasien_unik": pasien_unik,
+            # Sengaja dibawa keluar supaya template bisa menjelaskan kenapa
+            # kolom jumlah_pasien TIDAK boleh dijumlahkan.
+            "jumlah_pasien_terjumlah": total_pasien_baris,
+            "ditampilkan": len(items[:limit]),
+        }

@@ -49,6 +49,22 @@
         </a>
         {% endif %}
 
+        {% if can_see_top_diagnosa %}
+        <a href="/web/reports/top-diagnosa"
+           class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-blue-300 hover:shadow-md transition flex items-start gap-4">
+            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center text-2xl flex-shrink-0">🩺</div>
+            <div>
+                <h3 class="font-semibold text-slate-800">Kasus Terbanyak</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                    Ranking diagnosa: berapa PASIEN berbeda (prevalensi) dan berapa
+                    KUNJUNGAN (beban kerja), plus rasio kontrol berulang.
+                    Bisa dipilah medis (ICD-10) vs estetik.
+                </p>
+                <div class="text-xs text-blue-600 mt-2 font-medium">Buka laporan →</div>
+            </div>
+        </a>
+        {% endif %}
+
         {% if can_see_top_treatment %}
         <a href="/web/reports/top-treatment"
            class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:border-purple-300 hover:shadow-md transition flex items-start gap-4">
