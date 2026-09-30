@@ -89,7 +89,11 @@
   {% endif %}
 
   {% if pra.catatan %}
-  <div class="mb-4 p-3 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-900">
+  {# bg-blue-*, BUKAN bg-sky-*: sky tidak ada di app.css hasil kompilasi, jadi
+     kotak ini akan tak terlihat (putih di atas putih, tanpa garis) — dan ia
+     hanya muncul kalau kedua pasien punya catatan alergi, sehingga mudah lolos
+     dari uji. Ditemukan scripts/cek_kelas_tailwind.py. #}
+  <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-900">
     {% for c in pra.catatan %}<div>ℹ {{ c }}</div>{% endfor %}
   </div>
   {% endif %}

@@ -23,6 +23,7 @@ from app.web.routes import (
     booking,
     dokter,
     export,
+    clinical_export,
     finance_export,
     followup,
     obat_tertunda,
@@ -71,6 +72,7 @@ router.include_router(retur.router)
 router.include_router(reports.router)
 router.include_router(export.router)
 router.include_router(finance_export.router)
+router.include_router(clinical_export.router)
 router.include_router(followup.router)
 router.include_router(obat_tertunda.router)
 router.include_router(membership_aktivasi.router)

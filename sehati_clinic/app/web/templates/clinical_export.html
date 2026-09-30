@@ -1,0 +1,151 @@
+{% extends "_app.html" %}
+{% block title %}Export Paket Klinis{% endblock %}
+{% block page_title %}🧬 Export Paket Klinis{% endblock %}
+
+{# Kelas Tailwind di sini HARUS statis — Tailwind proyek ini dikompilasi lebih
+   dulu, nama kelas yang dibangun dinamis tidak akan punya CSS. #}
+
+{% block page_content %}
+<div class="max-w-3xl">
+
+  {% if ok %}
+  <div class="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
+    ✓ {{ ok }}
+  </div>
+  {% endif %}
+  {% if err %}
+  <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">
+    ⚠ {{ err }}
+  </div>
+  {% endif %}
+
+  {# Peringatan ini bukan hiasan. Keputusan "teks bebas dikirim apa adanya"
+     berarti identitas bisa berpindah dari kolom ke kalimat; kalau layar ini
+     tidak mengatakannya, paket akan diperlakukan sebagai data biasa. #}
+  <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-sm text-amber-900">
+    <div class="font-semibold">PSEUDONIM — bukan anonim.</div>
+    <div class="mt-1">
+      Identitas pasien (nama, no RM, NIK, alamat, telepon, tanggal lahir) tidak
+      ikut. Tapi <b>teks bebas dikirim apa adanya</b>: anamnesa bisa memuat nama
+      orang di dalam kalimat (“diantar suaminya Pak Budi”). Di klinik kecil,
+      diagnosa langka + tanggal sudah cukup untuk mengenali orang.
+      <b>Perlakukan paket ini seperti backup database</b> — jangan taruh di
+      cloud, folder tersinkron, atau kirim lewat WhatsApp.
+    </div>
+  </div>
+
+  <dl class="mb-4 text-sm border border-slate-200 rounded-lg divide-y divide-slate-100">
+    <div class="flex px-3 py-2">
+      <dt class="w-36 text-slate-500">Folder tujuan</dt>
+      <dd class="font-mono text-xs">{{ drop }}</dd>
+    </div>
+    <div class="flex px-3 py-2">
+      <dt class="w-36 text-slate-500">Enkripsi</dt>
+      <dd>{% if masalah %}<span class="text-red-700">tidak siap</span>
+          {% else %}age (kunci privat ada di desktop, bukan di sini){% endif %}</dd>
+    </div>
+    <div class="flex px-3 py-2">
+      <dt class="w-36 text-slate-500">Isi paket</dt>
+      <dd>profil pasien · kunjungan · SOAP (FINAL saja) · diagnosa terkode ·
+          peta penggabungan pid</dd>
+    </div>
+  </dl>
+
+  {% if masalah %}
+  <div class="p-3 rounded-lg bg-red-100 border-2 border-red-300 text-sm text-red-900">
+    <div class="font-semibold">⛔ Ekspor tidak bisa dijalankan sekarang:</div>
+    <div class="mt-1">{{ masalah }}</div>
+    <div class="mt-2 text-xs">
+      Paket klinis <b>wajib</b> terenkripsi. Tombolnya sengaja tidak ditampilkan
+      — menulis paket polos lebih buruk daripada tidak mengekspor sama sekali.
+    </div>
+  </div>
+  {% else %}
+
+  <form method="POST" action="/web/clinical-export/run"
+        class="border border-slate-200 rounded-lg p-4 bg-white"
+        onsubmit="if(!this.querySelector('input[name=paham]').checked){alert('Centang dulu pernyataannya.');return false;}
+                  this.querySelector('button[type=submit]').disabled=true;
+                  this.querySelector('button[type=submit]').textContent='Menulis paket…';
+                  return true;">
+    {{ csrf_input(request) }}
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+      <label class="block">
+        <span class="block text-xs font-medium text-slate-600 mb-1">
+          Dari tanggal <span class="text-slate-400">(kosong = sejak awal data)</span>
+        </span>
+        <input type="date" name="tgl_dari"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </label>
+      <label class="block">
+        <span class="block text-xs font-medium text-slate-600 mb-1">
+          Sampai tanggal <span class="text-slate-400">(kosong = hari ini)</span>
+        </span>
+        <input type="date" name="tgl_sampai"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </label>
+    </div>
+    <p class="mb-3 text-xs text-slate-500">
+      Biarkan keduanya kosong untuk paket lengkap. Analisis longitudinal (kasus
+      berulang, pasien hilang tanpa kontrol) memang butuh seluruh riwayat —
+      pasien yang tidak muncul bulan ini justru yang paling perlu terlihat.
+    </p>
+
+    <label class="flex items-start gap-2 mb-2 text-sm text-slate-700">
+      <input type="checkbox" name="paham" value="1" class="mt-0.5">
+      <span>
+        Saya paham paket ini <b>pseudonim, bukan anonim</b>, memuat catatan SOAP,
+        dan akan saya perlakukan sebagai data rahasia.
+      </span>
+    </label>
+    <label class="flex items-start gap-2 mb-4 text-sm text-slate-600">
+      <input type="checkbox" name="force" value="1" class="mt-0.5">
+      <span>Tulis paket baru walau isinya sama dengan ekspor terakhir</span>
+    </label>
+
+    {# ⚠ HANYA kelas yang SUDAH dipakai template lain. Tailwind proyek ini
+       dikompilasi lebih dulu: kelas yang tidak muncul di template mana pun
+       TIDAK ADA di app.css. Versi pertama tombol ini memakai `bg-slate-800
+       hover:bg-slate-900` — keduanya nol di app.css, jadi latarnya hilang dan
+       teks putihnya jadi TAK TERLIHAT; yang tersisa hanya emoji.
+       Sebelum memakai kelas baru: grep dulu di app/web/static/css/app.css. #}
+    <button type="submit"
+            class="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded hover:bg-blue-700">
+      🧬 Tulis paket klinis
+    </button>
+  </form>
+  {% endif %}
+
+  {% if riwayat %}
+  <div class="mt-5">
+    <h3 class="text-sm font-semibold text-slate-700 mb-2">
+      Ekspor terakhir ({{ riwayat|length }})
+    </h3>
+    <div class="border border-slate-200 rounded-lg overflow-hidden">
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+          <tr>
+            <th class="px-3 py-1.5 text-left">Waktu</th>
+            <th class="px-3 py-1.5 text-left">Berkas</th>
+            <th class="px-3 py-1.5 text-right">Baris</th>
+            <th class="px-3 py-1.5 text-left">Oleh</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in riwayat %}
+          <tr class="border-b border-slate-100">
+            <td class="px-3 py-1.5">{{ e.exported_at[:16] if e.exported_at else "—" }}</td>
+            <td class="px-3 py-1.5 font-mono">{{ e.zip }}</td>
+            <td class="px-3 py-1.5 text-right font-mono">{{ e.total_rows }}</td>
+            <td class="px-3 py-1.5">{{ e.triggered_by }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

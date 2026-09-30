@@ -205,6 +205,16 @@ MENU_FINANCE_EXPORT = {
     "icon": "📤",
     "active_when": "/web/finance-export",
 }
+MENU_CLINICAL_EXPORT = {
+    # Paket KLINIS ber-pseudonim untuk Oracle / Council AI. Sengaja TERPISAH dari
+    # "Export ke Finance": isinya SOAP + teks bebas seluruh pasien, hak aksesnya
+    # sendiri (CLINICAL_EXPORT_ROLES), dan paketnya terenkripsi age.
+    # Hanya Owner/Superadmin.
+    "label": "Export Paket Klinis",
+    "url": "/web/clinical-export",
+    "icon": "🧬",
+    "active_when": "/web/clinical-export",
+}
 MENU_SETTINGS_KLINIK = {
     "label": "Profil Klinik",
     "url": "/web/settings/klinik",
@@ -257,7 +267,8 @@ _MENU_BY_ROLE = {
             MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_RACIKAN, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
-            MENU_STAF, MENU_REPORTS, MENU_EXPORT, MENU_FINANCE_EXPORT, MENU_AUDIT_PASIEN,
+            MENU_STAF, MENU_REPORTS, MENU_EXPORT, MENU_FINANCE_EXPORT,
+            MENU_CLINICAL_EXPORT, MENU_AUDIT_PASIEN,
         ]},
         {"group": "Settings", "items": [
             MENU_SETTINGS_KLINIK,
@@ -279,7 +290,8 @@ _MENU_BY_ROLE = {
             MENU_TREATMENT, MENU_DIAGNOSA, MENU_BAHAN, MENU_PRODUK, MENU_RACIKAN, MENU_MEMBERSHIP, MENU_DISTRIBUTOR, MENU_LOKASI,
         ]},
         {"group": "Manajemen", "items": [
-            MENU_STAF, MENU_REPORTS, MENU_FINANCE_EXPORT, MENU_AUDIT_PASIEN,
+            MENU_STAF, MENU_REPORTS, MENU_FINANCE_EXPORT,
+            MENU_CLINICAL_EXPORT, MENU_AUDIT_PASIEN,
         ]},
         {"group": "Settings", "items": [
             MENU_SETTINGS_KLINIK,

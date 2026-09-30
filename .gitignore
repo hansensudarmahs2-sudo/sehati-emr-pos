@@ -81,3 +81,30 @@ ziFKtzj6
 # Folder & arsip template duplikat: punya .env sendiri (sandi sama) + dump SQL.
 sehati_clinic_template/
 sehati_clinic_template.zip
+
+# ---- Paket klinis & peta pseudonim (2026-09-30) ----
+# Lapis KEDUA. Lapis pertama = scripts/cek_phi_tracked.sh (gerbang pra-commit).
+# Peta pseudonim adalah berkas paling sensitif di sistem: ia satu-satunya yang
+# menyambungkan seluruh riwayat klinis ke orang sungguhan.
+#
+# ⚠ Polanya DIBATASI ke ekstensi DATA. Versi pertama saya memakai `*pseudonim*`
+#   telanjang, dan itu menelan migrasi `20260930_0200_pasien_pseudonim.py` —
+#   berkas kode sendiri hilang dari `git status`, kesalahan yang baru terasa saat
+#   deploy gagal karena migrasinya tidak pernah ikut. Kode sumber (.py/.md/.sh/
+#   .html) SELALU boleh; yang dijaga adalah berkas DATA.
+clinical_pack/
+*clinical_*.csv
+*clinical_*.json
+*clinical_*.zip
+*clinical_*.age
+*pseudonim*.csv
+*pseudonim*.json
+*pseudonim*.sql
+*pseudonim*.zip
+*pseudonim*.age
+*pid_map*.csv
+*pid_map*.json
+*pid_map*.sql
+*_map.csv
+*_map.json
+*_map.sql

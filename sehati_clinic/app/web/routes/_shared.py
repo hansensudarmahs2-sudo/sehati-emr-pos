@@ -139,6 +139,19 @@ FINANCE_EXPORT_ROLES = {
     StafRoleEnum.SUPERADMIN,
 }
 
+# Untuk: Export paket KLINIS ber-pseudonim (SOAP + diagnosa) — Owner + Superadmin.
+# [Keputusan dr. Hansen 2026-09-30]
+#
+# ⚠ Himpunan SENDIRI, bukan memakai ulang AUDIT_PASIEN_ROLES meski isinya sama
+#   hari ini. Kalau suatu hari akses audit pasien dilonggarkan (mis. Admin boleh
+#   melihat kandidat duplikat), memakai ulang berarti akses ekspor SOAP seluruh
+#   pasien ikut terbuka DIAM-DIAM. Satu himpunan untuk dua arti adalah pola yang
+#   sudah berulang kali menggigit proyek ini.
+CLINICAL_EXPORT_ROLES = {
+    StafRoleEnum.OWNER,
+    StafRoleEnum.SUPERADMIN,
+}
+
 # =============================================================================
 # Pengadaan (PO + Receive + Stock Opname) — DEC-038
 # =============================================================================
@@ -333,6 +346,16 @@ def require_audit_pasien_role(user: MasterStaf) -> bool:
 def require_finance_export_role(user: MasterStaf) -> bool:
     """True kalau user boleh Export ke Finance sekarang (Owner/Superadmin)."""
     return user.role in FINANCE_EXPORT_ROLES
+
+
+def require_clinical_export_role(user: MasterStaf) -> bool:
+    """True kalau user boleh Export paket KLINIS (Owner/Superadmin).
+
+    Paket klinis memuat SOAP dan teks bebas SELURUH pasien — lebih sensitif
+    daripada ekspor finance. Sengaja memakai himpunan sendiri; lihat catatan di
+    CLINICAL_EXPORT_ROLES.
+    """
+    return user.role in CLINICAL_EXPORT_ROLES
 
 
 def require_purchasing_full_role(user: MasterStaf) -> bool:
@@ -713,6 +736,7 @@ __all__ = [
     "KASIR_ROLES", "PERAWAT_ROLES", "APOTEKER_ROLES",
     "MASTER_DATA_ROLES", "REPORTS_ROLES", "OWNER_ONLY_ROLES",
     "FINANCE_EXPORT_ROLES", "require_finance_export_role",
+    "CLINICAL_EXPORT_ROLES", "require_clinical_export_role",
     "KINERJA_DOKTER_ROLES", "REKAP_KASIR_ROLES",
     "PURCHASING_FULL_ROLES", "PURCHASING_PRODUK_RETAIL_ROLES",
     "PURCHASING_APPROVE_CANCEL_ROLES", "OPNAME_APPROVE_ROLES",

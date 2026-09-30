@@ -32,18 +32,41 @@ lapor() {
 
 echo "=== Lapis 1: nama berkas mencurigakan ==="
 # Termasuk 'medical' DAN 'medis'; exports/; historical_excel; dump; kunci.
-POLA_NAMA='(^|/)\.env$|(^|/)\.env\.|backup.*\.(sql|zip|gz)|/backups?/|/exports?/|historical_excel/.*\.(xlsx|xls|csv)|medis|medical|soap_raw|visits_raw|patient|pasien_raw|\.pem$|\.key$|id_rsa|\.age$|clinical_pack|clinical_.*\.(csv|json)|pseudonim|pseudonym|.*_map\.(csv|json|sql)|pid_map'
+# Dua kelompok, karena bahayanya berbeda jenis.
+#
+# ⚠ `(^|/)` di depan backups?/exports?: versi lama menulis `/backups?/` saja,
+#   sehingga folder `exports/` di AKAR repo LOLOS — hanya yang bersarang seperti
+#   `sehati_clinic/exports/` yang tertangkap. Ditemukan lewat uji negatif
+#   2026-09-30, bukan lewat kejadian nyata.
+# KERAS — berbahaya apa pun ekstensinya. TIDAK ADA pengecualian: kunci, dump,
+# arsip, folder ekspor. Berkas seperti ini tidak pernah punya alasan sah berada
+# di dalam repo.
+POLA_NAMA_KERAS='(^|/)\.env$|(^|/)\.env\.|backup.*\.(sql|zip|gz)|(^|/)backups?/|(^|/)exports?/|historical_excel/.*\.(xlsx|xls|csv)|\.pem$|\.key$|id_rsa|\.age$'
+
+# TOPIK — kata yang menandakan berkas DATA, tapi wajar muncul di nama berkas
+# KODE dan DOKUMEN. `cek_clinical_pack.py` dan migrasi `..._pasien_pseudonim.py`
+# memblokir commit mereka sendiri 2026-09-30 justru karena ini.
+POLA_NAMA_TOPIK='medis|medical|soap_raw|visits_raw|patient|pasien_raw|clinical_pack|clinical_.*\.(csv|json)|pseudonim|pseudonym|.*_map\.(csv|json|sql)|pid_map'
+
 # Templat SENGAJA dilacak — `.env.example` dkk berisi nama variabel, bukan nilainya.
 # Gerbang yang berteriak untuk hal wajar akan diabaikan orang, dan gerbang yang
 # diabaikan sama saja dengan tidak ada.
-# `.md` dikecualikan dari lapis NAMA: dokumen desain wajar menyebut clinical_pack,
-# soap_raw, pseudonim, dsb. — itu isinya membahas, bukan memuat data.
-# ⚠ CELAH YANG DITERIMA SADAR: berkas .md karena itu tidak diperiksa lapis 1 MAUPUN
-# lapis 2 (lapis 2 hanya memindai csv/tsv/json/xml). Jadi data pasien yang ditempel
-# ke dalam berkas .md TIDAK akan tertangkap. Jangan pernah menempel isi tabel pasien
-# ke dokumen — tulis strukturnya, bukan barisnya.
 POLA_KECUALI='\.(example|sample|template|dist)$|\.example\.|README|\.md$'
-HASIL1=$(git ls-files | grep -iE "$POLA_NAMA" | grep -ivE "$POLA_KECUALI" || true)
+
+# Berkas SUMBER: dikecualikan dari POLA_NAMA_TOPIK saja, TIDAK dari POLA_NAMA_KERAS.
+# `.sql` SENGAJA TIDAK ada di sini — dump SQL justru berkas yang paling mungkin
+# memuat baris pasien sungguhan.
+POLA_SUMBER='\.(md|py|sh|html|j2|css|js)$'
+
+# ⚠ CELAH YANG DITERIMA SADAR: berkas .md/.py/.sh dkk tidak diperiksa lapis 1
+# untuk kata TOPIK, dan lapis 2 memang hanya memindai csv/tsv/json/xml. Jadi data
+# pasien yang DITEMPEL ke dalam dokumen atau kode TIDAK akan tertangkap. Jangan
+# pernah menempel isi tabel pasien ke dokumen atau ke skrip — tulis strukturnya,
+# bukan barisnya.
+KERAS=$(git ls-files | grep -iE "$POLA_NAMA_KERAS" | grep -ivE "$POLA_KECUALI" || true)
+TOPIK=$(git ls-files | grep -iE "$POLA_NAMA_TOPIK" | grep -ivE "$POLA_KECUALI" \
+        | grep -ivE "$POLA_SUMBER" || true)
+HASIL1=$(printf '%s\n%s\n' "$KERAS" "$TOPIK" | grep -v '^$' || true)
 if [ -n "$HASIL1" ]; then
     while IFS= read -r f; do lapor "$f" "nama mencurigakan"; done <<< "$HASIL1"
 else

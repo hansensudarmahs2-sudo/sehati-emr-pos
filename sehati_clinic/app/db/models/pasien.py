@@ -239,3 +239,49 @@ class PasienDuplikatDismiss(Base):
 
     def __repr__(self) -> str:
         return f"<PasienDuplikatDismiss({self.id_pasien_a} vs {self.id_pasien_b})>"
+
+
+class PasienPseudonim(Base):
+    """Peta `id_pasien` -> `pid` untuk paket klinis (Oracle / Council AI).
+
+    ⚠ TABEL PALING SENSITIF DI SISTEM. Ia satu-satunya yang menyambungkan seluruh
+      riwayat klinis di paket ekspor ke orang sungguhan. Perlakukan seperti kunci
+      enkripsi backup: TIDAK ikut paket ekspor apa pun, tidak ikut git, tidak
+      ikut rsync. Lihat `scripts/cek_phi_tracked.sh` (pola `pseudonim`, `pid_map`).
+
+    KENAPA TABEL, BUKAN BERKAS (pertanyaan dr. Hansen 2026-09-30):
+      1. Berkas lepas TIDAK ikut backup mana pun — `deploy/backup.sh` hanya
+         mengambil `mysqldump db_sehati` + `tar /app/static/uploads`, dan volume
+         Docker yang persisten hanya `sehati_db_data` + `sehati_uploads`.
+         Kehilangan peta = pseudonim tidak bisa dibuat ulang sama = SELURUH
+         analisis longitudinal runtuh TANPA GEJALA (berkas tetap terbentuk,
+         angkanya tetap masuk akal, hanya artinya salah).
+      2. Ekspor bisa dijalankan cron DAN tombol UI. `UNIQUE` + transaksi di DB
+         mencegah satu pasien dapat dua `pid`. Berkas JSON (baca-tambah-tulis)
+         tidak punya keduanya — pola "satu data, dua penulis" yang sudah
+         berulang kali menggigit proyek ini.
+
+    `pid` ACAK, bukan berurutan: kalau ia mencerminkan urutan pendaftaran, siapa
+    pun yang memegang paket bisa menebak pasien mana yang mana tanpa tabel ini.
+
+    `pid` WAJIB STABIL SELAMANYA. Jangan pernah meng-UPDATE kolom ini. Pasien yang
+    sama dengan `pid` berbeda di ekspor bulan depan = riwayat longitudinalnya
+    terputus, dan tidak ada yang akan menyadarinya.
+    """
+
+    __tablename__ = "pasien_pseudonim"
+
+    id_pasien: Mapped[int] = mapped_column(
+        ForeignKey("pasien.id_pasien"), primary_key=True,
+        comment="Satu baris per pasien. PK = id_pasien menjamin tidak ada pid ganda.",
+    )
+    pid: Mapped[str] = mapped_column(
+        String(16), unique=True, nullable=False,
+        comment="Pseudonim acak, mis. 'PXa1b2c3d4e5'. JANGAN PERNAH di-UPDATE.",
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP, server_default=func.current_timestamp(), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<PasienPseudonim(id_pasien={self.id_pasien})>"
