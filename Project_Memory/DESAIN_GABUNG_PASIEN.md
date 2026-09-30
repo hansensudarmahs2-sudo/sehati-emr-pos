@@ -105,14 +105,37 @@ kode dengan `information_schema` dan GAGAL kalau ada yang belum terdaftar.
 6. `no_rm` duplikat **tetap tersimpan** di baris pasien nonaktif — ia tercetak di nota
    lama dan harus bisa ditelusuri
 
-## 6. Yang belum diputuskan
+## 6. SATU ARAH — dan jaring pengamannya di kertas
 
-- Apakah penggabungan bisa **dibatalkan**? (`aktifkan()` yang ada hanya mengembalikan
-  status, tidak memindahkan baris balik.) Usulan: **tidak** — cukup catat di audit;
-  membalikkan pemindahan butuh menyimpan daftar id per baris, dan itu kompleksitas yang
-  tidak sebanding.
+[Keputusan dr. Hansen 2026-09-30] *"tidak perlu ada jalan pulang, one way street. setiap
+penggabungan pasien akan ada pencatatan manual dengan kertas dan pena. baik dari id,
+transaksi id, nomor nota."*
+
+Penggabungan **tidak bisa dibatalkan** oleh sistem. Salah gabung diperbaiki manual lewat
+database. `aktifkan()` yang ada hanya mengembalikan status pasien, **tidak** memindahkan
+baris kembali — dan memang tidak akan dibuat begitu.
+
+### ⚠ KEWAJIBAN UI yang lahir dari keputusan ini
+
+Karena pengamannya catatan kertas, **layar penggabungan WAJIB menampilkan angka-angka
+yang harus disalin SEBELUM tombol ditekan**, dalam bentuk yang mudah dibaca dan disalin:
+
+- `id_pasien` asal & tujuan, beserta `no_rm` keduanya
+- daftar **id transaksi** yang akan berpindah
+- daftar **nomor nota** yang terkait
+- pratinjau jumlah baris per tabel
+
+Setelah penggabungan, jejaknya sudah pindah. **Kalau angka-angka itu tidak ditampilkan di
+muka, SOP kertas mustahil dijalankan dan satu-satunya jaring pengaman hilang.** Ini
+kewajiban, bukan tambahan — memperlakukannya sebagai "nanti saja" berarti membangun
+operasi tak-berbalik tanpa pengaman apa pun.
+
+Lihat juga memori proyek `sehati-sop-offline`.
+
+## 6b. Yang belum diputuskan
+
 - Siapa yang boleh menggabungkan? Usulan: Owner/Superadmin saja — lebih ketat daripada
-  nonaktifkan biasa, karena tidak bisa dibatalkan.
+  nonaktifkan biasa, justru karena tidak bisa dibatalkan.
 - Apakah `UNIQUE INDEX ux_pasien_nomor_ktp` dipasang di migrasi yang sama atau terpisah.
   ⚠ Index itu akan **menolak NIK kosong ganda** kalau tidak memakai NULL — periksa
   bagaimana NIK kosong disimpan sekarang sebelum memasangnya.
@@ -127,3 +150,5 @@ kode dengan `information_schema` dan GAGAL kalau ada yang belum terdaftar.
 5. Dua pasien bermembership aktif → **ditolak** dengan pesan jelas
 6. `audit_log` memuat jumlah baris per tabel
 7. Pemeriksa otomatis GAGAL kalau ada tabel ber-`id_pasien` yang tidak terdaftar di kode
+8. **Layar pratinjau menampilkan id pasien, id transaksi, dan nomor nota** — bisa disalin
+   ke catatan kertas sebelum tombol ditekan (lihat §6)
