@@ -136,9 +136,55 @@ Lihat juga memori proyek `sehati-sop-offline`.
 
 - Siapa yang boleh menggabungkan? Usulan: Owner/Superadmin saja — lebih ketat daripada
   nonaktifkan biasa, justru karena tidak bisa dibatalkan.
-- Apakah `UNIQUE INDEX ux_pasien_nomor_ktp` dipasang di migrasi yang sama atau terpisah.
-  ⚠ Index itu akan **menolak NIK kosong ganda** kalau tidak memakai NULL — periksa
-  bagaimana NIK kosong disimpan sekarang sebelum memasangnya.
+- ~~Apakah `UNIQUE INDEX ux_pasien_nomor_ktp` dipasang di migrasi yang sama atau terpisah.~~
+  **SELESAI 2026-09-30 — bukan pekerjaan penggabungan, lihat §6c.**
+
+## 6c. NIK: sudah selesai, TERPISAH dari penggabungan
+
+Pertanyaan "index ini menolak NIK kosong ganda?" **sudah dijawab oleh migrasi yang
+sudah ada**, bukan pekerjaan baru:
+
+- `ux_pasien_nomor_ktp` **sudah terpasang** dan unik (diverifikasi di DB dev)
+- migrasi `20260917_0100` sudah menormalkan `''` → NULL lebih dulu
+- `models/pasien.py` `nullable=True`, dan semua jalur tulis sudah `or None`
+- MySQL memperbolehkan **banyak NULL** di unique index → NIK kosong aman
+
+### ⚠ Tapi pemeriksaan itu menemukan lubang lain
+
+`nomor_ktp` **tidak punya validasi bentuk apa pun** (teks bebas 30 karakter), dan
+DB dev sudah memuat **satu pasien ber-`nomor_ktp = '0'`** — hasil ketikan manual,
+bukan data seed.
+
+[Keadaan klinik, dr. Hansen 2026-09-30] *"ktp pada anak belum tentu ada. dan pada
+lansia kadang kita bersikap 'lunak' karena tidak membawa ktp."*
+
+`'0'` adalah nilai BIASA di mata unique index. Pasien pertama tanpa KTP tersimpan
+`'0'`; **pasien kedua ditolak** "NIK sudah terdaftar atas pasien lain". Gejalanya
+tidak menunjuk penyebabnya — petugas merasa tidak mengisi apa pun.
+
+**Keputusan dr. Hansen: normalisasi LUNAK, tanpa validasi panjang.** Penanda kosong
+(`0`, `000`, `-`, `x`, spasi) → NULL; selain itu diterima apa adanya. Tidak ada
+pendaftaran yang gagal karena bentuk NIK. Baris `'0'` di dev diubah jadi NULL.
+
+Dibangun: `app/core/nik.py` (`normalisasi_nik`), dipakai di jalur daftar-baru,
+edit, banding duplikat, dan kunci blocking scan #18. Migrasi `20260930_0100`
+membersihkan penanda kosong yang sudah tersimpan. `scripts/cek_nik.py` menjaga
+dengan gerbang AST: **gagal kalau ada jalur tulis NIK baru yang melewati
+normalisasi** (diuji dua arah — lulus pada kode asli, gagal saat jalur pintas
+palsu disisipkan).
+
+⚠ Satu jalur SENGAJA tidak menormalkan: `nonaktifkan()` memakai `.strip()` agar
+`'0'` warisan ikut terlepas dari slot unique index. `normalisasi_nik()` di sana
+akan mengembalikan None sehingga `'0'` menempel selamanya. Terdaftar sebagai
+pengecualian ber-alasan di `cek_nik.py`.
+
+### ⚠ Temuan sampingan yang BELUM dibereskan
+
+`audit_pasien_service.nonaktifkan()` menulis **NIK mentah** ke `audit_log`
+(`data_lama={"nomor_ktp": nik_dilepas}`) — padahal docstring `pasien_service`
+menyatakan NIK tidak boleh masuk audit raw. Saya **tidak** mengubahnya sendiri:
+bisa jadi itu disengaja untuk ketertelusuran NIK yang dilepas. Perlu keputusan
+dr. Hansen. Masuk backlog PHI, bukan pekerjaan NIK ini.
 
 ## 7. Uji terima
 

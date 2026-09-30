@@ -21,6 +21,7 @@ from app.db.models import (
     Kunjungan, KunjunganAntropometri, Pasien,
     PasienAlergi, PasienPenyakitKronis,
 )
+from app.core.nik import normalisasi_nik
 from app.repositories.kunjungan_repo import KunjunganRepository
 from app.repositories.pasien_repo import PasienRepository
 from app.schemas.pasien import (
@@ -94,7 +95,9 @@ class PasienService:
         nik_match  : NIK/KTP sama persis (non-kosong) -> blok keras.
         soft_matches: nama(normalisasi) + jenis_kelamin + tgl_lahir sama -> peringatan.
         """
-        nik = (nomor_ktp or "").strip()
+        # Lewat normalisasi_nik: '0'/'-'/spasi berarti "tidak ada", BUKAN nilai
+        # yang bisa bertabrakan. Tanpa ini, pasien kedua tanpa KTP ditolak.
+        nik = normalisasi_nik(nomor_ktp)
         nik_match = None
         if nik:
             cand = self.pasien_repo.find_by_nik(nik)
@@ -127,7 +130,8 @@ class PasienService:
             pasien = Pasien(
                 no_rm=no_rm_baru, nama=payload.nama, jenis_kelamin=payload.jenis_kelamin,
                 alamat=payload.alamat or None, tgl_lahir=payload.tgl_lahir,
-                nomor_telepon=payload.nomor_telepon or None, nomor_ktp=payload.nomor_ktp or None,
+                nomor_telepon=payload.nomor_telepon or None,
+                nomor_ktp=normalisasi_nik(payload.nomor_ktp),
                 email_address=payload.email_address or None, sumber_referensi=payload.sumber_referensi or None,
                 tipe_membership=(getattr(payload.tipe_membership, "value", payload.tipe_membership) or "REGULAR"), id_staf=id_staf_fo,
             )
@@ -362,7 +366,7 @@ class PasienService:
                 data_baru_audit["nomor_telepon_last4"] = tel[-4:] if len(tel) >= 4 else "***"
                 fields_changed.append("nomor_telepon")
             if payload.nomor_ktp is not None:
-                _new_nik = (payload.nomor_ktp or "").strip() or None
+                _new_nik = normalisasi_nik(payload.nomor_ktp)
                 if _new_nik:
                     _other = self.pasien_repo.find_by_nik(_new_nik)
                     if _other is not None and _other.id_pasien != id_pasien:

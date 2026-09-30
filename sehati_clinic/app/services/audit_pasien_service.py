@@ -23,6 +23,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.nik import normalisasi_nik
 from app.db.models import Pasien, PasienDuplikatDismiss
 from app.services.audit_service import AuditService
 
@@ -133,7 +134,10 @@ class AuditPasienService:
                 "nama_n": _norm(p.nama),
                 "tel_n": _norm_telepon(p.nomor_telepon),
                 "alamat_n": _norm(p.alamat),
-                "nik_n": (p.nomor_ktp or "").strip(),
+                # normalisasi_nik, bukan .strip(): kalau ada data lama ber-NIK
+                # '0'/'-', .strip() menjadikannya kunci blocking "k:0" sehingga
+                # SEMUA pasien tanpa KTP saling muncul sebagai kandidat duplikat.
+                "nik_n": normalisasi_nik(p.nomor_ktp) or "",
             })
 
         # Blocking: hanya banding pasangan yang berbagi "petunjuk" — kata pertama
@@ -342,6 +346,11 @@ class AuditPasienService:
                     f"Pasien tujuan {lawan.no_rm} juga nonaktif — pilih yang bertahan.")
 
         riwayat = self._jumlah_riwayat(id_pasien)
+        # DISENGAJA .strip(), BUKAN normalisasi_nik(). Di sini tujuannya
+        # MEMBEBASKAN slot unique index. Kalau ada baris lama ber-NIK '0',
+        # normalisasi_nik() mengembalikan None -> `if nik_dilepas` gagal ->
+        # '0' tetap menempel di baris nonaktif dan slot itu terkunci selamanya.
+        # Satu fungsi, dua tujuan berbeda — lihat app/core/nik.py.
         nik_dilepas = (p.nomor_ktp or "").strip() or None
 
         p.is_active = False
