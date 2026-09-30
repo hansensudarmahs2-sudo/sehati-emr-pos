@@ -41,6 +41,11 @@ services:
       # Override: di dalam Docker, DB diakses lewat nama service, bukan localhost.
       DB_HOST: sehati-db
       DB_PORT: "3306"
+      # Folder drop paket klinis DI DALAM container. Dipasangkan ke folder host
+      # lewat bind mount di bawah. Diset di sini, bukan di .env, supaya tidak
+      # bisa tertukar dengan nilai dev (/mnt/e/SehatiExport/...) yang tidak ada
+      # di mini PC.
+      SEHATI_CLINICAL_DROP: /app/clinical_pack
     depends_on:
       sehati-db:
         condition: service_healthy
@@ -50,6 +55,15 @@ services:
     volumes:
       # Upload (logo klinik dll) persist lintas rebuild image.
       - sehati_uploads:/app/static/uploads
+      # Paket klinis terenkripsi. BIND MOUNT ke folder host, BUKAN named volume:
+      # berkasnya harus bisa diambil manusia untuk didekripsi di desktop, dan isi
+      # named volume hanya terjangkau lewat `docker cp`.
+      #
+      # ⚠ Folder host-nya WAJIB DI LUAR /srv/sehati. Folder deploy disinkronkan
+      #   dengan `rsync --delete` (deploy/push-ke-minipc.sh) — apa pun di dalamnya
+      #   yang tidak ada di dev akan DIHAPUS. Paket klinis di sana akan lenyap
+      #   pada deploy berikutnya, tanpa peringatan.
+      - ${SEHATI_CLINICAL_DROP_HOST:-/srv/sehati-clinical}:/app/clinical_pack
     networks:
       - sehati-net
 
