@@ -113,6 +113,72 @@ analisis menerima narasi tanpa kode dan tanpa jejak kontrol.
 umur (atau kelompok umur) menjawab pertanyaan klinis yang sama dengan risiko jauh lebih
 kecil.
 
+### 4.5 Rincian kolom (nama diambil dari model, bukan dikarang)
+
+Semua berkas memakai `pid` sebagai kunci pasien. `kid` = pseudonim kunjungan (boleh
+`id_kunjungan` apa adanya — ia tidak mengidentifikasi orang di luar sistem, tapi
+seragamkan penamaannya).
+
+**`clinical_pasien_profil`** ← `pasien`
+`pid`, `umur_tahun` (turunan dari `tgl_lahir`, **tgl_lahir TIDAK ikut**),
+`kelompok_umur`, `jenis_kelamin`, `tipe_membership`, `sumber_referensi`
+❌ tidak ikut: `nama`, `no_rm`, `nomor_ktp`, `alamat`, `nomor_telepon`,
+`email_address`, `no_member`
+
+**`clinical_visits`** ← `kunjungan`
+`kid`, `pid`, `tgl_kunjungan`, `jenis_kunjungan`, `status_antrian`,
+`sumber_pendaftaran`, `keluhan_utama`, `tgl_kontrol_selanjutnya`, `catatan_kontrol`,
+`nama_dokter_assigned`
+⚠ `keluhan_utama` dan `catatan_kontrol` adalah **teks bebas** — ikut membuat paket ini
+rahasia, sama seperti `clinical_soap`.
+❌ tidak ikut: `peresep_luar_nama`, `peresep_luar_asal` (nama dokter LUAR klinik —
+pihak ketiga, tidak dibutuhkan analisis)
+
+**`clinical_soap`** ← `pemeriksaan_klinis`
+`kid`, `pid`, `nama_dokter`, `anamnesa`, `pemeriksaan_fisik`, `diagnosa`,
+`saran_treatment`, `saran_produk`, `status_soap`, `waktu_konsultasi`, `created_at`
+⚠ Hanya baris `status_soap='FINAL'`. Draf apoteker yang belum disetujui dokter
+**bukan rekam medis** — mengirimnya ke analisis berarti menganalisis sesuatu yang
+belum divalidasi siapa pun.
+
+**`clinical_diagnosa`** ← `kunjungan_diagnosa` ⭐ *belum ada di ekspor*
+`kid`, `pid`, `sistem_snapshot` (ICD10/ESTETIK), `kode_snapshot`, `nama_snapshot`,
+`is_primer`, `urutan`
+
+**`clinical_tindakan`** ← `kunjungan_tindakan`
+`kid`, `pid`, `nama_treatment`, `status_tindakan`, `waktu_mulai`, `waktu_selesai`,
+`nama_staf_pelaksana`, `nama_dokter_pelaksana`, `nama_perawat_pelaksana`
+Model memang punya **tiga** kolom pelaksana terpisah (`id_staf_pelaksana`,
+`id_dokter_pelaksana`, `id_perawat_pelaksana`) — persis yang diminta dr. Hansen.
+
+**`clinical_resep`** ← `kunjungan_resep`
+`kid`, `pid`, `nama_produk`, `kode_produk`, `golongan`, `qty`, `aturan_pakai`,
+`status_item`, `nama_peresep` (dari `id_staf_input`), `waktu_serah`
+❌ tidak ikut: harga, nominal — itu ranah `finance_pack`
+
+**`clinical_racikan`** ← `kunjungan_racikan` + `kunjungan_racikan_bahan` ⭐ *belum ada*
+`kid`, `pid`, `nama_snapshot`, `jenis_racik`, `jumlah_unit`, `aturan_pakai`,
+`status_item`, dan per bahan: `nama_bahan`, `dosis_per_unit`, `satuan_dosis`,
+`dipakai`, `satuan_dipakai`
+❌ tidak ikut: `subtotal_bahan`, `biaya_racik`, `total`
+
+**`clinical_followup`** ← `followup` ⭐ *belum ada*
+`pid`, `kid`, `jenis`, `due_date`, `status` (PENDING/CONFIRMED/RESCHEDULED/
+NO_ANSWER/CANCELLED), `waktu_handle`, `catatan`, `nama_staf_handler`
+Inilah jejak yang menjawab "pasien kembali atau hilang".
+
+### 4.6 ⚠ Pseudonim WAJIB mengikuti penggabungan pasien
+
+`pasien` punya kolom **`digabung_ke_id_pasien`**. Kalau `pid` diberikan per baris pasien
+apa adanya, **satu orang yang pernah tercatat dua kali akan muncul sebagai dua pasien
+berbeda** di seluruh analisis — kasus berulangnya terpecah, riwayat kontrolnya terputus,
+dan tidak ada gejala apa pun bahwa itu terjadi.
+
+Aturan: telusuri `digabung_ke_id_pasien` sampai ujungnya, lalu berikan `pid` milik
+**pasien yang bertahan**. Ini juga berarti paket klinis harus dibangun **setelah**
+penggabungan pasien ganda dibereskan (kembar 217/218 di backlog), atau setidaknya
+menyadari bahwa data sebelum penggabungan akan terpecah.
+
 ### 4.4 Pakai ulang pola yang sudah ada
 
 File-drop + `smart_export` sidik jari isi, seperti jembatan Finance
