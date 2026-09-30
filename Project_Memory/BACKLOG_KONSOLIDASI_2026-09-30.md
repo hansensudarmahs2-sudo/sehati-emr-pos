@@ -41,7 +41,7 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 
 | ID | Item | Catatan |
 |---|---|---|
-| **D2** | **Higiene folder E:** | `sehati_clinic_template/` punya `.env` + `backup_*.sql` sendiri; tumpukan `backup_*.sql` di dalam `sehati_clinic/`; `Current python code main_api.txt` (monolit legacy 83KB); artefak nyasar `ziFKtzj6`. Di LUAR git, tapi di folder tersinkron |
+| ~~**D2**~~ | ~~Higiene folder E:~~ | **SELESAI 2026-09-30 — lihat §11 di bawah.** Temuan tak terduga: monolit legacy memuat **sandi DB yang masih aktif**, ter-commit sejak commit pertama |
 | **A7** | Berkas duplikat usang | `master.py.bak_restored`, `kunjungan.py.new`, berkas nyasar (`1`, `exit`, `debug_kunjungan.py`, `fix_timezone_tindakan.py`) ❓ |
 | **F7** | Dead-code sweep ~13 fungsi | Report-only; periksa niat + test per fungsi, jangan hapus buta |
 | **F5** | `_create_pending_membership_history_if_needed` tak tersambung | Diputuskan: buang atau sambungkan |
@@ -126,3 +126,42 @@ pra-commit.
 6. Baru item besar (F1/F2/F3) sesuai kebutuhan operasional
 
 **Semua yang mengubah skema atau konfigurasi besar: minta persetujuan dr. Hansen dulu.**
+
+---
+
+## 11. D2 — dikerjakan 2026-09-30
+
+**Temuan tak terduga:** `Current python code main_api.txt` (monolit pra-refactor) memuat
+`password="..."` yang **sidik jarinya cocok dengan `sehati_clinic/.env` yang sedang
+berjalan** — kredensial aktif, ter-commit sejak commit pertama. Ditemukan sehari SETELAH
+pembersihan PHI, karena pembersihan itu mencari data pasien, bukan kredensial.
+
+**Keputusan dr. Hansen:** ganti sandinya, jangan tulis ulang riwayat lagi. Sandi yang
+sudah diganti membuat apa pun di riwayat git tidak berguna — dan itu satu-satunya cara
+yang tuntas, karena GitHub tetap menyimpan objek lama sementara dan klon lama di mesin
+lain tidak bisa dijangkau.
+
+**Yang dikerjakan:**
+- Sandi MySQL desktop diganti lewat `SET PASSWORD` + perbarui `.env`. Nilainya **tidak
+  pernah ditampilkan**; `MYSQL_PWD` dipakai alih-alih `-p<sandi>` supaya tidak muncul di
+  daftar proses.
+- Diperiksa dulu, bukan diasumsikan: **hanya `.env`** yang menyimpan nilainya. Alembic
+  membacanya dinamis lewat `migrations/env.py`; berkas lain semuanya `*.example`.
+- **Mini PC TIDAK terekspos.** Sidik jari sandinya dibandingkan dengan sandi lama desktop
+  — berbeda. Ia dibuat sendiri saat deploy, bukan disalin. Tidak disentuh sama sekali.
+- Berhenti melacak + hapus dari disk: monolit legacy, `ziFKtzj6` (ternyata arsip ZIP
+  berisi salinan 221 berkas kode), `sehati_clinic_template/` (+ `.env` sendiri), dan
+  **17 dump SQL (13,1 MB)**.
+
+**⚠ Yang hilang permanen, dan itu disengaja.** Database desktop sudah di-wipe 18
+September (tersisa 5 pasien sejak 18 Sep). Dump yang dihapus memuat **~424 pasien dan
+~700 kunjungan Maret–Juni** — satu-satunya salinan yang tersisa. Backup harian terenkripsi
+hanya melindungi mini PC, yang isinya data dummy. Saya periksa dan laporkan ini SEBELUM
+penghapusan; dr. Hansen memilih tetap menghapus dengan sadar. **Jangan cari data itu
+lagi — ia tidak ada.**
+
+**Berkas SQL yang DIPERTAHANKAN** (kode, bukan dump): `migrations_sql/*.sql` (11 berkas)
+dan `deploy/schema_only.sql`.
+
+**Sisa yang belum tuntas:** hapus `sehati_clinic/.env.bak.*` setelah aplikasi terbukti
+jalan dengan sandi baru — berkas itu memuat sandi lama.

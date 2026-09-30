@@ -10,6 +10,11 @@
 # ==== SECRETS — JANGAN pernah commit ====
 # Hanya file .env asli; file *.example (template) SENGAJA dibiarkan ikut.
 **/.env
+# Cadangan .env (mis. `cp .env .env.bak.20260930_1200` saat ganti sandi) memuat
+# kredensial LAMA. Pola `**/.env` tidak menangkapnya — ditemukan 2026-09-30.
+**/.env.bak*
+**/.env.backup*
+**/.env.old*
 **/.env.local
 **/.env.dev
 **/.env.prod
