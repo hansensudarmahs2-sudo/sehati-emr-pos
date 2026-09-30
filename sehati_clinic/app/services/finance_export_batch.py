@@ -45,7 +45,13 @@ def compute_datasets(db, tgl_dari: date, tgl_sampai: date):
     from app.core.csv_writer import dict_list_to_csv_bytes
     svc = ExportService(db)
     datasets, data_map, total = [], {}, 0
+    from app.services.export_service import FINANCE_PACK_EXCLUDE
+    # Enumerate atas registry PENUH supaya nomor berkas stabil, lalu saring
+    # penulisannya. Lihat catatan di export_service.FINANCE_PACK_EXCLUDE — menghapus
+    # entri dari registry akan menggeser nomor dan merusak loader Finance.
     for i, entry in enumerate(svc.DATASET_REGISTRY, 1):
+        if entry["name"] in FINANCE_PACK_EXCLUDE:
+            continue
         rows = getattr(svc, entry["method"])(tgl_dari, tgl_sampai, False)
         data = dict_list_to_csv_bytes(rows, columns=entry.get("default_columns"))
         fname = f"{i:02d}_{entry['name']}.csv"

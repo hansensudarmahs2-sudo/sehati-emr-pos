@@ -29,6 +29,20 @@ HARD_CAP_ROWS_TOTAL = 200_000
 # =========================================================================
 # PII Masking Helpers
 # =========================================================================
+# Dataset yang TIDAK ikut paket Finance (file-drop + tombol UI "Export ke Finance").
+# `medical_soap_raw` dikeluarkan 2026-09-30: modul Finance tidak pernah membacanya
+# (diverifikasi — `csv_loader.py` hanya membuka berkas 03, 05, 06, 11, 14), dan ia
+# memuat anamnesa/pemeriksaan fisik/diagnosa. SOAP medis tidak punya urusan di paket
+# keuangan; ia akan pindah ke clinical pack ber-PII-mask.
+#
+# ⚠ PENOMORAN BERKAS BERASAL DARI POSISI di DATASET_REGISTRY (`enumerate(..., 1)`).
+# JANGAN menghapus entrinya dari registry — itu akan menggeser 13/14/15 menjadi
+# 12/13/14, sedangkan loader Finance membuka `14_transaction_items_raw.csv` BERDASARKAN
+# NAMA PERSIS. Entri tetap di tempatnya; yang disaring hanya penulisannya, sehingga
+# paket punya lompatan nomor (11, 13, 14, 15) dan itu memang disengaja.
+FINANCE_PACK_EXCLUDE = {"medical_soap_raw"}
+
+
 def _mask_text(value: Optional[str], mask: bool, prefix: str = "PASIEN_HASH") -> Optional[str]:
     if value is None or value == "":
         return value

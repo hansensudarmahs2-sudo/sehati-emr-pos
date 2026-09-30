@@ -39,7 +39,29 @@ def main():
     print(f"[export] rentang {START} .. {END}  -> {outdir}")
     total = 0
     try:
+        from app.services.export_service import FINANCE_PACK_EXCLUDE
+        # Bersihkan berkas paket LAMA sebelum menulis. Tanpa ini, dataset yang
+        # dikeluarkan dari paket meninggalkan berkasnya di folder — persis yang
+        # terjadi 2026-09-30: `12_medical_soap_raw.csv` tetap tergeletak setelah
+        # dikeluarkan, sehingga siapa pun yang memindai folder tetap menemukannya.
+        # Hanya berkas berpola "NN_nama.csv" yang disentuh; isi lain tidak.
+        import re as _re
+        _seharusnya = {
+            f"{n:02d}_{e['name']}.csv"
+            for n, e in enumerate(svc.DATASET_REGISTRY, 1)
+            if e["name"] not in FINANCE_PACK_EXCLUDE
+        }
+        for _f in outdir.glob("*.csv"):
+            if _re.fullmatch(r"\d{2}_.+\.csv", _f.name) and _f.name not in _seharusnya:
+                _f.unlink()
+                print(f"     dibersihkan: {_f.name} (bukan bagian paket lagi)")
+
         for i, entry in enumerate(svc.DATASET_REGISTRY, 1):
+            # Nomor berkas dari posisi registry; penulisannya yang disaring.
+            # Lihat export_service.FINANCE_PACK_EXCLUDE.
+            if entry["name"] in FINANCE_PACK_EXCLUDE:
+                print(f"  {i:02d} {entry['name']:34} DILEWATI (bukan data keuangan)")
+                continue
             try:
                 rows = getattr(svc, entry["method"])(START, END, False)
             except Exception as e:
