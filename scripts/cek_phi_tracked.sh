@@ -32,11 +32,17 @@ lapor() {
 
 echo "=== Lapis 1: nama berkas mencurigakan ==="
 # Termasuk 'medical' DAN 'medis'; exports/; historical_excel; dump; kunci.
-POLA_NAMA='(^|/)\.env$|(^|/)\.env\.|backup.*\.(sql|zip|gz)|/backups?/|/exports?/|historical_excel/.*\.(xlsx|xls|csv)|medis|medical|soap_raw|visits_raw|patient|pasien_raw|\.pem$|\.key$|id_rsa|\.age$'
+POLA_NAMA='(^|/)\.env$|(^|/)\.env\.|backup.*\.(sql|zip|gz)|/backups?/|/exports?/|historical_excel/.*\.(xlsx|xls|csv)|medis|medical|soap_raw|visits_raw|patient|pasien_raw|\.pem$|\.key$|id_rsa|\.age$|clinical_pack|clinical_.*\.(csv|json)|pseudonim|pseudonym|.*_map\.(csv|json|sql)|pid_map'
 # Templat SENGAJA dilacak — `.env.example` dkk berisi nama variabel, bukan nilainya.
 # Gerbang yang berteriak untuk hal wajar akan diabaikan orang, dan gerbang yang
 # diabaikan sama saja dengan tidak ada.
-POLA_KECUALI='\.(example|sample|template|dist)$|\.example\.|README'
+# `.md` dikecualikan dari lapis NAMA: dokumen desain wajar menyebut clinical_pack,
+# soap_raw, pseudonim, dsb. — itu isinya membahas, bukan memuat data.
+# ⚠ CELAH YANG DITERIMA SADAR: berkas .md karena itu tidak diperiksa lapis 1 MAUPUN
+# lapis 2 (lapis 2 hanya memindai csv/tsv/json/xml). Jadi data pasien yang ditempel
+# ke dalam berkas .md TIDAK akan tertangkap. Jangan pernah menempel isi tabel pasien
+# ke dokumen — tulis strukturnya, bukan barisnya.
+POLA_KECUALI='\.(example|sample|template|dist)$|\.example\.|README|\.md$'
 HASIL1=$(git ls-files | grep -iE "$POLA_NAMA" | grep -ivE "$POLA_KECUALI" || true)
 if [ -n "$HASIL1" ]; then
     while IFS= read -r f; do lapor "$f" "nama mencurigakan"; done <<< "$HASIL1"
@@ -48,7 +54,7 @@ echo
 echo "=== Lapis 2: isi berkas teks memuat kolom identitas pasien ==="
 # Hanya berkas teks tabular/terstruktur, dan hanya HEADER-nya yang dibaca — jangan
 # sampai pemeriksa ini sendiri menumpahkan isi PHI ke layar atau ke log CI.
-POLA_ISI='nama_pasien|no_rm|nomor_rm|nik_pasien|nomor_ktp|keluhan_utama|anamnesa|diagnosa'
+POLA_ISI='nama_pasien|no_rm|nomor_rm|nik_pasien|nomor_ktp|keluhan_utama|anamnesa|diagnosa|pseudonim|pid_map'
 ADA2=0
 while IFS= read -r f; do
     [ -f "$f" ] || continue
