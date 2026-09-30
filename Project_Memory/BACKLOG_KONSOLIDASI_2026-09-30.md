@@ -32,7 +32,7 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 | ID | Item | Catatan |
 |---|---|---|
 | **#51** | **SOAP basi menghapus racikan PENDING** | Satu-satunya yang bisa menghilangkan tagihan. Ditunda atas keputusan dr. Hansen; sekarang prioritas tertinggi |
-| — | **Racikan belum masuk laporan** apoteker & top-produk | Laporan menyesatkan: racikan tidak terlihat sama sekali |
+| ~~—~~ | ~~Racikan belum masuk laporan apoteker & top-produk~~ | **SELESAI 2026-09-30** (`a623e07`). Terbukti nyata: Cream K, Termisil cream, Nulyn 75mg tidak pernah muncul di top produk — hanya terpakai lewat racikan. Keputusan dr. Hansen: tampilkan dua-duanya, dipisah jelas. `qty_racikan` **tidak** dilebur ke `total_qty` (satuan berbeda) |
 | — | **Penggabungan pasien ganda** | Kembar 217/218 perlu dibersihkan, lalu pasang `UNIQUE INDEX ux_pasien_nomor_ktp`. Perlu desain terpisah |
 | **F3** | Snapshot line-item Finance | `transaksi_detail_tindakan` tak pernah ditulis; `hpp_satuan` kosong. Prasyarat modul Finance untuk margin/COGS |
 | — | Banner "Mode Ubah Konsul" menyesatkan untuk diagnosa | Kosmetik tapi membingungkan pengguna |
