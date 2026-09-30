@@ -1,5 +1,20 @@
 # Project Memory — Multi-AI Context Hub
 
+> ## ⚠ BACA `CLAUDE.md` DI AKAR REPO LEBIH DULU
+>
+> Dokumen ini terakhir diperbarui **5 Juni 2026** dan ditulis untuk skema
+> "multi-AI review" (Claude develop, GPT/Ollama review) yang **sudah tidak dipakai**.
+> Isinya masih berguna sebagai indeks, tapi sebagian keadaan di dalamnya sudah
+> kedaluwarsa — jumlah tabel, modul yang ada, dan status deploy sudah jauh berubah.
+>
+> **`/CLAUDE.md` yang berlaku** kalau keduanya berbeda. Di sana ada: cara menjalankan,
+> aturan kerja dr. Hansen, jebakan berulang, daftar pemeriksa otomatis, dan keadaan
+> terkini per 1 Oktober 2026.
+>
+> Yang di folder ini tetap otoritatif: `03_database_schema.md`, `05_coding_style.md`,
+> `06_business_logic.md`, `11_decisions_log.md`, dan seluruh `DESAIN_*.md`.
+
+
 **Project:** Sehati Clinic — eMR (Electronic Medical Record) + POS (Point of Sale)
 **Owner & Product Designer:** dr. Hansen Sudarma
 **Lead Programmer (current AI assistant):** Claude (Anthropic)
