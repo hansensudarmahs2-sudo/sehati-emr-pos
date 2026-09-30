@@ -63,3 +63,16 @@ cert.pem
 # Kalau baris ini hilang lagi, berkasnya akan ikut ter-commit pada `git add -A`.
 **/exports/
 seed_data/historical_excel/*.xlsx
+
+# ==== D2 higiene (2026-09-30) ====
+# Monolit legacy pra-refactor. MEMUAT KATA SANDI DB YANG MASIH DIPAKAI dan sudah
+# ter-commit sejak commit pertama — keputusan dr. Hansen: berkasnya dibuang dari
+# pelacakan, sandi TIDAK diganti, dan risikonya (sandi tetap terbaca di commit lama)
+# diterima karena repo privat. Kalau repo dibuka atau kolaborator ditambahkan,
+# TINJAU ULANG keputusan ini.
+Current python code main_api.txt
+# Arsip ZIP berisi salinan 221 berkas kode — menduplikasi kodebase, tak ada gunanya di git.
+ziFKtzj6
+# Folder & arsip template duplikat: punya .env sendiri (sandi sama) + dump SQL.
+sehati_clinic_template/
+sehati_clinic_template.zip
