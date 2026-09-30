@@ -119,6 +119,20 @@
                     <td class="py-2 px-3">
                         <div class="font-medium text-slate-800">{{ it.nama_produk }}</div>
                         <div class="text-xs text-slate-500 font-mono">{{ it.kode_produk }}</div>
+                        {# Pemakaian lewat racikan — SENGAJA tidak dijumlahkan ke kolom Qty.
+                           Satuannya beda (butir/gram vs satuan jual), angka gabungan akan
+                           menyesatkan. Lihat catatan di schemas/reports.py. #}
+                        {% if it.qty_racikan %}
+                        <div class="text-xs text-indigo-700 mt-0.5">
+                            ⚗️ dipakai racikan: <b>{{ "%g"|format(it.qty_racikan) }} {{ it.satuan_racikan }}</b>
+                            <span class="text-slate-500">({{ it.racikan_count }}×)</span>
+                            {% if it.hanya_dari_racikan %}
+                            <span class="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                                hanya lewat racikan
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </td>
                     <td class="py-2 px-3">
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ it.tipe_produk or "—" }}</span>
@@ -146,8 +160,57 @@
         </table>
     </div>
 
+    {# ===== Peringkat RACIKAN — bagian TERPISAH =====
+       Jangan dijumlahkan dengan tabel produk di atas: nominal racikan sudah memuat
+       bahan + ongkos racik, sedangkan nominal produk hanya penjualan langsung.
+       Menjumlahkannya menghitung bahan racikan dua kali. #}
+    {% if data.racikan %}
+    <div class="mt-8 bg-white rounded-xl shadow-sm border border-indigo-200 overflow-hidden">
+        <div class="px-4 py-3 bg-indigo-50 border-b border-indigo-200">
+            <h3 class="font-semibold text-slate-800">⚗️ Racikan paling sering diserahkan</h3>
+            <p class="text-xs text-slate-600 mt-0.5">
+                {{ data.total_racikan_batch }} batch ·
+                Rp {{ "{:,.0f}".format(data.total_nominal_racikan).replace(",", ".") }}
+                — <b>angka ini terpisah</b> dari tabel produk di atas, jangan dijumlahkan
+                (bahan racikan sudah termasuk di sini).
+            </p>
+        </div>
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                    <th class="text-left py-2 px-3 font-medium">#</th>
+                    <th class="text-left py-2 px-3 font-medium">Nama Racikan</th>
+                    <th class="text-left py-2 px-3 font-medium">Jenis</th>
+                    <th class="text-right py-2 px-3 font-medium">Batch</th>
+                    <th class="text-right py-2 px-3 font-medium">Total Unit</th>
+                    <th class="text-right py-2 px-3 font-medium">Kunjungan</th>
+                    <th class="text-right py-2 px-3 font-medium">Ongkos Racik</th>
+                    <th class="text-right py-2 px-3 font-medium">Nominal</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in data.racikan %}
+                <tr class="hover:bg-slate-50">
+                    <td class="py-2 px-3 font-mono text-sm text-slate-500">#{{ r.rank }}</td>
+                    <td class="py-2 px-3 font-medium text-slate-800">{{ r.nama }}</td>
+                    <td class="py-2 px-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">{{ r.jenis_racik }}</span>
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono font-semibold">{{ r.total_batch }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ r.total_unit }}</td>
+                    <td class="py-2 px-3 text-right font-mono">{{ r.total_unique_kunjungan }}</td>
+                    <td class="py-2 px-3 text-right font-mono text-xs text-slate-600">Rp {{ "{:,.0f}".format(r.total_biaya_racik).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right font-mono font-bold text-emerald-700">Rp {{ "{:,.0f}".format(r.total_nominal).replace(",", ".") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
     <div class="mt-4 text-xs text-slate-500 italic">
         💡 Kolom "Stok Now" merah = habis, kuning = di bawah avg harian. Pakai laporan ini untuk planning restock.
+        <br>⚗️ Bahan yang terpakai lewat racikan ditampilkan di bawah nama produk, <b>tidak</b> dijumlahkan ke kolom Qty — satuannya berbeda (butir/gram vs satuan jual).
     </div>
 </div>
 {% endblock %}

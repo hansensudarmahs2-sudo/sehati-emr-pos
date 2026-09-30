@@ -232,12 +232,18 @@ class VoidReportResponse(BaseModel):
 # #363B - Apoteker Resep Dispensed Report
 # =============================================================================
 class ApotekerDispensedItem(BaseModel):
-    """1 baris resep item yang diserahkan apoteker."""
+    """1 baris item yang diserahkan apoteker — obat jadi ATAU racikan."""
     id_kunjungan: int
-    id_resep: int
-    id_produk: int
-    kode_produk: str
+    # Racikan tidak punya id_resep/id_produk/kode_produk — ia bukan baris resep
+    # produk. Dibuat opsional (2026-09-30) alih-alih memalsukan nilai, supaya
+    # tidak ada id palsu yang menyesatkan saat ditelusuri.
+    id_resep: int | None = None
+    id_produk: int | None = None
+    kode_produk: str | None = None
+    # Untuk racikan: nama racikannya. `is_racikan` membedakannya di layar.
     nama_produk: str
+    is_racikan: bool = False
+    jenis_racik: str | None = None
     qty: float
     harga_satuan: float
     subtotal: float
@@ -357,6 +363,38 @@ class TopProdukItem(BaseModel):
     harga_satuan: float
     stok_terkini: float
 
+    # --- Pemakaian lewat RACIKAN (2026-09-30) -------------------------------
+    # SENGAJA tidak dilebur ke `total_qty`. `dipakai` pada bahan racikan
+    # bersatuan "butir" (mode MG) atau gram (mode GRAM), sedangkan `total_qty`
+    # bersatuan JUAL produk (strip, botol, tube). Menjumlahkannya menghasilkan
+    # angka yang terlihat rapi tapi tidak bermakna — dan laporan yang salah
+    # tapi meyakinkan lebih berbahaya daripada laporan yang tidak ada.
+    qty_racikan: float = 0
+    satuan_racikan: str | None = None      # "butir" / "gr" / satuan_isi produk
+    racikan_count: int = 0                 # berapa racikan memakai produk ini
+    nominal_racikan: float = 0
+    # True = produk ini TIDAK PERNAH terjual langsung dalam rentang ini, hanya
+    # terpakai sebagai bahan racikan. Sebelum ini ia hilang sama sekali dari
+    # laporan, sehingga terlihat seperti barang mati padahal stoknya terkuras.
+    hanya_dari_racikan: bool = False
+
+
+class TopRacikanItem(BaseModel):
+    """1 racikan dalam ranking — pertanyaan 'racikan mana yang sering diresepkan'.
+
+    Terpisah dari TopProdukItem karena racikan BUKAN produk: ia tidak punya
+    id_produk, stok, atau harga master. Menggabungkannya akan memaksa kolom
+    yang tidak berlaku.
+    """
+    rank: int
+    nama: str
+    jenis_racik: str
+    total_batch: int          # berapa kali racikan ini diserahkan
+    total_unit: int           # jumlah unit (kapsul/pot) seluruhnya
+    total_unique_kunjungan: int
+    total_nominal: float
+    total_biaya_racik: float  # bagian ongkos racik saja, tanpa bahan
+
 
 class TopProdukResponse(BaseModel):
     """Top N produk dispensed dalam rentang tanggal."""
@@ -372,6 +410,14 @@ class TopProdukResponse(BaseModel):
     total_nominal: float = 0
 
     items: list[TopProdukItem] = Field(default_factory=list)
+
+    # Peringkat racikan — bagian TERPISAH, jangan dijumlahkan dengan `items`.
+    # Nominal racikan sudah memuat bahan + ongkos racik, sedangkan nominal
+    # produk di `items` hanya penjualan langsung. Menjumlahkan keduanya
+    # menghitung bahan racikan dua kali.
+    racikan: list[TopRacikanItem] = Field(default_factory=list)
+    total_racikan_batch: int = 0
+    total_nominal_racikan: float = 0
 
 
 __all__ = [

@@ -145,11 +145,24 @@
                         <div class="text-xs text-slate-500 font-mono">{{ it.no_rm }}</div>
                     </td>
                     <td class="py-2 px-3">
-                        <div class="font-medium text-slate-800">{{ it.nama_produk }}</div>
+                        <div class="font-medium text-slate-800">
+                            {% if it.is_racikan %}⚗️ {% endif %}{{ it.nama_produk }}
+                        </div>
+                        {# Racikan tidak punya kode produk — ia bukan baris resep produk.
+                           Ditandai jenisnya supaya tidak dikira obat jadi. #}
+                        {% if it.is_racikan %}
+                        <div class="text-xs text-indigo-700">racikan · {{ it.jenis_racik }}</div>
+                        {% else %}
                         <div class="text-xs text-slate-500 font-mono">{{ it.kode_produk }}</div>
+                        {% endif %}
                     </td>
-                    <td class="py-2 px-3 text-right font-mono">{{ "%g"|format(it.qty) }}</td>
-                    <td class="py-2 px-3 text-right font-mono text-xs">Rp {{ "{:,.0f}".format(it.harga_satuan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right font-mono">
+                        {{ "%g"|format(it.qty) }}{% if it.is_racikan %} <span class="text-xs text-slate-500">unit</span>{% endif %}
+                    </td>
+                    <td class="py-2 px-3 text-right font-mono text-xs">
+                        {% if it.is_racikan %}<span class="text-slate-400">—</span>
+                        {% else %}Rp {{ "{:,.0f}".format(it.harga_satuan).replace(",", ".") }}{% endif %}
+                    </td>
                     <td class="py-2 px-3 text-right font-mono font-semibold">Rp {{ "{:,.0f}".format(it.subtotal).replace(",", ".") }}</td>
                     <td class="py-2 px-3 text-xs text-slate-600 max-w-xs truncate" title="{{ it.aturan_pakai }}">{{ it.aturan_pakai or "—" }}</td>
                     <td class="py-2 px-3 text-xs text-slate-700">{{ it.apoteker_nama }}</td>

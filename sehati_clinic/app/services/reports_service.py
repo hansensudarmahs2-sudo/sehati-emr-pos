@@ -956,6 +956,39 @@ class ReportsService:
                 resep_rows.append(_NS(**_r._mapping, id_staf_apoteker=_apt,
                                       waktu_serah=_wkt))
 
+        # Step 1c (2026-09-30): RACIKAN yang diserahkan. Sebelum ini laporan apoteker
+        # hanya membaca `kunjungan_resep`, sehingga penyerahan racikan tidak terlihat
+        # sama sekali — apoteker yang seharian meracik tampak tidak mengerjakan apa pun.
+        # Atribusinya memakai kolom yang sama (`id_staf_serah` / `waktu_serah`) yang
+        # memang sudah ada di `kunjungan_racikan` sejak task #54.
+        from types import SimpleNamespace as _NS2
+        from app.db.models.racikan import KunjunganRacikan as _KRC2
+        _racik_stmt = (
+            select(_KRC2, Pasien.no_rm, Pasien.nama.label("nama_pasien"))
+            .join(Kunjungan, Kunjungan.id_kunjungan == _KRC2.id_kunjungan)
+            .join(Pasien, Pasien.id_pasien == Kunjungan.id_pasien)
+            .where(_KRC2.status_item == "DISERAHKAN")
+            .where(_KRC2.waktu_serah.is_not(None))
+            .where(_KRC2.waktu_serah >= start_dt)
+            .where(_KRC2.waktu_serah <= end_dt)
+        )
+        if apoteker_id is not None:
+            _racik_stmt = _racik_stmt.where(_KRC2.id_staf_serah == apoteker_id)
+        for _rc, _norm, _nmpas in self.db.execute(_racik_stmt).all():
+            resep_rows.append(_NS2(
+                id_kunjungan=_rc.id_kunjungan,
+                id_resep=None, id_produk=None, kode_produk=None,
+                nama_produk=_rc.nama_snapshot,
+                # qty=1 supaya subtotal = harga_jual; harga_jual dipakai sebagai
+                # TOTAL racikan (bahan + ongkos racik) yang sudah terkunci.
+                qty=1, harga_jual=_rc.total,
+                aturan_pakai=_rc.aturan_pakai,
+                no_rm=_norm, nama_pasien=_nmpas,
+                id_staf_apoteker=_rc.id_staf_serah, waktu_serah=_rc.waktu_serah,
+                is_racikan=True, jenis_racik=_rc.jenis_racik,
+                jumlah_unit=int(_rc.jumlah_unit or 0),
+            ))
+
         if not resep_rows:
             return ApotekerDispensedResponse(
                 tgl_dari=tgl_dari, tgl_sampai=tgl_sampai,
@@ -991,13 +1024,18 @@ class ReportsService:
             harga = r.harga_jual if r.harga_jual is not None else Decimal(0)
             subtotal = qty * harga
 
+            _is_racik = bool(getattr(r, "is_racikan", False))
             all_items.append(ApotekerDispensedItem(
                 id_kunjungan=r.id_kunjungan,
                 id_resep=r.id_resep,
                 id_produk=r.id_produk,
                 kode_produk=r.kode_produk,
                 nama_produk=r.nama_produk,
-                qty=float(qty),
+                is_racikan=_is_racik,
+                jenis_racik=getattr(r, "jenis_racik", None),
+                # Racikan: tampilkan JUMLAH UNIT-nya (kapsul/pot), bukan qty=1 yang
+                # hanya alat hitung subtotal di atas.
+                qty=float(getattr(r, "jumlah_unit", 0) or 0) if _is_racik else float(qty),
                 harga_satuan=float(harga),
                 subtotal=float(subtotal),
                 aturan_pakai=r.aturan_pakai,
@@ -1284,15 +1322,33 @@ class ReportsService:
                 .where(KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR)
             ).scalars().all())
 
-        if not id_resep_serah:
-            return TopProdukResponse(
-                tgl_dari=tgl_dari, tgl_sampai=tgl_sampai,
-                limit=limit, sort_by=sort_by,
-                waktu_rekap=datetime.now(),
-                items=[],
-            )
+        # CATATAN (2026-09-30): dulu di sini ada `return items=[]` kalau tidak ada resep
+        # yang diserahkan. Itu ikut menyembunyikan RACIKAN — hari yang seluruh
+        # penyerahannya berupa racikan akan tampil sebagai laporan kosong. Sekarang
+        # agregasi produk dilewati, tapi racikan tetap dihitung di bawah.
+        rows = []
+        if id_resep_serah:
+            rows = self._agg_produk_dispensed(id_resep_serah)
 
-        # Step 2: Aggregate kunjungan_resep DIBAYAR per produk
+        items_raw, total_nominal_all, total_events = self._rakit_item_produk(rows)
+
+        # ---- RACIKAN (2026-09-30) -----------------------------------------
+        # Dua pertanyaan berbeda, dijawab terpisah:
+        #   (a) stok apa yang bergerak  → bahan racikan ditambahkan ke baris produk
+        #   (b) racikan mana yang laris → peringkat racikan tersendiri
+        items_raw, racikan_items, tot_batch, tot_nom_racik = self._tempel_racikan(
+            items_raw, start_dt, end_dt, limit)
+
+        return self._bungkus_top_produk(
+            tgl_dari, tgl_sampai, limit, sort_by, items_raw,
+            total_nominal_all, total_events,
+            racikan_items, tot_batch, tot_nom_racik)
+
+    def _agg_produk_dispensed(self, id_resep_serah):
+        """Agregasi kunjungan_resep yang DISERAHKAN per produk."""
+        from sqlalchemy import select, func
+        from app.db.models import KunjunganResep, MasterProduk
+
         agg_stmt = (
             select(
                 KunjunganResep.id_produk,
@@ -1318,9 +1374,11 @@ class ReportsService:
                 MasterProduk.stok_terkini,
             )
         )
-        rows = list(self.db.execute(agg_stmt).all())
+        return list(self.db.execute(agg_stmt).all())
 
-        # Build items + compute nominal
+    def _rakit_item_produk(self, rows):
+        """Baris agregasi → dict item + total nominal + jumlah event."""
+        from decimal import Decimal
         items_raw = []
         total_nominal_all = Decimal(0)  # A9: akumulasi Decimal
         total_events = 0
@@ -1345,8 +1403,119 @@ class ReportsService:
             })
             total_nominal_all += nominal
             total_events += int(r.dispensed_count or 0)
+        return items_raw, total_nominal_all, total_events
 
-        # Sort + rank
+    def _tempel_racikan(self, items_raw, start_dt, end_dt, limit):
+        """Tambahkan pemakaian bahan racikan ke baris produk + peringkat racikan.
+
+        Racikan yang dihitung: status DISERAHKAN dengan `waktu_serah` di rentang —
+        ukuran yang SAMA dengan resep produk, supaya keduanya bisa dibandingkan.
+
+        ⚠ `dipakai` TIDAK dijumlahkan ke `total_qty`. Satuannya berbeda: bahan racikan
+        dihitung dalam "butir" (mode MG) atau gram (mode GRAM), sedangkan `total_qty`
+        memakai satuan JUAL produk. Angka gabungan akan terlihat rapi dan menyesatkan.
+        """
+        from decimal import Decimal
+        from sqlalchemy import select, func
+        from app.db.models import MasterProduk
+        from app.db.models.racikan import KunjunganRacikan, KunjunganRacikanBahan
+        from app.schemas.reports import TopRacikanItem
+
+        head_ids = list(self.db.execute(
+            select(KunjunganRacikan.id_kunjungan_racikan)
+            .where(KunjunganRacikan.status_item == "DISERAHKAN")
+            .where(KunjunganRacikan.waktu_serah.is_not(None))
+            .where(KunjunganRacikan.waktu_serah >= start_dt)
+            .where(KunjunganRacikan.waktu_serah <= end_dt)
+        ).scalars().all())
+        if not head_ids:
+            return items_raw, [], 0, 0.0
+
+        # ---- (a) bahan racikan → menempel ke baris produk
+        bahan_rows = list(self.db.execute(
+            select(
+                KunjunganRacikanBahan.id_produk,
+                func.sum(KunjunganRacikanBahan.dipakai).label("dipakai"),
+                func.sum(KunjunganRacikanBahan.subtotal).label("nominal"),
+                func.count(KunjunganRacikanBahan.id_kunjungan_racikan_bahan).label("n"),
+                func.min(KunjunganRacikanBahan.satuan_dipakai).label("satuan"),
+                func.count(func.distinct(KunjunganRacikanBahan.satuan_dipakai)).label("n_satuan"),
+            )
+            .where(KunjunganRacikanBahan.id_kunjungan_racikan.in_(head_ids))
+            .group_by(KunjunganRacikanBahan.id_produk)
+        ).all())
+
+        by_id = {it["id_produk"]: it for it in items_raw}
+        for b in bahan_rows:
+            # Satu produk bisa terpakai dalam dua mode (butir & gram) di racikan
+            # berbeda. Menjumlahkannya jadi satu angka salah — tandai apa adanya.
+            _sat = b.satuan if int(b.n_satuan or 1) <= 1 else "campuran"
+            if b.id_produk in by_id:
+                it = by_id[b.id_produk]
+                it["qty_racikan"] = float(b.dipakai or 0)
+                it["satuan_racikan"] = _sat
+                it["racikan_count"] = int(b.n or 0)
+                it["nominal_racikan"] = float(b.nominal or 0)
+            else:
+                # Produk yang HANYA terpakai lewat racikan. Sebelum ini ia hilang
+                # sama sekali dari laporan — terlihat seperti barang mati padahal
+                # stoknya terkuras. Inilah inti keluhan "racikan tidak masuk laporan".
+                mp = self.db.get(MasterProduk, b.id_produk)
+                if mp is None:
+                    continue
+                _tipe = mp.tipe_produk.value if hasattr(mp.tipe_produk, "value") else (
+                    str(mp.tipe_produk) if mp.tipe_produk else None)
+                items_raw.append({
+                    "id_produk": mp.id_produk, "kode_produk": mp.kode_produk,
+                    "nama_produk": mp.nama_produk, "tipe_produk": _tipe,
+                    "satuan": mp.satuan, "total_qty": 0.0,
+                    "total_dispensed_count": 0, "total_unique_kunjungan": 0,
+                    "total_nominal": 0.0, "avg_qty_per_kunjungan": 0.0,
+                    "harga_satuan": float(mp.harga_jual or 0),
+                    "stok_terkini": float(mp.stok_terkini or 0),
+                    "qty_racikan": float(b.dipakai or 0), "satuan_racikan": _sat,
+                    "racikan_count": int(b.n or 0),
+                    "nominal_racikan": float(b.nominal or 0),
+                    "hanya_dari_racikan": True,
+                })
+
+        # ---- (b) peringkat racikan
+        rank_rows = list(self.db.execute(
+            select(
+                KunjunganRacikan.nama_snapshot,
+                KunjunganRacikan.jenis_racik,
+                func.count(KunjunganRacikan.id_kunjungan_racikan).label("batch"),
+                func.sum(KunjunganRacikan.jumlah_unit).label("unit"),
+                func.count(func.distinct(KunjunganRacikan.id_kunjungan)).label("kunj"),
+                func.sum(KunjunganRacikan.total).label("nominal"),
+                func.sum(KunjunganRacikan.biaya_racik).label("ongkos"),
+            )
+            .where(KunjunganRacikan.id_kunjungan_racikan.in_(head_ids))
+            .group_by(KunjunganRacikan.nama_snapshot, KunjunganRacikan.jenis_racik)
+            .order_by(func.count(KunjunganRacikan.id_kunjungan_racikan).desc())
+        ).all())
+
+        racikan_items, tot_batch, tot_nom = [], 0, Decimal(0)
+        for i, r in enumerate(rank_rows[:limit], start=1):
+            tot_batch += int(r.batch or 0)
+            tot_nom += Decimal(str(r.nominal or 0))
+            racikan_items.append(TopRacikanItem(
+                rank=i, nama=r.nama_snapshot, jenis_racik=r.jenis_racik,
+                total_batch=int(r.batch or 0), total_unit=int(r.unit or 0),
+                total_unique_kunjungan=int(r.kunj or 0),
+                total_nominal=float(r.nominal or 0),
+                total_biaya_racik=float(r.ongkos or 0),
+            ))
+        return items_raw, racikan_items, tot_batch, float(tot_nom)
+
+    def _bungkus_top_produk(self, tgl_dari, tgl_sampai, limit, sort_by, items_raw,
+                            total_nominal_all, total_events,
+                            racikan_items, tot_batch, tot_nom_racik):
+        from datetime import datetime
+        from app.schemas.reports import TopProdukItem, TopProdukResponse
+
+        # Produk yang hanya terpakai lewat racikan punya total_qty 0, jadi pada
+        # urutan "qty" ia tenggelam ke bawah. Itu disengaja — yang penting ia MUNCUL.
         sort_key = {
             "qty": lambda x: -x["total_qty"],
             "nominal": lambda x: -x["total_nominal"],
@@ -1354,10 +1523,8 @@ class ReportsService:
         }[sort_by]
         items_raw.sort(key=sort_key)
 
-        # Limit + assign rank
-        ranked = []
-        for i, it in enumerate(items_raw[:limit], start=1):
-            ranked.append(TopProdukItem(rank=i, **it))
+        ranked = [TopProdukItem(rank=i, **it)
+                  for i, it in enumerate(items_raw[:limit], start=1)]
 
         return TopProdukResponse(
             tgl_dari=tgl_dari,
@@ -1369,4 +1536,7 @@ class ReportsService:
             total_dispensing_events=total_events,
             total_nominal=float(total_nominal_all),
             items=ranked,
+            racikan=racikan_items,
+            total_racikan_batch=tot_batch,
+            total_nominal_racikan=tot_nom_racik,
         )

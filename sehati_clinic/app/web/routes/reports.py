@@ -758,16 +758,21 @@ def reports_apoteker_dispensed_csv(
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=",", quoting=csv.QUOTE_MINIMAL)
+    # `jenis` membedakan obat jadi dari racikan. Untuk racikan, `kode_produk`
+    # kosong dan `harga_satuan` tidak berlaku — subtotal-nya adalah TOTAL racikan
+    # (bahan + ongkos racik) yang sudah terkunci saat diresepkan.
     writer.writerow([
-        "waktu_serah", "no_rm", "nama_pasien", "kode_produk", "nama_produk",
+        "waktu_serah", "jenis", "no_rm", "nama_pasien", "kode_produk", "nama_produk",
         "qty", "harga_satuan", "subtotal", "aturan_pakai",
         "apoteker_id", "apoteker_nama", "id_kunjungan",
     ])
     for it in data.items:
         writer.writerow([
             it.waktu_serah.isoformat() if it.waktu_serah else "",
-            it.no_rm, it.nama_pasien, it.kode_produk, it.nama_produk,
-            it.qty, it.harga_satuan, it.subtotal, it.aturan_pakai or "",
+            (f"RACIKAN/{it.jenis_racik}" if it.is_racikan else "OBAT"),
+            it.no_rm, it.nama_pasien, it.kode_produk or "", it.nama_produk,
+            it.qty, ("" if it.is_racikan else it.harga_satuan), it.subtotal,
+            it.aturan_pakai or "",
             it.id_staf_apoteker, it.apoteker_nama, it.id_kunjungan,
         ])
 
@@ -1067,17 +1072,41 @@ def reports_top_produk_csv(
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=",", quoting=csv.QUOTE_MINIMAL)
+    # Kolom racikan ikut diekspor. `qty_racikan` SENGAJA kolom sendiri dengan
+    # satuannya — jangan dijumlahkan dengan `total_qty` di spreadsheet, satuannya
+    # berbeda (butir/gram vs satuan jual).
     writer.writerow([
         "rank", "kode_produk", "nama_produk", "tipe_produk", "satuan",
         "total_qty", "total_dispensed_count", "total_unique_kunjungan",
         "avg_qty_per_kunjungan", "harga_satuan", "total_nominal", "stok_terkini",
+        "qty_racikan", "satuan_racikan", "racikan_count", "nominal_racikan",
+        "hanya_dari_racikan",
     ])
     for it in data.items:
         writer.writerow([
             it.rank, it.kode_produk, it.nama_produk, it.tipe_produk or "", it.satuan,
             it.total_qty, it.total_dispensed_count, it.total_unique_kunjungan,
             round(it.avg_qty_per_kunjungan, 2), it.harga_satuan, it.total_nominal, it.stok_terkini,
+            it.qty_racikan, it.satuan_racikan or "", it.racikan_count, it.nominal_racikan,
+            "YA" if it.hanya_dari_racikan else "",
         ])
+
+    # Peringkat racikan disusulkan sebagai blok terpisah di CSV yang sama, dengan
+    # baris kosong + judul sebagai pemisah. Alasannya sama dengan di layar:
+    # nominal racikan sudah memuat bahan, jadi tidak boleh dijumlahkan dengan
+    # blok produk di atas.
+    if data.racikan:
+        writer.writerow([])
+        writer.writerow(["RACIKAN — blok terpisah, JANGAN dijumlahkan dengan blok produk di atas"])
+        writer.writerow([
+            "rank", "nama_racikan", "jenis_racik", "total_batch", "total_unit",
+            "total_unique_kunjungan", "total_biaya_racik", "total_nominal",
+        ])
+        for r in data.racikan:
+            writer.writerow([
+                r.rank, r.nama, r.jenis_racik, r.total_batch, r.total_unit,
+                r.total_unique_kunjungan, r.total_biaya_racik, r.total_nominal,
+            ])
 
     output.seek(0)
     filename = f"top_produk_{tgl_dari_d.isoformat()}_{tgl_sampai_d.isoformat()}.csv"
