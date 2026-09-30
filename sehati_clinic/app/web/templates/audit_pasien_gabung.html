@@ -1,0 +1,224 @@
+{% extends "_app.html" %}
+{% block title %}Pratinjau Penggabungan Pasien{% endblock %}
+{% block page_title %}🔗 Pratinjau Penggabungan Pasien{% endblock %}
+
+{#
+  Halaman ini ADALAH jaring pengamannya.
+
+  [Keputusan dr. Hansen 2026-09-30] penggabungan satu arah, tanpa undo, dan
+  pengamannya catatan kertas: "setiap penggabungan pasien akan ada pencatatan
+  manual dengan kertas dan pena. baik dari id, transaksi id, nomor nota."
+
+  Karena itu angka-angka yang harus disalin ditampilkan BESAR, font mono, dan
+  bisa dicetak (Ctrl+P) — bukan disembunyikan di balik tooltip atau modal.
+  Kalau bagian ini dipangkas, SOP kertas mustahil dijalankan dan penggabungan
+  jadi operasi tak-berbalik tanpa pengaman apa pun.
+
+  Kelas Tailwind di sini HARUS statis — Tailwind di proyek ini dikompilasi
+  lebih dulu, nama kelas yang dibangun dinamis tidak akan punya CSS.
+#}
+
+{% block page_content %}
+<div class="max-w-4xl">
+
+  {% if err %}
+  <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">
+    ⚠ {{ err }}
+  </div>
+  {% endif %}
+
+  <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-sm text-amber-900">
+    <div class="font-semibold">Penggabungan ini TIDAK BISA DIBATALKAN.</div>
+    <div class="mt-1">
+      Riwayat akan dipindahkan, bukan ditandai. Nota lama yang sudah tercetak
+      memuat nama pasien duplikat tidak lagi cocok dengan datanya.
+      <b>Catat dulu angka-angka di bawah dengan kertas dan pena</b> — atau cetak
+      halaman ini (Ctrl+P) — sebelum menekan tombol.
+    </div>
+  </div>
+
+  {# ---------- SIAPA ke SIAPA ---------- #}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+    <div class="border-2 border-red-200 rounded-lg p-3 bg-red-50">
+      <div class="text-xs font-semibold text-red-700 uppercase tracking-wide">
+        Duplikat — akan dinonaktifkan
+      </div>
+      <div class="mt-1 font-semibold text-slate-800">{{ pra.duplikat.nama }}</div>
+      <dl class="mt-2 text-sm space-y-1">
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">No RM</dt>
+          <dd class="font-mono font-bold text-base">{{ pra.duplikat.no_rm }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">id_pasien</dt>
+          <dd class="font-mono font-bold text-base">{{ pra.duplikat.id_pasien }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">NIK</dt>
+          <dd class="font-mono">{{ pra.duplikat.nik }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">Tgl lahir</dt>
+          <dd>{{ pra.duplikat.tgl_lahir or "—" }}</dd></div>
+      </dl>
+      <a href="/web/pasien/{{ pra.duplikat.id_pasien }}" target="_blank"
+         class="mt-2 inline-block text-xs text-blue-600 hover:underline">buka rekam →</a>
+    </div>
+
+    <div class="border-2 border-emerald-200 rounded-lg p-3 bg-emerald-50">
+      <div class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+        Bertahan — riwayat pindah ke sini
+      </div>
+      <div class="mt-1 font-semibold text-slate-800">{{ pra.bertahan.nama }}</div>
+      <dl class="mt-2 text-sm space-y-1">
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">No RM</dt>
+          <dd class="font-mono font-bold text-base">{{ pra.bertahan.no_rm }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">id_pasien</dt>
+          <dd class="font-mono font-bold text-base">{{ pra.bertahan.id_pasien }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">NIK</dt>
+          <dd class="font-mono">{{ pra.bertahan.nik }}</dd></div>
+        <div class="flex gap-2"><dt class="w-24 text-slate-500">Tgl lahir</dt>
+          <dd>{{ pra.bertahan.tgl_lahir or "—" }}</dd></div>
+      </dl>
+      <a href="/web/pasien/{{ pra.bertahan.id_pasien }}" target="_blank"
+         class="mt-2 inline-block text-xs text-blue-600 hover:underline">buka rekam →</a>
+    </div>
+  </div>
+
+  {# ---------- PENGHALANG ---------- #}
+  {% if pra.penghalang %}
+  <div class="mb-4 p-3 rounded-lg bg-red-100 border-2 border-red-300 text-sm text-red-900">
+    <div class="font-semibold">⛔ Tidak bisa digabungkan sekarang:</div>
+    <ul class="mt-1 list-disc list-inside space-y-1">
+      {% for p in pra.penghalang %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if pra.catatan %}
+  <div class="mb-4 p-3 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-900">
+    {% for c in pra.catatan %}<div>ℹ {{ c }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {# ---------- BERAPA BARIS PER TABEL ---------- #}
+  <div class="mb-4 border border-slate-200 rounded-lg overflow-hidden">
+    <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-sm font-semibold text-slate-700">
+      Yang akan dipindahkan — {{ pra.total_baris }} baris
+    </div>
+    <table class="w-full text-sm">
+      <tbody>
+        {% for b in pra.baris %}
+        <tr class="border-b border-slate-100 {% if b.jumlah == 0 %}text-slate-400{% endif %}">
+          <td class="px-3 py-1.5">{{ b.label }}</td>
+          <td class="px-3 py-1.5 font-mono text-xs text-slate-400">{{ b.tabel }}</td>
+          <td class="px-3 py-1.5 text-right font-mono font-semibold w-20">{{ b.jumlah }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="bg-slate-50 font-semibold">
+          <td class="px-3 py-2" colspan="2">Total</td>
+          <td class="px-3 py-2 text-right font-mono">{{ pra.total_baris }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {# ---------- ANGKA UNTUK CATATAN KERTAS ---------- #}
+  <div class="mb-4 border-2 border-slate-300 rounded-lg overflow-hidden">
+    <div class="px-3 py-2 bg-slate-100 border-b border-slate-300 text-sm font-semibold text-slate-800">
+      ✍ Salin ke catatan kertas — {{ pra.transaksi|length }} transaksi
+    </div>
+    {% if pra.transaksi %}
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500 border-b border-slate-200">
+        <tr>
+          <th class="px-3 py-1.5 text-left">id_transaksi</th>
+          <th class="px-3 py-1.5 text-left">Nomor nota</th>
+          <th class="px-3 py-1.5 text-left">Waktu bayar</th>
+          <th class="px-3 py-1.5 text-right">Total</th>
+          <th class="px-3 py-1.5 text-left">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in pra.transaksi %}
+        <tr class="border-b border-slate-100">
+          <td class="px-3 py-1.5 font-mono font-semibold">{{ t.id_transaksi }}</td>
+          <td class="px-3 py-1.5 font-mono">{{ t.no_nota }}</td>
+          <td class="px-3 py-1.5 text-xs">{{ t.waktu_bayar or "—" }}</td>
+          <td class="px-3 py-1.5 text-right font-mono">{{ "{:,.0f}".format(t.total) }}</td>
+          <td class="px-3 py-1.5 text-xs">{{ t.status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="px-3 py-3 text-sm text-slate-500">
+      Tidak ada transaksi pada pasien duplikat — tidak ada nomor nota yang perlu dicatat.
+    </div>
+    {% endif %}
+  </div>
+
+  {# ---------- EKSEKUSI ---------- #}
+  {% if pra.bisa_digabung %}
+  <form method="POST" action="/web/audit-pasien/gabung"
+        class="border-2 border-red-300 rounded-lg p-4 bg-white"
+        onsubmit="var a=this.querySelector('input[name=alasan]');
+                  if(!a.value.trim()){alert('Tulis alasan penggabungan — ini menyatukan rekam medis dua identitas dan tidak bisa dibatalkan.');a.focus();return false;}
+                  var c=this.querySelector('input[name=konfirmasi_rm]');
+                  if(c.value.trim().toUpperCase()!=='{{ pra.duplikat.no_rm|upper }}'){alert('Nomor RM yang diketik tidak sama dengan {{ pra.duplikat.no_rm }}.');c.focus();return false;}
+                  if(!this.querySelector('input[name=dicatat]').checked){alert('Centang dulu bahwa nomornya sudah dicatat di kertas.');return false;}
+                  return confirm('GABUNGKAN {{ pra.duplikat.nama|e }} ({{ pra.duplikat.no_rm }}) ke {{ pra.bertahan.nama|e }} ({{ pra.bertahan.no_rm }})?\n\n{{ pra.total_baris }} baris riwayat akan DIPINDAHKAN.\n\nTIDAK ADA UNDO. Salah gabung hanya bisa diperbaiki manual lewat database, memakai catatan kertas Anda.');">
+    {{ csrf_input(request) }}
+    <input type="hidden" name="id_duplikat" value="{{ pra.duplikat.id_pasien }}">
+    <input type="hidden" name="id_bertahan" value="{{ pra.bertahan.id_pasien }}">
+
+    <div class="text-sm font-semibold text-red-800 mb-3">Konfirmasi penggabungan</div>
+
+    <label class="block mb-3">
+      <span class="block text-xs font-medium text-slate-600 mb-1">
+        Alasan penggabungan (wajib — tercatat di audit log)
+      </span>
+      <input type="text" name="alasan" maxlength="200" required
+             placeholder="mis. pasien mendaftar dua kali, KTP baru terbawa saat kunjungan kedua"
+             class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+    </label>
+
+    <label class="block mb-3">
+      <span class="block text-xs font-medium text-slate-600 mb-1">
+        Ketik nomor RM pasien yang digabungkan:
+        <b class="font-mono">{{ pra.duplikat.no_rm }}</b>
+      </span>
+      <input type="text" name="konfirmasi_rm" required autocomplete="off"
+             placeholder="{{ pra.duplikat.no_rm }}"
+             class="w-full md:w-64 border border-slate-300 rounded px-2 py-1.5 text-sm font-mono">
+    </label>
+
+    <label class="flex items-start gap-2 mb-4 text-sm text-slate-700">
+      <input type="checkbox" name="dicatat" value="1" required class="mt-0.5">
+      <span>
+        Saya sudah mencatat <b>id pasien, id transaksi, dan nomor nota</b> di atas
+        pada catatan kertas. Saya paham penggabungan ini tidak bisa dibatalkan.
+      </span>
+    </label>
+
+    <div class="flex items-center gap-2">
+      <button type="submit"
+              class="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded hover:bg-red-700">
+        🔗 Gabungkan sekarang
+      </button>
+      <a href="/web/audit-pasien"
+         class="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded hover:bg-slate-200">
+        Batal
+      </a>
+      <button type="button" onclick="window.print()"
+              class="px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded hover:bg-slate-200">
+        🖨 Cetak halaman ini
+      </button>
+    </div>
+  </form>
+  {% else %}
+  <div class="flex items-center gap-2">
+    <a href="/web/audit-pasien"
+       class="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded hover:bg-slate-200">
+      ← Kembali ke audit pasien
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

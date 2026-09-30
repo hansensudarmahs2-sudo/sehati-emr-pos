@@ -108,6 +108,15 @@
               ⛔ Nonaktifkan ini
             </button>
           </form>
+          {# GABUNG: sengaja TAUTAN ke halaman pratinjau, bukan tombol aksi.
+             Penggabungan memindahkan riwayat dan TIDAK BISA DIBATALKAN — satu
+             klik salah di daftar yang penuh pasangan akan menyatukan rekam medis
+             dua orang tanpa jalan pulang. Jadi di sini hanya membuka pratinjau;
+             angka yang harus dicatat dan konfirmasinya ada di halaman itu. #}
+          <a href="/web/audit-pasien/gabung?duplikat={{ p.id_pasien }}&bertahan={{ lawan.id_pasien }}"
+             class="mt-1 inline-block px-2 py-1 text-xs bg-amber-50 text-amber-800 rounded hover:bg-amber-100 whitespace-nowrap">
+            🔗 Gabungkan ini → {{ lawan.no_rm }}
+          </a>
           <dl class="mt-2 text-xs text-slate-600 space-y-0.5">
             <div class="flex gap-2"><dt class="w-20 text-slate-400">NIK</dt><dd class="font-mono">{{ p.nomor_ktp or "—" }}</dd></div>
             <div class="flex gap-2"><dt class="w-20 text-slate-400">Tgl lahir</dt><dd>{{ p.tgl_lahir or "—" }}</dd></div>

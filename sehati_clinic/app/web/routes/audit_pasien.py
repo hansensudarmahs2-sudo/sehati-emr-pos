@@ -9,9 +9,14 @@ Role: Owner / Superadmin saja. Ini alat maintenance, bukan meja pendaftaran —
 layarnya menampilkan data beberapa pasien berdampingan untuk dibandingkan, jadi
 semakin sedikit yang bisa membukanya semakin baik.
 
-TIDAK ADA aksi gabung/hapus di sini. Menggabungkan pasien memindahkan kunjungan,
-transaksi, membership, alergi dan riwayat penyakit; kalau salah, rekam medis dua
-orang tercampur. Itu modul terpisah yang belum dibangun.
+- GET  /web/audit-pasien/gabung            - PRATINJAU penggabungan (murni baca)
+- POST /web/audit-pasien/gabung            - EKSEKUSI penggabungan (SATU ARAH)
+
+⚠ Penggabungan memindahkan kunjungan, transaksi, membership, alergi dan riwayat
+  penyakit, dan TIDAK BISA DIBATALKAN. Karena itu ia dipisah jadi dua langkah:
+  pratinjau (halaman sendiri, bisa dicetak Ctrl+P untuk catatan kertas) lalu
+  eksekusi. Tombolnya TIDAK pernah ada langsung di daftar kandidat — satu klik
+  salah di sana akan menggabungkan rekam medis dua orang tanpa jalan pulang.
 """
 from urllib.parse import quote
 
@@ -149,6 +154,107 @@ async def audit_pasien_aktifkan(request: Request, db: DbSession):
                                 status_code=status.HTTP_303_SEE_OTHER)
     return RedirectResponse(
         url=f"/web/audit-pasien?ok={quote(hasil.get('message', 'Diaktifkan.'))}",
+        status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ======================================================================
+# PENGGABUNGAN — dua langkah, karena tidak bisa dibatalkan
+# ======================================================================
+@router.get("/audit-pasien/gabung", response_class=HTMLResponse)
+def audit_pasien_gabung_pratinjau(request: Request, db: DbSession,
+                                  duplikat: str = "", bertahan: str = ""):
+    """Halaman pratinjau. MURNI BACA — tidak mengubah apa pun.
+
+    Sengaja halaman penuh, bukan modal atau fragmen HTMX: angka-angka di sini
+    harus bisa DICETAK (Ctrl+P) atau disalin ke catatan kertas, dan itu satu-
+    satunya jaring pengaman penggabungan. Modal yang hilang begitu diklik tidak
+    bisa dipakai menjalankan SOP kertas.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return login_redirect()
+    if not _can(user):
+        return forbidden("Penggabungan pasien hanya untuk Owner / Superadmin.")
+    try:
+        id_dup = int((duplikat or "").strip())
+        id_srv = int((bertahan or "").strip())
+    except (TypeError, ValueError):
+        return RedirectResponse(
+            url=f"/web/audit-pasien?err={quote('Pasangan pasien tidak dikenali.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        pra = AuditPasienService(db).pratinjau_gabung(id_dup, id_srv)
+    except HTTPException as e:
+        return RedirectResponse(url=f"/web/audit-pasien?err={quote(str(e.detail))}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/audit-pasien",
+        page_subtitle="Pratinjau Penggabungan Pasien",
+        pra=pra,
+        err=request.query_params.get("err"),
+    )
+    return templates.TemplateResponse(request, "audit_pasien_gabung.html", ctx)
+
+
+@router.post("/audit-pasien/gabung", response_class=HTMLResponse)
+async def audit_pasien_gabung(request: Request, db: DbSession):
+    """Eksekusi penggabungan. SATU ARAH, tanpa undo.
+
+    Dua pagar di sisi server — bukan cuma di JavaScript, karena JS bisa dilewati:
+      1. `konfirmasi_rm` harus SAMA PERSIS dengan no_rm pasien duplikat. Ini
+         memaksa petugas membaca nomor yang harus dicatat, dan menangkap klik
+         di baris yang salah.
+      2. `dicatat` harus tercentang — pernyataan bahwa angkanya sudah masuk
+         catatan kertas. Bukan formalitas: sesudah ini jejaknya sudah pindah.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return login_redirect()
+    if not _can(user):
+        return forbidden("Tidak berhak.")
+    f = await request.form()
+    try:
+        id_dup = int((f.get("id_duplikat") or "").strip())
+        id_srv = int((f.get("id_bertahan") or "").strip())
+    except (TypeError, ValueError):
+        return RedirectResponse(
+            url=f"/web/audit-pasien?err={quote('Pasangan pasien tidak dikenali.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
+    kembali = f"/web/audit-pasien/gabung?duplikat={id_dup}&bertahan={id_srv}"
+
+    def _tolak(pesan: str):
+        return RedirectResponse(url=f"{kembali}&err={quote(pesan)}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+
+    if not (f.get("dicatat") or "").strip():
+        return _tolak("Centang dulu bahwa nomor-nomornya sudah dicatat di kertas — "
+                      "setelah digabung, jejaknya sudah pindah dan tidak ada undo.")
+
+    svc = AuditPasienService(db)
+    try:
+        pra = svc.pratinjau_gabung(id_dup, id_srv)
+    except HTTPException as e:
+        return RedirectResponse(url=f"/web/audit-pasien?err={quote(str(e.detail))}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+
+    diketik = (f.get("konfirmasi_rm") or "").strip()
+    rm_asli = pra["duplikat"]["no_rm"] or ""
+    if diketik.upper() != rm_asli.upper():
+        return _tolak(f"Nomor RM yang diketik ('{diketik}') tidak sama dengan RM "
+                      f"pasien yang akan digabungkan ('{rm_asli}'). Periksa lagi — "
+                      f"pagar ini ada supaya baris yang salah tidak ikut tergabung.")
+
+    try:
+        hasil = svc.gabungkan(
+            id_duplikat=id_dup, id_bertahan=id_srv,
+            alasan=f.get("alasan") or "", actor_id_staf=user.id_staf,
+            request=request)
+    except HTTPException as e:
+        return _tolak(str(e.detail))
+
+    return RedirectResponse(
+        url=f"/web/audit-pasien?ok={quote(hasil.get('message', 'Digabungkan.'))}",
         status_code=status.HTTP_303_SEE_OTHER)
 
 

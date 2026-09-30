@@ -23,7 +23,20 @@ tidak merusak jurnal apa pun.
 - Tanpa migrasi · tanpa risiko uang · bisa selesai dalam satu langkah
 - Periksa juga: siapa yang boleh menjalankan ekspor finance sekarang
 
-### ⬛ 2. Penggabungan pasien ganda + `UNIQUE INDEX` KTP
+### ✅ 2. Penggabungan pasien ganda + `UNIQUE INDEX` KTP — **SELESAI 2026-09-30**
+
+Dibangun & diuji (dev): `cek_gabung_pasien.py` 19/19, `cek_nik.py` 8/8, uji UI 6/6.
+**Belum di-deploy ke mini PC.** Lihat `DESAIN_GABUNG_PASIEN.md`.
+
+Dua hal berubah dari rencana awal:
+- **`UNIQUE INDEX` ternyata sudah terpasang** sejak migrasi `20260917_0100` — bukan
+  pekerjaan baru. Yang justru ditemukan: `nomor_ktp` tanpa validasi bentuk, dan satu
+  baris ber-NIK `'0'` yang MENGUNCI slot unique index sehingga pasien kedua tanpa KTP
+  ditolak. Dibereskan lewat normalisasi lunak + migrasi `20260930_0100`.
+- **"Kembar 217/218" kedaluwarsa** — pasien itu ikut terhapus saat DB di-wipe 18 Sep.
+  Yang dibangun adalah kemampuannya, sebelum data pasien asli masuk.
+
+<details><summary>rencana awal (arsip)</summary>
 
 **Kenapa sebelum clinical pack:** `pasien.digabung_ke_id_pasien` menentukan pseudonim.
 Kalau paket klinis dibuat sebelum penggabungan beres, satu orang yang tercatat dua kali
@@ -33,6 +46,8 @@ kontrolnya terputus, dan **tidak ada gejala apa pun** bahwa itu terjadi.
 - Kembar 217/218 dibereskan dulu, baru pasang `ux_pasien_nomor_ktp`
 - **Perlu desain terpisah** — penggabungan menyentuh kunjungan, transaksi, komisi
 - ⚠ Migrasi (unique index) → **minta persetujuan**
+
+</details>
 
 ### ⬛ 3. Clinical pack ber-PII-mask
 

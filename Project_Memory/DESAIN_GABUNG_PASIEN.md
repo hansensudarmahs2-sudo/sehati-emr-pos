@@ -1,7 +1,28 @@
 # DESAIN — Penggabungan pasien ganda
 
-Tanggal: 2026-09-30. Status: **rancangan, belum dibangun.** Langkah 2 dari
-`RENCANA_KERJA_2026-09-30.md`.
+Tanggal: 2026-09-30. Status: **DIBANGUN & DIUJI.** Langkah 2 dari
+`RENCANA_KERJA_2026-09-30.md`. Belum di-deploy ke mini PC.
+
+## 0. Yang sudah jadi
+
+| Berkas | Isi |
+|---|---|
+| `app/services/audit_pasien_service.py` | `TABEL_PINDAH` (13), `TABEL_DIKECUALIKAN`, `_pagar_gabung`, `_hitung_baris`, `pratinjau_gabung`, `gabungkan` |
+| `app/web/routes/audit_pasien.py` | `GET /web/audit-pasien/gabung` (pratinjau), `POST` (eksekusi) |
+| `app/web/templates/audit_pasien_gabung.html` | halaman pratinjau, bisa dicetak |
+| `app/web/templates/audit_pasien_list.html` | tautan masuk (bukan tombol aksi) |
+| `scripts/cek_gabung_pasien.py` | **19/19 lulus** — termasuk gerbang registry |
+
+Uji UI dr. Hansen: **6/6 lulos**, termasuk penolakan RM salah dan verifikasi
+riwayat menyatu di pasien yang bertahan.
+
+Tiga pagar di sisi SERVER (bukan cuma JavaScript, karena JS bisa dilewati):
+alasan wajib, `konfirmasi_rm` harus sama persis dengan no_rm duplikat, dan
+centang "sudah dicatat di kertas". Ditambah **jaring pengaman pasca-pemindahan**:
+sesudah UPDATE tapi SEBELUM commit, `_hitung_baris(duplikat)` harus nol — kalau
+tidak, seluruh transaksi dibatalkan dengan pesan yang menyebut tabel mana yang
+tertinggal. Itu yang menangkap tabel yang belum terdaftar **saat kejadian**,
+bukan berbulan-bulan kemudian lewat laporan yang ganjil.
 
 ---
 
