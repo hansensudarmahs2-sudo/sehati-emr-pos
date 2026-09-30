@@ -35,6 +35,7 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 | ~~—~~ | ~~Racikan belum masuk laporan apoteker & top-produk~~ | **SELESAI 2026-09-30** (`a623e07`). Terbukti nyata: Cream K, Termisil cream, Nulyn 75mg tidak pernah muncul di top produk — hanya terpakai lewat racikan. Keputusan dr. Hansen: tampilkan dua-duanya, dipisah jelas. `qty_racikan` **tidak** dilebur ke `total_qty` (satuan berbeda) |
 | — | **Penggabungan pasien ganda** | Kembar 217/218 perlu dibersihkan, lalu pasang `UNIQUE INDEX ux_pasien_nomor_ktp`. Perlu desain terpisah |
 | **F3** | Snapshot line-item Finance | `transaksi_detail_tindakan` tak pernah ditulis; `hpp_satuan` kosong. Prasyarat modul Finance untuk margin/COGS |
+| — | **Laporan kasus terbanyak (top diagnosa)** | [dr. Hansen 2026-09-30] *"icd sudah ada, diagnosa internal sudah ada, yang belum ada adalah laporan kasus terbanyak baik estetik maupun medis."* Datanya SUDAH tersedia di `kunjungan_diagnosa` (`sistem_snapshot` = ICD10/ESTETIK, `kode_snapshot`, `nama_snapshot`, `is_primer`) — **tidak butuh migrasi**. Dipisah dua bagian: medis (ICD10) & estetik (JD-xxx). **Perlu diputuskan lebih dulu:** hitung SEMUA diagnosa per kunjungan, atau hanya yang `is_primer`? Pasien dengan 3 diagnosa akan terhitung 3 kali kalau semua dipakai — angkanya jadi jawaban atas pertanyaan yang berbeda |
 | — | Banner "Mode Ubah Konsul" menyesatkan untuk diagnosa | Kosmetik tapi membingungkan pengguna |
 
 ## 3. Higiene & utang teknis
