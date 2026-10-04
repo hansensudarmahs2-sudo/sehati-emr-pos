@@ -1788,6 +1788,7 @@ class KasirService:
             lot_ed = None
             restored = []
             remaining = qty
+            qty_tanpa_jejak = 0.0
             if transaksi.id_kunjungan:
                 # Task #54: jejak disaring per ASAL. Tanpa ini, produk yang dijual biasa
                 # DAN dipakai sebagai bahan racikan di kunjungan yang sama akan berbagi
@@ -1833,6 +1834,32 @@ class KasirService:
                 # Sepenuhnya dipulihkan ke lot asli.
                 lot_batch = "ASLI"
                 lot_desc = "; ".join(restored)
+            elif per_item:
+                # TEMUAN 30 — JANGAN membuatkan lot untuk qty yang tidak punya jejak.
+                #
+                # Di skema per-item, `serahkan_obat` SELALU menulis jejak
+                # `kunjungan_lot_terpakai` untuk setiap lot yang benar-benar dipotong
+                # (`apotek_service._rekam_lot_terpakai`). Jadi qty tanpa jejak di sini
+                # bukan berarti "jejaknya belum ada", melainkan "lotnya TIDAK PERNAH
+                # keluar": penyerahan tetap berhasil walau stok kurang, karena stok
+                # minus memang sengaja diizinkan (`apotek_repo.py:193`).
+                #
+                # Membuatkan lot 'VOID-RETURN' untuk qty itu memasukkan barang yang tak
+                # pernah ada ke rak, dan FEFO akan membagikannya ke pasien berikutnya.
+                # `DISERAHKAN` tidak boleh dipakai sebagai bukti bahwa lot sudah keluar
+                # — jejak lot yang jadi buktinya.
+                #
+                # `stok_terkini` tetap dikembalikan PENUH (di atas), karena serah juga
+                # memotongnya penuh. Dengan begitu cache dan SUM(qty_sisa) sama-sama
+                # kembali ke keadaan sebelum serah — persis, termasuk pada serah yang
+                # hanya sebagian terpenuhi lot.
+                qty_tanpa_jejak = remaining if restored else qty
+                lot_batch = "TANPA-JEJAK"
+                lot_desc = (
+                    (("; ".join(restored) + "; ") if restored else "")
+                    + f"{qty_tanpa_jejak:g} TANPA jejak lot \u2014 tidak dibuatkan lot "
+                    "retur (lot aslinya tidak pernah keluar saat serah)"
+                )
             else:
                 # Sisa (atau seluruhnya bila tak ada jejak) → jalur lama: lot pilihan / VOID-RETURN.
                 sisa_qty = remaining if restored else qty
@@ -1869,6 +1896,9 @@ class KasirService:
                     "lot_tujuan": lot_desc,
                     "batch_no": lot_batch,
                     "tgl_ed": lot_ed,
+                    # Temuan 30: terbaca sebagai angka supaya bisa dicari lewat SQL,
+                    # bukan hanya terbaca manusia di `lot_tujuan`.
+                    "qty_tanpa_jejak": qty_tanpa_jejak,
                 },
                 request=request,
             )

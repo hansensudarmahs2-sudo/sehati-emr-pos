@@ -2042,6 +2042,81 @@ berasal dari percobaan kedua dengan satu lot nyata berisi 10, sehingga kaki B te
 mengonsumsi lot secara sah dan kaki A terbukti tidak. Seluruh data uji (`UJI-P18`, 4
 kunjungan) sudah dihapus; `master_produk` kini nol baris berstok negatif.
 
+### ✅ DIPERBAIKI 2026-10-04 — void tidak lagi menciptakan barang fantom
+
+**Yang diubah satu tempat saja:** `_reverse_stok_per_item` (`kasir_service.py`). Di skema
+per-item, qty yang tidak punya jejak `kunjungan_lot_terpakai` **tidak lagi** dibuatkan lot
+`VOID-RETURN` maupun dimasukkan ke lot pilihan operator.
+
+`stok_terkini` tetap dikembalikan **penuh**, karena penyerahan juga memotongnya penuh.
+Dengan begitu cache dan lot sama-sama kembali ke keadaan sebelum serah — persis:
+
+| Keadaan saat serah | Sebelum serah | Sesudah void (perbaikan) |
+|---|---|---|
+| lot cukup (10 dari 10) | cache 10, lot 10 | cache 10, lot 10 ✓ |
+| lot kurang (4 dari 10) | cache 4, lot 4 | cache 4, lot 4 ✓ |
+| lot kosong (0 dari 10) | cache 0, lot 0 | cache 0, lot 0 ✓ |
+
+**Filosofi klinik tidak disentuh.** Stok tetap boleh minus dan penyerahan tetap tidak
+pernah diblokir. Yang diperbaiki adalah jejaknya, bukan aturannya.
+
+#### Dibuktikan DUA ARAH
+
+Tiga skenario dijalankan terhadap kode LAMA dan kode BARU:
+
+| Skenario | Kode lama | Kode baru |
+|---|---|---|
+| Serah fantom (lot 0 dari 10) | **GAGAL** — lot `VOID-RETURN` berisi **10 unit fantom** (cache 0, lot 10) | LULUS — cache 0, lot 0 |
+| Serah normal (10 dari 10) | LULUS | LULUS — pulih ke lot ASLI, ED terjaga |
+| Serah sebagian (4 dari 10) | **GAGAL** — lot 10 padahal hanya 4 pernah ada → **6 unit fantom** | LULUS — cache 4, lot 4 |
+
+Skenario normal lulus di kedua versi — itu bukti bahwa perbaikan ini **tidak merusak**
+pemulihan yang sah.
+
+#### Pemeriksa baru: `scripts/cek_serah_tanpa_lot.py`
+
+Perbaikan di atas menghentikan kerusakan BARU. Yang sudah telanjur terjadi perlu bisa
+dicari, dan dulu hanya hidup sebagai pesan sekali-lewat. Pemeriksa ini menurunkannya dari
+data yang sudah ada — **tanpa kolom baru, tanpa migrasi** (kolom `inventory_history
+.jenis_mutasi` adalah ENUM; menambah jenis baru butuh migrasi dan persetujuan dr. Hansen).
+
+Ia sengaja memisahkan **yang tidak dapat dinilai**, supaya tidak berteriak serigala:
+jejak gaya lama (sebelum task #54), dan produk yang memang tidak pernah punya lot. Itu
+langsung terbukti berguna — 3 baris Aclam 500mg akan menjadi temuan palsu tanpanya.
+
+Diuji dua arah: dengan dua kasus nyata di DB ia melaporkan keduanya berikut angka
+`TANPA jejak lot` (10 dan 6); sesudah datanya dibersihkan ia melaporkan nihil.
+
+⚠ **Harus dijalankan di mini PC** — laptop tidak punya data klinik sungguhan, jadi
+"0 temuan" di sini tidak mengatakan apa pun tentang keadaan di klinik.
+
+#### Temuan sampingan: fixture test bergantung pada data seed
+
+`test_void_return_lot.py` memakai `db.query(Kunjungan).first()`, dan kunjungan itu di DB
+seed ternyata sudah punya baris resep `DISERAHKAN` milik produk lain. Akibatnya
+`_mode_per_item` selalu menjawab True dan bentuk "data lama" **tidak pernah benar-benar
+teruji** — hasil testnya bergantung pada isi DB, bukan pada kodenya. Fixture kini membuat
+kunjungannya sendiri.
+
+Kedua test lama (`lot_pilihan`, `fallback_lot_retur_baru`) menjaga fitur **P-L6b** yang
+nyata: operator memilih batch fisik yang diretur untuk telusur QC. Fitur itu tidak
+dihapus — ia dipindahkan ke bentuk **data LAMA**, satu-satunya tempat ia masih berlaku.
+Untuk data baru, jejak lot sudah tahu lot persisnya, yang lebih baik daripada bertanya ke
+operator. Tiga test baru menjaga perilaku per-item. Suite: **108 lulus**.
+
+#### Yang TIDAK dikerjakan, dan kenapa
+
+| Usulan semula | Keputusan |
+|---|---|
+| Baris `inventory_history` bertipe `SERAH_TANPA_LOT` | **Tidak dikerjakan** — `jenis_mutasi` ENUM, butuh migrasi + persetujuan. Pemeriksa di atas memberi hasil yang sama dari data yang sudah ada |
+| Nilai rupiah kewajiban obat tertunda di `list_obat_tertunda` | **Belum** — penambahan fitur, bukan perbaikan cacat. Menunggu keputusan dr. Hansen |
+| Pencadangan stok untuk obat yang sudah dibayar | **Tidak** — perubahan kebijakan, bukan perbaikan bug |
+
+**Masih perlu keputusan dr. Hansen:** jalankan `cek_serah_tanpa_lot` di mini PC. Untuk
+tiap baris yang muncul, pertanyaannya adalah apakah pasiennya **menerima** obatnya
+(berarti lot/opname yang salah) atau **tidak menerima** (berarti ada kewajiban yang belum
+dipenuhi, dan uangnya sudah diterima).
+
 ---
 
 ## Yang DIPERIKSA di putaran 18 dan ternyata BERSIH

@@ -107,7 +107,7 @@ dengan asumsi apa?*
 | Draf SOAP apoteker vs SOAP dokter di tabel yang sama | Halaman basi menghapus data yang lebih baru |
 | `_produk_stok_sudah_dipotong`, `id_resep_asal` | Sama polanya |
 | `REPORTS_ROLES` dipakai ulang untuk laporan klinis | Laporan tanpa uang ikut terkunci oleh aturan yang dibuat untuk data uang |
-| **`DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong"** | Dua arti untuk dua penulis: bagi apoteker artinya "obat di tangan pasien", bagi penjaga void (`_qty_diserahkan_produk`) artinya "lot sudah keluar, jadi boleh dikembalikan". Penyerahan dengan stok kurang **berhasil** dan memasang `DISERAHKAN` tanpa satu lot pun terpakai — terbukti. Stok minus memang sengaja diizinkan; yang hilang adalah jejaknya. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 30 |
+| ~~`DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong"~~ | **DIPAGARI 2026-10-04.** Dua arti untuk dua penulis: bagi apoteker `DISERAHKAN` artinya "obat di tangan pasien", bagi penjaga void artinya "lot sudah keluar, jadi boleh dikembalikan". Penyerahan dengan stok kurang **berhasil** dan memasang `DISERAHKAN` tanpa satu lot pun terpakai — lalu void **menciptakan** lot `VOID-RETURN` berisi barang yang tak pernah ada, dan FEFO membagikannya. Sekarang di skema per-item void hanya memulihkan sebanyak yang dibuktikan jejak `kunjungan_lot_terpakai`. **Stok minus tetap diizinkan — yang diperbaiki jejaknya, bukan filosofinya.** Pemeriksanya: `python -m scripts.cek_serah_tanpa_lot`. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 30 |
 | **FEFO menyodorkan lot KEDALUWARSA lebih dulu** | Query FEFO tidak menyaring `tgl_ed`, dan karena "ED terdekat keluar dulu" lot yang sudah lewat ED ada di urutan PALING ATAS. Terbukti. Yang menahannya cuma apoteker yang membaca ED di layar — dan layarnya **tidak menandai** tanggal yang sudah lewat. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 29 |
 | **Nota dicetak dari harga MASTER, bukan yang ditagih** | `prepare_nota_context` menggabungkan ke `MasterTreatment.harga`/`MasterProduk.harga_jual` untuk BARIS, tapi mengambil TOTAL dari transaksi — dua sumber kebenaran di satu lembar. Tindakan kuota mencetak **baris Rp 500.000 dengan total Rp 0**. Snapshot-nya sudah ada di `transaksi_detail_*`. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 27 |
 | ~~Void diterima walau racikan/resep sudah DISERAHKAN~~ | **DIPAGARI 2026-10-04** (`_pagari_void_item_diserahkan`). Dulu: transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. `AUDIT_ALUR_UANG_2026-10-04.md` |
@@ -197,6 +197,7 @@ Semua dari `sehati_clinic/`, kecuali yang pertama dari akar repo.
 | `python -m scripts.cek_paket_klinis_keluar` | **Mendekripsi paket yang BENAR-BENAR keluar** dan mengauditnya |
 | `python -m scripts.cek_top_diagnosa` | Angka laporan kasus terbanyak |
 | `python -m scripts.cek_finance_pack` | `medical_soap_raw` tidak ikut paket finance |
+| `python -m scripts.cek_serah_tanpa_lot` | Obat `DISERAHKAN` yang lotnya tidak pernah keluar (Temuan 30) |
 | `python -m scripts.cek_soap_basi` · `cek_tunda_item` · `cek_laporan_racikan` · `cek_tebus_resep` | Modul masing-masing |
 | `python scripts/cek_kelas_tailwind.py` | Kelas Tailwind yang tidak ada di app.css |
 
@@ -275,7 +276,7 @@ Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + g
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.
 
-✅ **Suite test HIJAU** (96 lulus / 0 gagal) sejak triase 2026-10-04. Enam test
+✅ **Suite test HIJAU** (108 lulus / 0 gagal; 96 saat triase 2026-10-04). Enam test
 sempat merah: lima fixture usang dari dunia pra-#54 (menyetel `COMPLETED` sebagai bukti
 serah obat, padahal #54 menggantinya dengan bukti per-item), satu artefak skema laptop.
 
