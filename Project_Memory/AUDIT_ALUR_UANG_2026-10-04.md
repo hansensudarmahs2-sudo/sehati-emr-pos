@@ -271,13 +271,100 @@ Sudah ditulis di sana; dicatat di sini supaya tidak hilang.
 
 ---
 
+---
+
+# PUTARAN 3 — membership, retur, tutup kasir
+
+---
+
+## TEMUAN 5 — 🔴 `force_past_day_void` adalah `void_transaksi` DIKURANGI TIGA LANGKAH
+
+Putaran 2 menemukan komisi tidak ditarik, dan saya mencatat dua bacaan: kelupaan, atau
+sengaja demi payroll. **Putaran 3 menyelesaikan pertanyaan itu.**
+
+Perbandingan menyeluruh kedua fungsi (bukan pencarian satu per satu):
+
+| Langkah | `void_transaksi` | `force_past_day_void` |
+|---|---|---|
+| `_pagari_void_tindakan_selesai` | ✓ | ✓ |
+| `_pagari_void_item_diserahkan` | ✓ | ✓ |
+| `_cascade_void_kunjungan` | ✓ | ✓ |
+| `_reverse_stok_per_item` | ✓ | ✓ |
+| `_revert_kuota_per_tindakan` | ✓ | ✓ |
+| `audit.log` | ✓ | ✓ |
+| **`void_komisi_transaksi`** | ✓ | **HILANG** |
+| **`revert_paid_to_pending`** | ✓ | **HILANG** |
+| **`revert_active_to_pending`** | ✓ | **HILANG** |
+
+`force_past_day_void` **tidak menambahkan satu pun langkah miliknya sendiri.** Ia
+salinan yang kehilangan tepat tiga langkah, dan ketiganya sejenis: pengembalian catatan
+turunan. Itu bukan keputusan payroll — kalau disengaja demi payroll, membership tidak
+punya urusan ikut tertinggal.
+
+**Bacaan "disengaja" dari putaran 2 dengan ini gugur.**
+
+### Tiga akibatnya, semua dibuktikan dengan menjalankannya
+
+```
+1. KOMISI
+   force_past_day_void : trx BAYAR -> VOID  |  komisi AKTIF -> AKTIF
+   void_transaksi      : trx BAYAR -> VOID  |  komisi AKTIF -> VOID
+
+2. MEMBERSHIP masih PAID (belum diaktifkan CS)
+   force_past_day_void : trx VOID  |  history PAID,  id_trx masih menunjuk trx
+   void_transaksi      : trx VOID  |  history PENDING, id_trx dikosongkan
+   -> CS bisa mengaktifkannya; pasien dapat tier atas pembayaran yang dibatalkan.
+
+3. MEMBERSHIP sudah ACTIVE — KASUS TERBURUK
+   sebelum : trx BAYAR | history ACTIVE aktif=1 | pasien.tipe = VVIP
+   sesudah : trx VOID  | history ACTIVE aktif=1 | pasien.tipe = VVIP
+   -> Pasien MEMPERTAHANKAN diskon VVIP untuk SELURUH kunjungan berikutnya,
+      atas pembayaran Rp 5.000.000 yang sudah dibatalkan.
+```
+
+Nomor 3 yang paling mahal: akibatnya tidak berhenti di satu transaksi, melainkan
+menempel ke pasien dan mengurangi setiap tagihan sesudahnya.
+
+### Perbaikannya sekarang jelas, bukan lagi pilihan
+
+Tambahkan tiga panggilan yang hilang ke `force_past_day_void`, sejajar `void_transaksi`.
+Pertimbangan payroll dari putaran 2 **tidak gugur** — kalau periode payroll sudah
+ditutup, menarik komisi surut tetap persoalan nyata. Tapi itu persoalan **F2** yang
+berlaku untuk KEDUA jalur, bukan alasan membiarkan `force_past_day_void` pincang.
+
+**Tetap menunggu dr. Hansen** karena menyentuh uang staf dan status membership pasien.
+Saya tidak memperbaikinya sendiri.
+
+---
+
+## Yang DIPERIKSA di putaran 3 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Pendapatan membership di omzet** | **BERSIH.** Rekap harian menghitungnya: 6 transaksi, Rp 8.676.790,14 = KLINIS 3.676.790,14 + MEMBERSHIP 5.000.000. Diverifikasi dengan menjalankan `RekapHarianService.rekap()` |
+| **Transaksi membership tidak terjatuh dari JOIN** | **BERSIH.** `id_kunjungan` memang NULL untuk MEMBERSHIP, tapi kedua query yang menggabungkan `TransaksiKasir` ke `Kunjungan` memakai `isouter=True` (`print_service.py:80`, `reports_service.py:774`) — disengaja |
+| **Tidak ada laporan menyaring `jenis_transaksi`** | Benar, dan itu **tepat**: membership adalah pendapatan nyata. Tidak ada dobel-hitung — `subtotal_aktivasi_membership` di tagihan klinis selalu 0/None sejak M2 |
+| **Retur ke distributor** | **BERSIH.** Tidak disebut sama sekali di `reports_service`, `rekap_harian_service`, maupun `kasir_closing_service` — uang ke distributor tidak bocor ke laporan omzet pasien |
+
+---
+
+## Belum dikerjakan dari rencana putaran 3
+
+**Ekspor Finance vs laporan layar** — apakah 15 berkas ekspor konsisten dengan angka di
+layar. Belum disentuh; butuh membandingkan isi berkas dengan query laporan satu per satu.
+Dicatat jujur sebagai sisa, bukan dilewatkan diam-diam.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
 ~~4. Decimal vs float~~ — **semua selesai di putaran 2.**
 
-Putaran 3 (usulan):
-1. Membership: aktivasi, upgrade, perpanjang — jalur uang terpisah (`jenis=MEMBERSHIP`)
-2. Retur produk ke distributor & nota retur — uang keluar
-3. Tutup kasir: selisih laci, modal awal, dan slip cetak
-4. Ekspor Finance: apakah 15 berkasnya konsisten dengan laporan layar
+~~1. Membership~~ · ~~2. Retur distributor~~ — **selesai di putaran 3.**
+
+Sisa & usulan putaran 4:
+1. **Ekspor Finance vs laporan layar** — sisa dari putaran 3
+2. Tutup kasir: selisih laci, modal awal, slip cetak (baru disentuh dari sisi refund)
+3. Komisi Fase 2 (F2): konsep "periode payroll ditutup" — prasyarat perbaikan Temuan 5
+4. Stok: `_reverse_stok_per_item` & FEFO saat void/retur
