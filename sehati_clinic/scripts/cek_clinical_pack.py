@@ -36,12 +36,20 @@ for _n in ("sqlalchemy.engine", "sqlalchemy.engine.Engine"):
     logging.getLogger(_n).setLevel(logging.WARNING)
 
 from app.services import clinical_export_batch as batch  # noqa: E402
-from app.services.clinical_export_service import (  # noqa: E402
+from app.services.clinical_export_service import (  # noqa: F401
+    KOLOM_UANG,  # noqa: E402
     KOLOM_TERLARANG, ClinicalExportService, KolomTerlarangError, pagar_kolom,
 )
 
 PREFIKS_UJI = "ZZ UJI KLINIS"
 _lulus, _gagal = 0, 0
+
+
+def _faktorial(n: int) -> int:
+    h = 1
+    for i in range(2, n + 1):
+        h *= i
+    return h
 
 
 def cek(label, ok, detail=""):
@@ -184,9 +192,24 @@ def bagian_cdefg(db):
     cek("Format pid acak 'PX' + 10 hex",
         all(v.startswith("PX") and len(v) == 12 for v in peta1.values()),
         f"contoh: {contoh}")
-    cek("pid TIDAK mencerminkan urutan id_pasien",
-        sorted(peta1.items()) != sorted(peta1.items(), key=lambda kv: kv[1]),
-        "kalau berurutan, pemegang paket bisa menebak tanpa tabel peta")
+    # ⚠ Uji ini TIDAK BERARTI kalau pasiennya sedikit, dan dulu ia berteriak
+    # serigala. Untuk n pasien, peluang permutasi acak kebetulan sama dengan
+    # urutan id adalah 1/n! — jadi n=1 SELALU "gagal", n=2 gagal separuh waktu,
+    # n=3 sepertiga. Di DB dev yang hanya berisi beberapa pasien uji, ia melaporkan
+    # kebocoran privasi yang tidak ada (terbukti 2026-10-04: 2 pasien, pid memang
+    # dari `secrets`, kebetulan terurut). Pemeriksa privasi yang sering salah
+    # melatih orang mengabaikannya — persis yang tidak boleh terjadi di berkas ini.
+    #
+    # Ambang 8 dipilih supaya peluang salah-alarm < 1/40320.
+    n = len(peta1)
+    if n < 8:
+        print(f"  ~ pid TIDAK mencerminkan urutan id_pasien — TIDAK DAPAT DIUJI"
+              f"\n      hanya {n} pasien; peluang kebetulan terurut 1/{_faktorial(n)}."
+              f" Butuh >= 8 pasien agar berarti.")
+    else:
+        cek("pid TIDAK mencerminkan urutan id_pasien",
+            sorted(peta1.items()) != sorted(peta1.items(), key=lambda kv: kv[1]),
+            "kalau berurutan, pemegang paket bisa menebak tanpa tabel peta")
 
     info2 = svc.sinkron_pseudonim()
     peta2 = svc.peta_pid()
@@ -284,6 +307,84 @@ def bagian_cdefg(db):
         else "BELUM ADA di environ maupun .env — tambahkan sebelum ekspor")
 
 
+
+# ------------------------------------------------------ I. Tahap B
+def bagian_i(db):
+    """Tahap B — tindakan, resep, racikan (+bahan), followup.
+
+    Fokusnya BUKAN mengulang pagar identitas (sudah diuji di A/D), melainkan
+    keputusan yang khusus milik Tahap B: paket klinis TIDAK BOLEH memuat angka
+    uang. Kolom harga di `kunjungan_racikan*` duduk tepat di sebelah kolom dosis,
+    jadi menambahkannya ke SELECT hanya butuh satu kata dan tidak akan terlihat
+    salah saat ditulis.
+    """
+    from app.services.clinical_export_service import KolomUangError
+
+    print("\nI. Tahap B — tindakan / resep / racikan / followup\n")
+    svc = ClinicalExportService(db)
+    svc.sinkron_pseudonim()
+
+    TAHAP_B = ("clinical_tindakan", "clinical_resep", "clinical_racikan",
+               "clinical_racikan_bahan", "clinical_followup")
+    terdaftar = {e["name"] for e in svc.REGISTRY}
+    cek("5 dataset Tahap B terdaftar di REGISTRY",
+        set(TAHAP_B) <= terdaftar,
+        f"kurang: {sorted(set(TAHAP_B) - terdaftar)}" if not set(TAHAP_B) <= terdaftar
+        else "tindakan, resep, racikan, racikan_bahan, followup")
+
+    rusak = []
+    for e in svc.REGISTRY:
+        try:
+            getattr(svc, e["method"])(None, None)
+        except Exception as ex:
+            rusak.append(f"{e['name']}: {type(ex).__name__}")
+    cek("Semua dataset (A+B) bisa dijalankan tanpa error",
+        not rusak, "; ".join(rusak) if rusak else f"{len(svc.REGISTRY)} dataset")
+
+    # --- pagar uang, DUA ARAH ---
+    bersih = [{"pid": "PX1", "nama_snapshot": "Tretinoin", "dosis_per_unit": 0.025}]
+    try:
+        pagar_kolom("uji_b", bersih)
+        lolos_bersih = True
+    except Exception:
+        lolos_bersih = False
+    cek("Baris klinis tanpa uang LOLOS pagar", lolos_bersih,
+        "pagar tidak boleh menjegal dosis/satuan")
+
+    ditolak = []
+    for k in ("harga_satuan", "subtotal", "biaya_racik", "total", "hpp_satuan"):
+        try:
+            pagar_kolom("uji_b", [{"pid": "PX1", k: 50000}])
+        except KolomUangError:
+            ditolak.append(k)
+    cek("Kolom uang DITOLAK pagar (5 nama diuji)",
+        len(ditolak) == 5,
+        f"ditolak: {ditolak}" if len(ditolak) == 5
+        else f"BOCOR, hanya ditolak: {ditolak}")
+
+    # --- followup: sinyal drop case harus bisa terbaca ---
+    rows_fu = svc.followup(None, None)
+    kolom_fu = set(rows_fu[0].keys()) if rows_fu else set()
+    cek("followup memuat `status` (sinyal drop case)",
+        not rows_fu or "status" in kolom_fu,
+        "NO_ANSWER / CANCELLED = pasien hilang tanpa kontrol; tanpa kolom ini "
+        "analis tak bisa bedakan sembuh dari menghilang")
+    cek("followup memakai pid, BUKAN id_pasien",
+        not rows_fu or ("pid" in kolom_fu and "id_pasien" not in kolom_fu),
+        f"kolom: {sorted(kolom_fu)}" if rows_fu else "tidak ada baris followup")
+
+    # --- racikan_bahan: dosis ikut, harga tidak ---
+    rows_b = svc.racikan_bahan(None, None)
+    if rows_b:
+        kb = set(rows_b[0].keys())
+        cek("racikan_bahan memuat dosis & kekuatan",
+            {"dosis_per_unit", "satuan_dosis", "kekuatan_snapshot"} <= kb)
+        cek("racikan_bahan TIDAK memuat harga", not (kb & KOLOM_UANG),
+            f"kolom: {sorted(kb)}")
+    else:
+        print("  ~ racikan_bahan tidak diuji — tidak ada baris di DB ini")
+
+
 def main() -> int:
     bagian_a()
     bagian_b()
@@ -301,6 +402,7 @@ def main() -> int:
         _bersihkan(db)
         try:
             bagian_cdefg(db)
+            bagian_i(db)
         finally:
             print(f"\n   Bersih-bersih: {_bersihkan(db)} pasien uji dihapus.")
         print(f"\nHASIL: {_lulus} lulus, {_gagal} gagal")

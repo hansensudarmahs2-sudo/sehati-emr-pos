@@ -253,7 +253,7 @@ container + folder drop klinis.
 
 | Apa | Catatan |
 |---|---|
-| Paket klinis **Tahap B** | tindakan, resep, racikan, **followup**. `clinical_followup` yang menjawab "pasien hilang tanpa kontrol". Tanpa migrasi. |
+| ~~Paket klinis **Tahap B**~~ | **KODE SELESAI 2026-10-04** — 5 berkas (tindakan, resep, racikan, racikan_bahan, followup), tanpa migrasi. Pagar baru `KOLOM_UANG`. ⚠ **Belum diuji ujung-ke-ujung**: ZIP+enkripsi age butuh `BACKUP_RECIPIENT` yang hanya ada di desktop. `Project_Memory/DESAIN_CLINICAL_PACK_TAHAP_B.md` |
 | Combo obat (AB Reguler/Premium) | butuh migrasi · `DESAIN_APOTEK_BATCH_DAN_COMBO.md` |
 | Konversi batch (SR/SR2/SRO) | butuh migrasi · dokumen yang sama |
 | S1 — CSP + HSTS | **Sebagian besar SUDAH ADA** (commit `adb0459`): CSP aktif & menegakkan, HSTS terpasang tapi mati. Sisa: nyalakan HSTS di `.env` mini PC, dan hapus `'unsafe-inline'` (89 handler inline + 275 atribut style). `Project_Memory/S1_CSP_HSTS.md` |
@@ -282,6 +282,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 | `12_smoke_test_guide.md` | Sebelum & sesudah deploy |
 | `ALUR_DUA_MESIN.md` | **Kerja di laptop**, sinkron desktop⇄laptop, aturan deploy |
 | `S1_CSP_HSTS.md` | Sebelum menyentuh header keamanan atau CSP |
+| `DESAIN_CLINICAL_PACK_TAHAP_B.md` | Sebelum menyentuh ekspor paket klinis |
 
 ⚠ `00_README.md` dan `10_ai_collaboration_guide.md` ditulis Juni 2026 untuk skema
 multi-AI review yang sudah tidak dipakai. Masih berguna sebagai indeks, tapi
