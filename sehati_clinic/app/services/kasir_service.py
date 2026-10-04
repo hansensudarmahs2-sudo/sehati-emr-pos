@@ -27,7 +27,9 @@ from app.db.models import (
     StafRoleEnum,
     StatusTransaksiEnum,
     TransaksiDetailProduk,
+    MasterTreatment,
     TransaksiDetailRacikan,
+    TransaksiDetailTindakan,
     TransaksiKasir,
     TransaksiPembayaran,
     VoidApprovalMethodEnum,
@@ -703,6 +705,69 @@ class KasirService:
                     subtotal=Decimal(str(racik_item.total)) - _diskon_row,
                 ))
             if tagihan.rincian_racikan:
+                self.db.flush()
+
+            # 3c. INSERT detail TINDAKAN (F3 — backlog "Snapshot line-item Finance")
+            #
+            # KENAPA BARU SEKARANG: tabel `transaksi_detail_tindakan` sudah ada sejak
+            # M-FIN-2 tapi TIDAK PERNAH SEKALI PUN DITULIS. Produk (3) dan racikan (3b)
+            # punya baris rinciannya; tindakan tidak. Akibatnya modul Finance tidak
+            # punya dasar margin/COGS untuk lini yang justru paling besar di klinik ini,
+            # dan datanya TIDAK BISA DIAMBIL KEMBALI — transaksi yang sudah lewat tidak
+            # meninggalkan jejak apa pun untuk direkonstruksi.
+            #
+            # ⚠ PEMBULATAN — ini bagian yang mudah salah.
+            # `nominal_diskon_treatment` di header dihitung dari AGREGAT
+            # (subtotal_tindakan x persen), sedangkan diskon per baris harus dibulatkan
+            # sendiri-sendiri. Jumlah pembulatan per baris bisa meleset beberapa sen dari
+            # angka header — dan Finance yang merekonsiliasi baris terhadap header akan
+            # melihat selisih yang tidak bisa dijelaskan.
+            #
+            # Racikan menyelesaikannya dengan mengubah header jadi jumlah per-baris.
+            # Di sini TIDAK: mengubah header berarti mengubah angka yang DIBAYAR PASIEN.
+            # Sebagai gantinya selisih pembulatan dititipkan ke baris TERAKHIR, sehingga
+            # SUM(diskon_item) == nominal_diskon_treatment PERSIS, tanpa menyentuh
+            # total tagihan sama sekali.
+            #
+            # Baris berkuota member (harga 0) TETAP DITULIS: tindakannya benar-benar
+            # dikerjakan dan BHP-nya benar-benar terpakai. Justru baris itulah yang
+            # paling penting untuk margin — biaya tanpa pendapatan.
+            if tagihan.rincian_tindakan:
+                _persen_t = Decimal(str(
+                    tagihan.ringkasan_biaya.persen_diskon_treatment or 0))
+                _target_t = Decimal(str(
+                    tagihan.ringkasan_biaya.nominal_diskon_treatment or 0))
+
+                # BHP per tindakan dari master (snapshot saat bayar, bukan referensi).
+                _bhp: dict[int, Decimal] = {}
+                _id_tr = {r.id_treatment for r in tagihan.rincian_tindakan}
+                if _id_tr:
+                    for _mt in self.db.query(MasterTreatment).filter(
+                            MasterTreatment.id_treatment.in_(_id_tr)).all():
+                        _bhp[int(_mt.id_treatment)] = Decimal(
+                            str(_mt.bhp_per_pakai_nominal or 0))
+
+                _diskon_baris = [
+                    (Decimal(str(t.harga)) * _persen_t / Decimal("100")
+                     ).quantize(Decimal("0.01"))
+                    for t in tagihan.rincian_tindakan
+                ]
+                _selisih = _target_t - sum(_diskon_baris)
+                if _diskon_baris:
+                    _diskon_baris[-1] += _selisih   # titipkan sisa pembulatan
+
+                for _t, _dis in zip(tagihan.rincian_tindakan, _diskon_baris):
+                    _harga = Decimal(str(_t.harga))
+                    self.db.add(TransaksiDetailTindakan(
+                        id_transaksi=id_trx_baru,
+                        id_kunjungan_tindakan=_t.id_kunjungan_tindakan,
+                        id_treatment=_t.id_treatment,
+                        qty=1,                      # tindakan selalu 1x per baris
+                        harga_satuan=_harga,
+                        diskon_item=_dis,
+                        subtotal=_harga - _dis,
+                        bhp_satuan=_bhp.get(_t.id_treatment, Decimal("0")),
+                    ))
                 self.db.flush()
 
             # 4. INSERT pembayaran (split payment)

@@ -245,6 +245,10 @@ penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Financ
 **Migrasi terakhir:** `20260930_0200` (tabel `pasien_pseudonim`). Dev dan mini PC
 sama-sama di kepala ini. 57 tabel.
 
+**Baru selesai (2026-10-04, dari laptop):** kompilasi ulang Tailwind (48→0 kelas warna
+hilang) · paket klinis Tahap B · verifikasi S1 CSP/HSTS · **F3 snapshot line-item
+Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + gerbang PHI.
+
 **Baru selesai (Sep 30 – Okt 1):** normalisasi NIK · penggabungan pasien sungguhan ·
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.

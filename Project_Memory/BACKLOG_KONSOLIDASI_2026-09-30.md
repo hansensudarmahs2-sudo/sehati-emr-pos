@@ -31,10 +31,10 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 
 | ID | Item | Catatan |
 |---|---|---|
-| **#51** | **SOAP basi menghapus racikan PENDING** | Satu-satunya yang bisa menghilangkan tagihan. Ditunda atas keputusan dr. Hansen; sekarang prioritas tertinggi |
+| ~~**#51**~~ | ~~SOAP basi menghapus racikan PENDING~~ | **SELESAI** — commit `1ee1ad0` ("halaman SOAP basi tidak lagi menghapus data yang lahir sesudahnya"), sudah di `main`. Diverifikasi 2026-10-04, bukan disimpulkan. Pemeriksanya `scripts/cek_soap_basi.py`. ⚠ Dokumen ini sempat menyebutnya "prioritas tertinggi" berbulan-bulan setelah ia beres |
 | ~~—~~ | ~~Racikan belum masuk laporan apoteker & top-produk~~ | **SELESAI 2026-09-30** (`a623e07`). Terbukti nyata: Cream K, Termisil cream, Nulyn 75mg tidak pernah muncul di top produk — hanya terpakai lewat racikan. Keputusan dr. Hansen: tampilkan dua-duanya, dipisah jelas. `qty_racikan` **tidak** dilebur ke `total_qty` (satuan berbeda) |
-| — | **Penggabungan pasien ganda** | Kembar 217/218 perlu dibersihkan, lalu pasang `UNIQUE INDEX ux_pasien_nomor_ktp`. Perlu desain terpisah |
-| **F3** | Snapshot line-item Finance | `transaksi_detail_tindakan` tak pernah ditulis; `hpp_satuan` kosong. Prasyarat modul Finance untuk margin/COGS |
+| — | **Penggabungan pasien ganda** | **Indeks uniknya SUDAH ADA** — migrasi `20260917_0100_pasien_nik_unique.py`; `nomor_ktp` pada tabel `pasien` ber-`non_unique=0`. Diverifikasi 2026-10-04. **Sisa: bersihkan kembar 217/218** — itu data di desktop/mini PC, bukan kode |
+| ~~**F3**~~ | ~~Snapshot line-item Finance~~ | **SELESAI 2026-10-04** — `proses_bayar` langkah 3c menulis `transaksi_detail_tindakan` (qty, harga_satuan, diskon_item, subtotal, `bhp_satuan` dari `master_treatment.bhp_per_pakai_nominal`). Kolomnya **`bhp_satuan`**, bukan `hpp_satuan` seperti tertulis di sini. Selisih pembulatan dititipkan ke baris terakhir sehingga `SUM(diskon_item) == nominal_diskon_treatment` persis, **tanpa mengubah total yang dibayar pasien**. ⚠ Hanya berlaku untuk transaksi BARU — transaksi lama tidak punya jejak untuk direkonstruksi |
 | — | **Kanal data mentah klinis untuk Oracle/Council AI** | **Pembagian peran (dr. Hansen 2026-09-30):** Sehati eMR-POS adalah BADAN UTAMA — ia **tidak menganalisis**, tugasnya **menyediakan data mentah siap olah**. Analisis dikerjakan modul terpisah berbasis Python (**Oracle**, **Council AI**) yang terus berkembang. *"tidak perlu respon terapi. yang terpenting data mentah saja di anamnesa juga cukup."* — jadi JANGAN tambah kolom penilaian terstruktur ke EMR.<br><br>Kanal ekspor SUDAH ADA (15 berkas), SOAP teks bebas sudah termasuk. **Yang belum ikut:** `kunjungan_diagnosa` (ICD10/ESTETIK — kode untuk mengelompokkan), `followup` (jejak kontrol: NO_ANSWER/CANCELLED — untuk melihat drop case), `kunjungan_racikan`, alergi, penyakit kronis, antropometri. Tanpa dua yang pertama, modul analisis menerima **narasi tanpa kode dan tanpa jejak kontrol** — persis dua hal yang dibutuhkan untuk menilai kasus membaik atau hilang.<br><br>⚠ Sekalian **pisahkan paket klinis dari `finance_pack`**. `medical_soap_raw` sekarang menumpang paket keuangan; berkas itulah yang hampir ter-rsync ke server dan yang dibersihkan dari riwayat git 2026-09-29. Data klinis dan keuangan butuh hak akses serta jalur keluar yang berbeda. |
 | — | **Laporan kasus terbanyak (top diagnosa)** | [dr. Hansen 2026-09-30] *"icd sudah ada, diagnosa internal sudah ada, yang belum ada adalah laporan kasus terbanyak baik estetik maupun medis."* Datanya SUDAH tersedia di `kunjungan_diagnosa` (`sistem_snapshot` = ICD10/ESTETIK, `kode_snapshot`, `nama_snapshot`, `is_primer`) — **tidak butuh migrasi**. Dipisah dua bagian: medis (ICD10) & estetik (JD-xxx). **Perlu diputuskan lebih dulu:** hitung SEMUA diagnosa per kunjungan, atau hanya yang `is_primer`? Pasien dengan 3 diagnosa akan terhitung 3 kali kalau semua dipakai — angkanya jadi jawaban atas pertanyaan yang berbeda |
 | — | Banner "Mode Ubah Konsul" menyesatkan untuk diagnosa | Kosmetik tapi membingungkan pengguna |
@@ -120,12 +120,31 @@ pra-commit.
 
 ## 10. Urutan yang saya sarankan
 
-1. **Smoke test mini PC** — menutup R8/R9 sebelum menumpuk pekerjaan baru
-2. **#51** — satu-satunya yang bisa menghilangkan tagihan
-3. **D2** higiene folder E: — murah, menutup `.env` + dump SQL yang menganggur
-4. **Racikan di laporan** — laporan yang menyesatkan lebih berbahaya daripada laporan yang tidak ada
-5. **S1 CSP/HSTS** — sekarang bisa karena HTTPS Tailscale sudah ada
-6. Baru item besar (F1/F2/F3) sesuai kebutuhan operasional
+**Diperbarui 2026-10-04.** Urutan aslinya (ditulis 09-30) sudah terlampaui hampir
+seluruhnya — butir 2–5 semuanya selesai. Dicatat apa adanya karena daftar yang tidak
+pernah dicoret adalah bagaimana sebuah dokumen berhenti dipercaya.
+
+| # | Butir asli | Status |
+|---|---|---|
+| 1 | Smoke test mini PC | ⬜ **masih terbuka** — R8/R9 live di sana tapi belum pernah diuji |
+| 2 | #51 SOAP basi | ✅ `1ee1ad0` |
+| 3 | D2 higiene folder E: | ✅ 2026-09-30, lihat §11 |
+| 4 | Racikan di laporan | ✅ `a623e07` |
+| 5 | S1 CSP/HSTS | ✅ sebagian besar sudah ada sejak `adb0459`; sisa = nyalakan HSTS di mini PC + hapus `'unsafe-inline'`. Lihat `S1_CSP_HSTS.md` |
+| 6 | Item besar (F1/F2/F3) | ⬜ |
+
+**Urutan berikutnya:**
+
+1. **Smoke test mini PC** — satu-satunya sisa dari daftar lama, dan masih sama
+   alasannya: menutup R8/R9 sebelum menumpuk pekerjaan baru.
+2. **Ekspor paket klinis Tahap B ujung-ke-ujung** — kodenya selesai 2026-10-04 tapi
+   ZIP + enkripsi age belum pernah dijalankan dengannya. Butuh `BACKUP_RECIPIENT`,
+   jadi **harus di desktop**.
+3. **F3 snapshot line-item Finance** — satu-satunya item terbuka yang **merusak data
+   secara diam-diam seiring waktu**: `transaksi_detail_tindakan` tidak pernah ditulis,
+   jadi setiap transaksi yang lewat hari ini tidak meninggalkan jejak line-item dan
+   tidak bisa diambil kembali besok.
+4. Baru item besar lain (F1/F2/F4) sesuai kebutuhan operasional.
 
 **Semua yang mengubah skema atau konfigurasi besar: minta persetujuan dr. Hansen dulu.**
 
