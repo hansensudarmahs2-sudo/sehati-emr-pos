@@ -906,7 +906,70 @@ yang hilang tanpa jejak.
 
 ---
 
-## TEMUAN 15 — 🔴 `increment_kuota_terpakai` mengaku "Atomic" tapi tidak mengunci apa pun
+## TEMUAN 17 — 🔴 ENAM test integrasi GAGAL di `main`, tiga di antaranya penjaga bug uang
+
+Ditemukan saat menjalankan suite penuh untuk memverifikasi perbaikan Temuan 15.
+Sebelumnya saya hanya menjalankan satu berkas test dan melihat satu kegagalan.
+
+```
+FAILED test_kasir_void_exclusion.py::test_void_reverse_stok
+FAILED test_repro_H2_lot_provenance.py::test_void_reverse_ke_lot_asli_bukan_void_return
+FAILED test_repro_P0_1_void_stock_inflation.py::test_void_reverse_pada_obat_sudah_diserah_mengembalikan_stok
+FAILED test_repro_P0_2_double_payment.py::test_idempotency_key_sama_ditolak_split_dgn_key_beda_boleh
+FAILED test_void_return_lot.py::test_void_return_ke_lot_pilihan
+FAILED test_void_return_lot.py::test_void_fallback_lot_retur_baru
+6 failed, 48 passed, 32 skipped
+```
+
+**Bukan akibat perubahan saya.** Dibuktikan dua kali: dengan `git stash` (tanpa
+perubahan kuota) dan dengan `kasir_service.py` versi **`main`** (tanpa Opsi A maupun
+tiga rollback) — **enam kegagalan yang sama persis, nama yang sama.**
+
+**Bukan pula kondisi data laptop.** Test menyiapkan datanya sendiri, dan assertion-nya
+tentang perilaku:
+
+```
+assert float(produk.stok_terkini) == stok_awal
+AssertionError: Untuk obat yang sudah diserah, reverse mengembalikan stok ke semula
+assert 7.0 == 10
+```
+
+Stok seharusnya kembali ke 10, hasilnya tetap 7 — pengembaliannya tidak terjadi.
+
+### Kenapa ini berat
+
+Tiga dari enam adalah **`test_repro_*`** — test yang ditulis khusus untuk mereproduksi
+bug yang pernah terjadi, supaya tidak kembali:
+
+| Test | Menjaga apa |
+|---|---|
+| `P0_1_void_stock_inflation` | stok menggelembung saat void |
+| `P0_2_double_payment` | pembayaran ganda (idempotency key) |
+| `H2_lot_provenance` | stok kembali ke lot ASAL, bukan lot VOID-RETURN — jejak QC |
+
+**Penjaga yang merah tidak menjaga apa pun.** Dan ketiganya menjaga persis wilayah yang
+diaudit dokumen ini: uang, stok, dan jejak lot.
+
+### ⚠ Interaksi dengan Opsi A yang perlu diputuskan
+
+`P0_1` menguji skenario "void obat yang SUDAH DISERAH mengembalikan stok". **Opsi A
+sekarang MENOLAK void itu sejak awal.** Jadi setelah Opsi A, skenario yang di-test itu
+tidak lagi bisa terjadi lewat jalur normal.
+
+Artinya test tersebut perlu **diputuskan**, bukan sekadar diperbaiki: apakah ia masih
+relevan, atau harus ditulis ulang untuk menguji bahwa void-nya **ditolak**? Itu
+keputusan dr. Hansen, bukan keputusan teknis.
+
+⚠ **Saya tidak menyelidiki akar masing-masing kegagalan.** Enam test di empat berkas,
+dan tiga di antaranya menyentuh jalur lot/stok yang belum saya audit. Itu pekerjaan
+tersendiri — dicatat jujur sebagai belum dikerjakan, bukan dilewatkan.
+
+**Ini membalik urutan prioritas:** memperbaiki temuan baru sementara penjaga yang ada
+sedang merah adalah membangun di atas lantai yang belum diperiksa.
+
+---
+
+## TEMUAN 15 — ✅ DIPERBAIKI — dulu: `increment_kuota_terpakai` mengaku "Atomic" tapi tidak mengunci
 
 **Didemonstrasikan**, bukan disimpulkan dari pembacaan kode.
 
@@ -943,6 +1006,35 @@ kuota, tidak di laporan.
    menyerialkan submit bersamaan.
 3. Jadi **stok dilindungi kunci baris, kuota tidak** — padahal keduanya sumber daya
    habis-pakai bernilai uang.
+
+### ✅ Perbaikan 2026-10-04 — dan kembarannya ikut diperbaiki
+
+`increment_kuota_terpakai` **dan** `decrement_kuota_terpakai` kini mengambil barisnya
+dengan `select(...).with_for_update()`, pola yang sama persis dengan
+`apotek_repo.get_produk_for_update()`.
+
+**Kenapa decrement ikut, padahal tidak masuk Temuan 15:** ia punya baca-ubah-tulis yang
+identik. `max(0, ...)` hanya mencegah nilai NEGATIF — bukan kehilangan pembaruan. Dua
+void bersamaan sama-sama membaca `terpakai=2` dan sama-sama menulis `1`, padahal
+seharusnya `0`: **pasien kehilangan satu slot yang sudah ia bayar.** Cermin Temuan 15,
+merugikan sisi sebaliknya. Memperbaiki satu saja akan meninggalkan kembarannya — pola
+yang paling sering ditemukan audit ini.
+
+**Diuji dua arah, dengan thread sungguhan yang menahan transaksi 0,4 detik:**
+
+| Uji | Sebelum | Sesudah |
+|---|---|---|
+| Dua increment bersamaan, kuota=1 | A=True **B=True** → 2 tindakan gratis | A=True **B=False** → 1 |
+| Pemakaian berurutan, kuota=3 | — | ke-1,2,3 True · ke-4 **False** |
+| Dua decrement bersamaan, terpakai=3 | — | **terpakai=1** (3−2), tidak ada yang hilang |
+
+⚠ **Catatan metode:** uji decrement sempat melaporkan `terpakai=3` — seolah tidak ada
+decrement yang tercatat. Itu **artefak uji saya**: sesi pembaca memegang snapshot
+transaksi lama (InnoDB REPEATABLE READ). Dibaca dengan sesi baru, hasilnya benar.
+Kalau saya laporkan apa adanya, itu akan jadi temuan palsu.
+
+Regresi: suite integrasi **6 gagal / 48 lulus — identik dengan baseline** (lihat
+Temuan 17; keenamnya pra-ada di `main`). 37 halaman tetap 200.
 
 ### Pemicunya nyata di klinik
 

@@ -1092,14 +1092,43 @@ class MembershipService:
         id_tindakan=None,
         request=None,
     ) -> bool:
-        """Atomic increment kuota_terpakai. Return True kalau sukses (sisa > 0).
+        """Increment kuota_terpakai dengan KUNCI BARIS. Return True kalau sukses.
 
         LOG-1: Tulis audit KUOTA_PAKAI kalau actor_id_staf disediakan.
         Param actor_id_staf/id_kunjungan/id_tindakan/request optional supaya
         backward-compat dengan callsite lama.
+
+        ⚠ KENAPA `with_for_update()` — DITAMBAHKAN 2026-10-04.
+        Docstring lama berbunyi "Atomic increment", tapi barisnya diambil dengan
+        `db.get()` biasa lalu dibaca-ubah-tulis di Python. Itu BUKAN atomik:
+        dua permintaan bersamaan sama-sama membaca `kuota_terpakai` yang sama,
+        sama-sama lolos cek `sisa > 0`, dan sama-sama menulis nilai+1 yang sama.
+
+        Terbukti dengan menjalankannya (kuota total=1, terpakai=0):
+            sesi A increment -> True
+            sesi B increment -> True
+            akhir di DB     : terpakai=1 dari total=1
+        DUA tindakan gratis diizinkan dari kuota SATU, dan hanya satu tercatat.
+        Tindakan kedua diberikan cuma-cuma tanpa jejak di mana pun.
+
+        Tidak ada jaring di lapis bawah: tabel ini TIDAK punya CHECK constraint
+        `kuota_terpakai <= kuota_total`.
+
+        Polanya sudah dipakai proyek ini untuk STOK —
+        `apotek_repo.get_produk_for_update()` dan
+        `inventory_repo.get_stok_for_update()` — dan untuk pembayaran
+        (`kunjungan_repo.get_by_id_for_update`, P0-2). Kuota sama-sama sumber
+        daya habis-pakai bernilai uang; ia kini dikunci dengan cara yang sama.
+
+        Pemicunya nyata: dua staf menandai tindakan "Selesai" untuk pasien yang
+        sama pada saat berdekatan. Lihat `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 15.
         """
         from app.db.models import PasienMembershipKuota as _PMK
-        kuota = self.db.get(_PMK, id_kuota)
+        # SELECT ... FOR UPDATE — baris dikunci sampai transaksi ini commit,
+        # sehingga permintaan kedua MENUNGGU dan membaca nilai yang sudah naik.
+        kuota = self.db.execute(
+            select(_PMK).where(_PMK.id_kuota == id_kuota).with_for_update()
+        ).scalar_one_or_none()
         if kuota is None or not kuota.is_active:
             return False
         sisa = int(kuota.kuota_total or 0) - int(kuota.kuota_terpakai or 0)
@@ -1138,12 +1167,25 @@ class MembershipService:
         id_tindakan=None,
         request=None,
     ) -> bool:
-        """Revert kuota usage (saat void treatment). Floor at 0.
+        """Revert kuota usage (saat void treatment). Floor at 0, KUNCI BARIS.
 
         LOG-1: Tulis audit KUOTA_REVERT kalau actor_id_staf disediakan.
+
+        ⚠ `with_for_update()` DITAMBAHKAN 2026-10-04, bersama `increment`.
+        `max(0, ...)` hanya mencegah nilai NEGATIF — ia TIDAK mencegah
+        kehilangan pembaruan. Dua void bersamaan sama-sama membaca
+        `terpakai=2` dan sama-sama menulis `1`, padahal seharusnya `0`:
+        PASIEN KEHILANGAN SATU SLOT YANG SUDAH IA BAYAR.
+
+        Itu cermin Temuan 15 — mekanisme yang sama persis, hanya merugikan
+        sisi sebaliknya. Memperbaiki `increment` saja akan meninggalkan
+        kembarannya, dan "satu jalur diperbaiki, saudaranya terlupa" adalah
+        pola yang paling sering ditemukan audit alur uang ini.
         """
         from app.db.models import PasienMembershipKuota as _PMK
-        kuota = self.db.get(_PMK, id_kuota)
+        kuota = self.db.execute(
+            select(_PMK).where(_PMK.id_kuota == id_kuota).with_for_update()
+        ).scalar_one_or_none()
         if kuota is None:
             return False
         terpakai_lama = int(kuota.kuota_terpakai or 0)

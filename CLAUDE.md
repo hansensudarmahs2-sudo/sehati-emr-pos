@@ -255,6 +255,16 @@ Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + g
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.
 
+⚠ **SUITE TEST MERAH DI `main`** — ditemukan 2026-10-04. Enam test integrasi gagal,
+**tiga di antaranya `test_repro_*`** yang menjaga bug uang/stok yang pernah terjadi
+(P0-1 stok menggelembung saat void · P0-2 pembayaran ganda · H2 jejak lot). Dibuktikan
+pra-ada dengan `kasir_service.py` versi `main`. **Penjaga yang merah tidak menjaga apa
+pun.** Belum ditriase — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 17.
+
+```bash
+docker compose ... exec -T sehati-app python -m pytest tests/integration/ -q
+```
+
 **Menunggu dikerjakan:**
 
 | Apa | Catatan |
