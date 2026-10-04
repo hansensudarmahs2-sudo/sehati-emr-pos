@@ -1205,6 +1205,96 @@ HAVING n > 1;
 
 ---
 
+---
+
+# PUTARAN 11 — hak prabayar & jalur persetujuan
+
+---
+
+## TEMUAN 19 — 🔴 `use_session` bocor: DUA tindakan Rp 0 dari SATU hak sesi
+
+Bentuknya **identik** dengan Temuan 15, di modul lain. `series_service.use_session`:
+
+```python
+rencana = self.db.get(PasienRencanaTreatment, id_rencana)   # tanpa kunci
+if status_v != "PENDING": raise HTTPException(...)          # cek
+...
+self.db.add(tindakan)                                       # buat tindakan Rp 0
+rencana.status = StatusRencanaTreatmentEnum.SCHEDULED       # ubah
+```
+
+Docstring-nya sendiri menyatakan konsekuensi uangnya: *"Kasir akan charge **Rp 0** untuk
+sesi ini (karena id_rencana set + urutan_sesi > 1)."*
+
+**Didemonstrasikan** dengan dua thread, satu rencana berstatus PENDING:
+
+```
+A -> OK
+B -> OK
+kunjungan_tindakan dibuat dari rencana ini: 2   (harus 1)
+status rencana: SCHEDULED
+```
+
+**Dua tindakan gratis dari satu hak sesi.** Hak yang sudah dibayar sekali ditebus dua
+kali, dan rencananya tetap tercatat terpakai sekali.
+
+Perbaikannya sama persis dengan Temuan 15: `select(...).with_for_update()`.
+
+---
+
+## TEMUAN 20 — 🟡 Jalur PERSETUJUAN juga baca-cek-ubah, tanpa kunci maupun kunci idempotensi
+
+Dua jalur "setujui sekali, lalu ubah stok" berbentuk sama:
+
+| Fungsi | Pola | Kalau ganda |
+|---|---|---|
+| `retur_service.approve_retur` | `db.get` → cek `status != 'DRAFT'` → `lot.qty_sisa = sisa - qty` | **lot terpotong dua kali** |
+| `opname_service.approve` | `db.get` → cek `status != DRAFT` → terapkan selisih ke stok | **selisih diterapkan dua kali** |
+
+### Kontras yang menjelaskan kenapa ini terlewat
+
+`proses_bayar` punya **DUA** lapis perlindungan submit-ganda:
+
+```
+kasir_service.py:605  self.kunjungan_repo.get_by_id_for_update(...)   <- kunci baris
+kasir_service.py:662  idempotency_key=payload.idempotency_key         <- P0-2 backstop
+```
+
+**Pembayaran dilindungi dua kali; persetujuan tidak dilindungi sama sekali.** Padahal
+keduanya sama-sama aksi sekali-klik yang mengubah angka, dan keduanya bisa ter-submit
+ganda oleh klik ganda atau retry jaringan.
+
+⚠ **BELUM saya demonstrasikan** — kesimpulan dari struktur, sama seperti Temuan 16.
+Saya membedakannya dari Temuan 19 yang memang dijalankan.
+
+---
+
+## Pola yang mulai terlihat setelah tiga temuan sejenis
+
+| Sumber daya | Dilindungi kunci baris? |
+|---|---|
+| Stok produk (`apotek_repo`, `inventory_repo`) | ✅ `with_for_update()` |
+| Pembayaran (`proses_bayar`) | ✅ kunci baris **+** kunci idempotensi |
+| **Kuota membership** | ❌ → diperbaiki putaran 10 |
+| **Sesi series** | ❌ Temuan 19 |
+| **Persetujuan retur / opname** | ❌ Temuan 20 |
+
+Proyek ini mengunci **barang** dan **uang**, tapi tidak mengunci **hak** dan
+**persetujuan**. Ketiganya sama-sama bernilai uang; hanya dua yang pertama yang terasa
+seperti uang saat kodenya ditulis.
+
+---
+
+## Catatan metode
+
+Pemindai berpola "db.get → cek → ubah status" menemukan **28 fungsi**. Mayoritas positif
+palsu — beberapa hanya membaca, beberapa tidak menyentuh hak atau stok. **Angka 28 itu
+tidak saya laporkan sebagai temuan**; hanya tiga yang dibuka satu per satu dan
+dipertanggungjawabkan. Itu pelajaran yang sudah dua kali dicatat dokumen ini dan ketiga
+kalinya ditegakkan.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -1219,9 +1309,10 @@ HAVING n > 1;
 
 ~~3. Membership upgrade/perpanjang~~ · ~~4. inventory_history~~ — **selesai di putaran 8.**
 
-~~4. Kuota membership~~ — **selesai di putaran 9.**
+~~4. Kuota membership~~ (putaran 9) · ~~triase test merah~~ (putaran 10) ·
+~~series & jalur persetujuan~~ (putaran 11).
 
-Sisa & usulan putaran 10:
+Sisa & usulan putaran 12:
 1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit).
 2. **Pembersihan baris yang terlanjur rusak** — Temuan 11 membuktikan baris itu TERBAYAR.
 3. **M-FIN-3** — melengkapi `hpp_satuan`/`nilai_mutasi` (Temuan 13).
