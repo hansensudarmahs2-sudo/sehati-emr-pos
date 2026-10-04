@@ -131,10 +131,33 @@ class SeriesService:
         baru link ke rencana → pasien masuk antrian Ruang Tindakan.
         Kasir akan charge Rp 0 untuk sesi ini (karena id_rencana set + urutan_sesi > 1).
         """
-        # Validate rencana
-        rencana: Optional[PasienRencanaTreatment] = self.db.get(
-            PasienRencanaTreatment, id_rencana,
-        )
+        # Validate rencana — DENGAN KUNCI BARIS.
+        #
+        # ⚠ `with_for_update()` DITAMBAHKAN 2026-10-04.
+        # Dulu barisnya diambil dengan `db.get()` biasa, lalu dicek `status ==
+        # PENDING`, lalu diubah ke SCHEDULED. Itu baca-cek-ubah tanpa kunci: dua
+        # permintaan bersamaan sama-sama membaca PENDING, sama-sama lolos cek, dan
+        # sama-sama membuat `kunjungan_tindakan`.
+        #
+        # Konsekuensinya UANG, dan docstring fungsi ini sendiri menyebutkannya:
+        # sesi series ditagih Rp 0. Terbukti dengan menjalankannya — dua thread,
+        # satu rencana PENDING:
+        #     A -> OK | B -> OK
+        #     kunjungan_tindakan dibuat dari rencana ini: 2  (harus 1)
+        #     status rencana: SCHEDULED
+        # DUA tindakan gratis dari SATU hak sesi, dan rencananya tetap tercatat
+        # terpakai sekali.
+        #
+        # Bentuknya sama persis dengan kuota membership (Temuan 15, diperbaiki
+        # lebih dulu). Pola proyek ini: barang dan uang dikunci
+        # (`apotek_repo.get_produk_for_update`, `proses_bayar`), tapi HAK tidak —
+        # padahal hak juga bernilai uang. Lihat `AUDIT_ALUR_UANG_2026-10-04.md`
+        # Temuan 19 dan CLAUDE.md §4.1.
+        rencana: Optional[PasienRencanaTreatment] = self.db.execute(
+            select(PasienRencanaTreatment)
+            .where(PasienRencanaTreatment.id_rencana == id_rencana)
+            .with_for_update()
+        ).scalar_one_or_none()
         if rencana is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

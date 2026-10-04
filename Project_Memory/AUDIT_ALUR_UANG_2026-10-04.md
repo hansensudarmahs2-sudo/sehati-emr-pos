@@ -1211,7 +1211,29 @@ HAVING n > 1;
 
 ---
 
-## TEMUAN 19 — 🔴 `use_session` bocor: DUA tindakan Rp 0 dari SATU hak sesi
+## TEMUAN 19 — ✅ DIPERBAIKI — dulu: `use_session` bocor, 2 tindakan Rp 0 dari 1 hak
+
+> **Keputusan dr. Hansen 2026-10-04: perbaiki.** `use_session` kini mengambil barisnya
+> dengan `select(...).with_for_update()`, pola yang sama dengan perbaikan kuota.
+>
+> **Diuji dua arah**, thread sungguhan yang menahan transaksi 0,4 detik:
+>
+> | Uji | Sebelum | Sesudah |
+> |---|---|---|
+> | Dua permintaan bersamaan | A=OK **B=OK** → **2** tindakan | A=OK **B=TOLAK** → **1** |
+> | Berurutan, lalu diulang | — | ke-1 OK · ke-2 **TOLAK** · 1 tindakan · status SCHEDULED |
+>
+> Suite 96 lulus / 0 gagal · 37 halaman 200.
+>
+> **Kembarannya diperiksa, dan tidak perlu diperbaiki.** Satu-satunya tempat lain yang
+> mengubah `rencana.status` adalah `_cancel_series_sesi_pending` (→ CANCELLED saat
+> void). Itu **idempoten**: dua void bersamaan menghasilkan status akhir yang sama.
+> Diperiksa, bukan diasumsikan — karena "satu diperbaiki, saudaranya terlupa" adalah
+> pola yang paling sering ditemukan audit ini.
+
+**Uraian di bawah adalah keadaan SEBELUM perbaikan.**
+
+### Dulu: `use_session` bocor
 
 Bentuknya **identik** dengan Temuan 15, di modul lain. `series_service.use_session`:
 
