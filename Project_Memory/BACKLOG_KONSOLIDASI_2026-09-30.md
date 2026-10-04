@@ -44,17 +44,17 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 | ID | Item | Catatan |
 |---|---|---|
 | ~~**D2**~~ | ~~Higiene folder E:~~ | **SELESAI 2026-09-30 — lihat §11 di bawah.** Temuan tak terduga: monolit legacy memuat **sandi DB yang masih aktif**, ter-commit sejak commit pertama |
-| **A7** | Berkas duplikat usang | `master.py.bak_restored`, `kunjungan.py.new`, berkas nyasar (`1`, `exit`, `debug_kunjungan.py`, `fix_timezone_tindakan.py`) ❓ |
+| ~~**A7**~~ | ~~Berkas duplikat usang~~ | **SUDAH BERES** — diperiksa 2026-10-04 di klon bersih: tak satu pun dari `master.py.bak_restored`, `kunjungan.py.new`, `1`, `exit`, `debug_kunjungan.py`, `fix_timezone_tindakan.py` ada di disk maupun di `git ls-files`. ❓ dicoret |
 | **F7** | Dead-code sweep ~13 fungsi | Report-only; periksa niat + test per fungsi, jangan hapus buta |
 | **F5** | `_create_pending_membership_history_if_needed` tak tersambung | Diputuskan: buang atau sambungkan |
 | **D1** | Panduan deploy lama usang | Guide systemd+nginx+Certbot sudah digantikan Docker+Tailscale. Tandai obsolete, rapikan runbook upgrade/rollback di README-DOCKER-MINIPC |
-| — | `datetime.utcnow()` deprecated | Akan rusak di Python 3.14+ ❓ |
+| — | `datetime.utcnow()` deprecated | **❓ terjawab 2026-10-04: BELUM rusak di 3.14.** Diuji di Python 3.14.4 — masih jalan, hanya `DeprecationWarning` ("scheduled for removal in a future version"). 9 pemakaian di `sehati_clinic/`. Produksi `python:3.11-slim`, jadi tidak mendesak — tapi jadi mendesak kalau image dinaikkan. Ganti ke `datetime.now(datetime.UTC)` |
 
 ## 4. Gerbang keamanan (dipicu sebelum data pasien asli masuk)
 
 | ID | Item | Catatan |
 |---|---|---|
-| **S1** | CSP + HSTS header | Dulu menunggu HTTPS; HTTPS Tailscale sudah ada → **bisa dikerjakan sekarang** |
+| ~~**S1**~~ | ~~CSP + HSTS header~~ | **SEBAGIAN BESAR SUDAH ADA sejak `adb0459`** — diperiksa 2026-10-04, bukan disimpulkan dari catatan. CSP **aktif & menegakkan** dan terbukti tidak memblokir apa pun; HSTS terpasang & terbukti jalan tapi masih mati. Sisa: nyalakan HSTS di `.env` mini PC + hapus `'unsafe-inline'`. Lihat `S1_CSP_HSTS.md` |
 | **S2** | pip-audit terjadwal Docker-aware | Unit systemd yang ada berbasis native (`/opt`, `User=sehati`); mini PC memakai Docker |
 | **S3** | Least-privilege DB + immutability `audit_log` | GRANT app hanya INSERT/SELECT di `audit_log`; user MySQL non-root |
 | **S4** | Enkripsi at-rest (LUKS) disk mini PC | Belum terverifikasi ❓ |
