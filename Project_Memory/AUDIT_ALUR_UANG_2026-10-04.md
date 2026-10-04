@@ -897,6 +897,116 @@ aturannya; hanya mengatakannya.
 
 ---
 
+---
+
+# PUTARAN 9 — kuota membership (tindakan gratis)
+
+Kuota = tindakan yang diberikan **gratis**. Setiap slot yang bocor adalah pendapatan
+yang hilang tanpa jejak.
+
+---
+
+## TEMUAN 15 — 🔴 `increment_kuota_terpakai` mengaku "Atomic" tapi tidak mengunci apa pun
+
+**Didemonstrasikan**, bukan disimpulkan dari pembacaan kode.
+
+Docstring-nya berbunyi *"Atomic increment kuota_terpakai. Return True kalau sukses
+(sisa > 0)."* Kenyataannya:
+
+```python
+kuota = self.db.get(_PMK, id_kuota)        # ambil biasa, TANPA with_for_update()
+sisa = kuota.kuota_total - kuota.kuota_terpakai
+if sisa <= 0: return False
+kuota.kuota_terpakai = terpakai_lama + 1   # baca-ubah-tulis di Python
+```
+
+Dua sesi terpisah, kuota `total=1 terpakai=0`:
+
+```
+sesi A baca terpakai = 0 | sesi B baca terpakai = 0
+sesi A increment -> True
+sesi B increment -> True
+akhir di DB     : terpakai=1 dari total=1
+```
+
+**Dua tindakan gratis diizinkan dari kuota yang hanya satu**, dan DB hanya mencatat
+satu terpakai. Satu tindakan diberikan cuma-cuma **tanpa jejak sama sekali** — tidak di
+kuota, tidak di laporan.
+
+### Kenapa ini bukan sekadar teori
+
+1. **Tidak ada CHECK constraint** `kuota_terpakai <= kuota_total` di DB — tidak ada
+   jaring pengaman di lapis bawah.
+2. **Proyek SUDAH punya polanya dan memakainya** — `apotek_repo.get_produk_for_update()`
+   dan `inventory_repo.get_stok_for_update()` keduanya `with_for_update()`, dan
+   `proses_bayar` mengunci baris kunjungan dengan alasan tertulis (P0-2) untuk
+   menyerialkan submit bersamaan.
+3. Jadi **stok dilindungi kunci baris, kuota tidak** — padahal keduanya sumber daya
+   habis-pakai bernilai uang.
+
+### Pemicunya nyata di klinik
+
+Dua staf menandai tindakan "Selesai" untuk pasien yang sama pada saat berdekatan.
+Jarang, tapi bukan hipotetis — dan `_revert_kuota_per_tindakan` saat void menambah
+peluang baca-ubah-tulis bersamaan.
+
+**Perbaikannya ada di rak sendiri:** ganti `self.db.get(...)` dengan query
+`with_for_update()`, persis seperti dua repo yang sudah melakukannya.
+
+⚠ Catatan: `decrement_kuota_terpakai` **aman di sisi bawah** — ia memakai
+`max(0, terpakai_lama - 1)`, jadi tidak bisa negatif.
+
+---
+
+## TEMUAN 16 — 🟡 Tidak ada indeks unik di tabel kuota; baris bulan bisa kembar
+
+`get_or_create_kuota_for_treatment` melakukan **lazy-create**: *"Untuk BULANAN:
+lazy-create row untuk bulan target (default = today)."*
+
+Indeks di `pasien_membership_kuota`:
+
+```
+PRIMARY                 unik    (id_kuota)
+id_pasien               biasa
+id_treatment            biasa
+id_membership_history   biasa
+```
+
+**Tidak ada indeks unik** pada kombinasi `(id_pasien, id_treatment, bulan_periode)`.
+Jadi dua panggilan bersamaan dapat sama-sama tidak menemukan baris bulan itu dan
+sama-sama menyisipkan → **dua baris kuota untuk bulan yang sama**.
+
+Dampaknya lebih besar dari Temuan 15: yang digandakan bukan satu slot melainkan
+**seluruh jatah bulanan**. Dan duplikatnya senyap — tidak ada yang menandainya.
+
+⚠ **Ini belum saya demonstrasikan** — kesimpulan dari struktur (lazy-create tanpa
+indeks unik), bukan dari menjalankannya. Saya membedakannya dari Temuan 15 yang
+memang dijalankan.
+
+**Perbaikannya butuh migrasi** (`UNIQUE INDEX`), jadi harus dikerjakan di desktop —
+dan perlu dibersihkan dulu kalau sudah ada duplikat:
+
+```sql
+SELECT id_pasien, id_treatment, bulan_periode, COUNT(*) n
+FROM pasien_membership_kuota
+WHERE periode_kuota = 'BULANAN'
+GROUP BY id_pasien, id_treatment, bulan_periode
+HAVING n > 1;
+```
+
+---
+
+## Yang DIPERIKSA di putaran 9 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Pagar atas kuota** | `sisa <= 0 → return False`. Dalam pemakaian berurutan, kuota tidak bisa dilampaui |
+| **Pagar bawah decrement** | `max(0, terpakai_lama - 1)` — tidak bisa negatif |
+| **Reset bulanan** | Baris BARU per bulan (lazy-create), bukan reset di tempat. Sisa tidak terakumulasi — cocok dengan keterangan di layar: *"kuota reset setiap awal bulan, sisa tidak akumulasi"* |
+| **Audit kuota** | `increment`/`decrement` menulis audit `KUOTA_PAKAI` dengan nilai lama→baru saat `actor_id_staf` disediakan |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -911,14 +1021,16 @@ aturannya; hanya mengatakannya.
 
 ~~3. Membership upgrade/perpanjang~~ · ~~4. inventory_history~~ — **selesai di putaran 8.**
 
-Sisa & usulan putaran 9:
+~~4. Kuota membership~~ — **selesai di putaran 9.**
+
+Sisa & usulan putaran 10:
 1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit).
 2. **Pembersihan baris yang terlanjur rusak** — Temuan 11 membuktikan baris itu TERBAYAR.
-3. **M-FIN-3** — melengkapi `hpp_satuan`/`nilai_mutasi` saat mutasi (Temuan 13). Perlu
-   keputusan: dari `id_lot` (perlu kolom baru) atau dari HPP master saat itu.
-4. Kuota membership: `get_or_create_kuota_for_treatment`, increment/decrement — belum
-   diaudit; nyambung ke Temuan 5 (revert kuota saat void).
-5. Booking & deposit (F8, PARKIR) — belum ada uangnya.
+3. **M-FIN-3** — melengkapi `hpp_satuan`/`nilai_mutasi` (Temuan 13).
+4. **Kunci baris kuota + indeks unik** (Temuan 15 & 16) — yang kedua butuh migrasi.
+5. Series treatment (`pasien_rencana_treatment`) & `_cancel_series_sesi_pending` —
+   belum diaudit; sejenis kuota, yaitu hak yang sudah dibayar di muka.
+6. Booking & deposit (F8, PARKIR) — belum ada uangnya.
 
 ⚠ **Catatan jujur:** tujuh putaran telah menghasilkan 12 temuan, dan antrean keputusan
 yang menunggu dr. Hansen kini lebih panjang daripada nilai putaran berikutnya. Audit
