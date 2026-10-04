@@ -272,3 +272,130 @@ Sengaja, supaya uji ini bisa diulang:
 dari test booking berulang — test itu tidak membersihkan datanya. Belum dibersihkan;
 bukan bagian dari permintaan ini, tapi itu sebabnya DB laptop punya 51 pasien dan
 karenanya memicu pagar di §4.
+
+---
+
+# Perbaikan dua cacat 500 — 2026-10-04
+
+Atas permintaan dr. Hansen. Keduanya diperbaiki; keduanya dibuktikan mengembalikan
+**data nyata**, bukan sekadar berhenti 500.
+
+## 1. `list_antropometri_pasien` → metodenya sudah ada dengan nama lain
+
+Dugaan awal saya di §2a — "perlu metode repository baru, dan itu keputusan desain" —
+**salah**. Metodenya sudah lama ada:
+
+| | |
+|---|---|
+| Dipanggil service | `list_antropometri_pasien` ← tidak ada di mana pun |
+| Yang benar-benar ada | `kunjungan_repo.list_antropometri_timeline` (baris 306) |
+
+Tanda tangan `(id_pasien, limit=50)`, kembalian `list[KunjunganAntropometri]`, urut
+`created_at DESC`, JOIN lewat `Kunjungan` — **cocok persis** dengan yang dibutuhkan
+`get_timeline`. Dan ia **tidak punya satu pemakai pun**: ditulis, tidak pernah
+disambungkan. Dua sisi dengan dua nama — CLAUDE.md §4.1 dalam bentuk paling sederhana.
+
+Jadi perbaikannya **satu nama**, bukan metode baru. Pelajarannya: sebelum menulis
+fungsi yang "hilang", cari dulu apakah ia ada dengan nama lain.
+
+## 2. `get_treatment_selesai` → EMPAT kesalahan, bukan tiga
+
+§2b menyebut tiga nama kolom salah. Setelah diperiksa lebih jauh, ada **empat**, dan
+yang keempat yang paling halus:
+
+| Ditulis | Kenyataannya |
+|---|---|
+| `KunjunganTindakan.id_pasien` | tidak ada — pasien hanya lewat `kunjungan` |
+| `KunjunganTindakan.status` | namanya `status_tindakan` |
+| `KunjunganTindakan.tgl_selesai` | namanya `waktu_selesai` |
+| **`== "COMPLETED"`** | **enumnya `PENDING`/`PROSES`/`SELESAI`** — "COMPLETED" tidak akan pernah cocok |
+
+Yang keempat adalah jebakan §4.5: seandainya tiga nama kolomnya benar, fungsi ini akan
+**berjalan tanpa error dan selalu mengembalikan daftar kosong** — cardbox-nya kosong
+tanpa ada yang tahu kenapa. Nama kolom yang salah justru menyelamatkan: ia berteriak.
+
+**Arity-nya juga salah.** Pemanggil membongkar TIGA nilai (`for tindakan, tr, kj in
+treatment_rows`) dan memakai `kj.tgl_kunjungan`; repo mengembalikan 2-tuple. Perbaikannya
+mencerminkan `get_produk_dibeli` yang bersebelahan — dua cardbox tetangga tidak boleh
+memakai sumber tanggal berbeda.
+
+## Bukti, bukan hanya "tidak crash"
+
+```
+GET /api/v1/antropometri/pasien/348/timeline -> 200
+   total baris: 3
+     BB=65.0 TB=160.0 BMI=25.4
+     BB=64.2 TB=160.0 BMI=25.1
+     BB=63.5 TB=160.0 BMI=24.8
+
+GET /api/v1/dokter/pasien/348/summary -> 200
+   cardbox treatment SELESAI: 3 baris
+     2026-09-27  Basic Treatment
+     2026-09-20  Basic Treatment
+     2026-09-13  Basic Treatment
+```
+
+Suite: **138 lulus** (dari 137), 1 gagal, 1 dilewati.
+
+---
+
+# TEMUAN BARU — `created_at` dipakai sebagai TANGGAL KLINIS
+
+Satu test masih gagal, dan sebabnya **bukan** kedua cacat di atas. Ini hal ketiga yang
+berbeda, ditemukan justru karena endpointnya akhirnya hidup.
+
+`test_summary_pasien_seed_sari_has_soap_history` menuntut ≥3 SOAP. DB **punya** 3:
+
+| id_pemeriksaan | kunjungan | tgl_kunjungan | created_at |
+|---|---|---|---|
+| 26 | 267 | 2026-09-13 | 2026-10-04 |
+| 27 | 268 | 2026-09-20 | 2026-10-04 |
+| 28 | 269 | 2026-09-27 | 2026-10-04 |
+
+Tiga **kunjungan berbeda**, tapi endpoint mengembalikan **1**. Penyebabnya fitur yang
+disengaja di `get_riwayat_soap` (baris 194-197):
+
+> *"DEDUPE per tanggal: kalau ada multiple SOAP di hari yang sama (mis. dokter Ubah
+> Konsul beberapa kali), hanya ambil yang TERBARU."*
+
+Niatnya benar. Kuncinya yang salah: ia memakai tanggal **`created_at`** — kapan
+catatannya DITULIS — bukan kunjungan mana yang dicatat. Akibatnya dua hal yang sangat
+berbeda diperlakukan sama:
+
+| Yang dimaksud | Yang juga kena |
+|---|---|
+| 3× "Ubah Konsul" untuk SATU kunjungan → tampil 1 (benar) | SOAP untuk TIGA kunjungan berbeda yang ditulis di hari yang sama → tampil 1 (**salah**) |
+
+Kapan ini terjadi di klinik sungguhan: **dokter menyusul menulis catatan beberapa
+kunjungan dalam satu sesi duduk.** Riwayat pasiennya lalu menampilkan satu entri, dan
+dua kunjungan lain hilang dari pandangan dokter — tanpa error, tanpa penanda.
+
+Kunci yang tepat adalah **per `id_kunjungan`** (SOAP terbaru per kunjungan), karena
+itulah yang sebenarnya dimaksud "Ubah Konsul beberapa kali".
+
+## Akarnya sama di tempat lain
+
+Timeline antropometri yang baru diperbaiki memakai pola yang sama:
+
+```python
+tgl_ukur=antro.created_at
+```
+
+Buktinya di keluaran di atas: tiga pengukuran September semuanya tampil `2026-10-04`.
+Untuk grafik tracking berat badan, itu berarti pengukuran yang diisi menyusul **menumpuk
+di satu titik** pada sumbu waktu — grafiknya terlihat datar padahal pasiennya turun 1,5 kg.
+
+Dan di cardbox SOAP, `tanggal=soap.created_at` juga — kartunya menampilkan kapan catatan
+ditulis, bukan kapan pasien datang.
+
+⚠ **BELUM DIPERBAIKI — menunggu keputusan dr. Hansen**, karena ini **mengubah apa yang
+dilihat dokter di layar**, bukan menambal error. Tiga tempat terlibat:
+
+| Tempat | Sekarang | Usul |
+|---|---|---|
+| `get_riwayat_soap` dedupe | per tanggal `created_at` | per `id_kunjungan` |
+| `SoapRingkasItem.tanggal` | `created_at` | `kunjungan.tgl_kunjungan` |
+| `AntropometriTimelineItem.tgl_ukur` | `created_at` | `kunjungan.tgl_kunjungan` |
+
+Catatan jujur: `created_at` tetap berguna dan jangan dibuang — "kapan ditulis" adalah
+informasi audit yang sah. Yang salah adalah memakainya **sebagai tanggal klinis**.

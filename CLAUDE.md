@@ -107,6 +107,7 @@ dengan asumsi apa?*
 | Draf SOAP apoteker vs SOAP dokter di tabel yang sama | Halaman basi menghapus data yang lebih baru |
 | `_produk_stok_sudah_dipotong`, `id_resep_asal` | Sama polanya |
 | `REPORTS_ROLES` dipakai ulang untuk laporan klinis | Laporan tanpa uang ikut terkunci oleh aturan yang dibuat untuk data uang |
+| **`created_at` dipakai sebagai TANGGAL KLINIS** | `get_riwayat_soap` men-dedupe SOAP per tanggal `created_at` — kapan catatan DITULIS, bukan kunjungan mana yang dicatat. Dokter yang menyusul menulis catatan tiga kunjungan dalam satu hari melihat riwayatnya **luruh jadi satu entri**, tanpa error. Pola sama di `AntropometriTimelineItem.tgl_ukur` dan `SoapRingkasItem.tanggal`: grafik berat badan menumpuk di satu titik. `created_at` sah sebagai jejak audit — yang salah memakainya sebagai tanggal klinis. TERBUKA — `UJI_PENUH_LAPTOP_2026-10-04.md` |
 | ~~`DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong"~~ | **DIPAGARI 2026-10-04.** Dua arti untuk dua penulis: bagi apoteker `DISERAHKAN` artinya "obat di tangan pasien", bagi penjaga void artinya "lot sudah keluar, jadi boleh dikembalikan". Penyerahan dengan stok kurang **berhasil** dan memasang `DISERAHKAN` tanpa satu lot pun terpakai — lalu void **menciptakan** lot `VOID-RETURN` berisi barang yang tak pernah ada, dan FEFO membagikannya. Sekarang di skema per-item void hanya memulihkan sebanyak yang dibuktikan jejak `kunjungan_lot_terpakai`. **Stok minus tetap diizinkan — yang diperbaiki jejaknya, bukan filosofinya.** Pemeriksanya: `python -m scripts.cek_serah_tanpa_lot`. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 30 |
 | **FEFO menyodorkan lot KEDALUWARSA lebih dulu** | Query FEFO tidak menyaring `tgl_ed`, dan karena "ED terdekat keluar dulu" lot yang sudah lewat ED ada di urutan PALING ATAS. Terbukti. Yang menahannya cuma apoteker yang membaca ED di layar — dan layarnya **tidak menandai** tanggal yang sudah lewat. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 29 |
 | **Nota dicetak dari harga MASTER, bukan yang ditagih** | `prepare_nota_context` menggabungkan ke `MasterTreatment.harga`/`MasterProduk.harga_jual` untuk BARIS, tapi mengambil TOTAL dari transaksi — dua sumber kebenaran di satu lembar. Tindakan kuota mencetak **baris Rp 500.000 dengan total Rp 0**. Snapshot-nya sudah ada di `transaksi_detail_*`. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 27 |
@@ -277,7 +278,7 @@ Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + g
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.
 
-✅ **Suite test: 137 lulus / 2 gagal / 1 dilewati** dengan kredensial uji terpasang.
+✅ **Suite test: 138 lulus / 1 gagal / 1 dilewati** dengan kredensial uji terpasang. Dua cacat 500 **sudah diperbaiki**; satu yang gagal adalah temuan `created_at` di §4.1.
 ⚠ **Tanpa `TEST_USERNAME`/`TEST_PASSWORD` yang sah, 31 test DILEWATI — seluruh lapisan
 endpoint HTTP (pasien, kunjungan, dokter, antropometri, auth).** Ringkasan pytest
 menampilkan "dilewati" dengan warna yang sama seperti lulus, sehingga laporan lama

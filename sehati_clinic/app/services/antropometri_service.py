@@ -236,7 +236,13 @@ class AntropometriService:
         usia = hitung_usia(pasien.tgl_lahir)
         jk = pasien.jenis_kelamin.value if hasattr(pasien.jenis_kelamin, "value") else str(pasien.jenis_kelamin or "")
 
-        rows = self.kunjungan_repo.list_antropometri_pasien(id_pasien, limit=limit)
+        # ⚠ DIPERBAIKI 2026-10-04. Dulu memanggil `list_antropometri_pasien`, yang
+        # TIDAK ADA di mana pun — endpoint ini selalu 500 (`AttributeError`).
+        # Metodenya sudah lama ada dengan nama LAIN: `list_antropometri_timeline`
+        # (`kunjungan_repo.py:306`), tanda tangan & kembaliannya cocok persis, dan
+        # ia belum punya satu pemakai pun. Dua sisi ditulis dengan dua nama —
+        # CLAUDE.md §4.1. Jadi yang dibutuhkan satu nama, bukan metode baru.
+        rows = self.kunjungan_repo.list_antropometri_timeline(id_pasien, limit=limit)
         items = []
         for antro in rows:
             bmi = hitung_bmi(antro.berat_badan, antro.tinggi_badan)

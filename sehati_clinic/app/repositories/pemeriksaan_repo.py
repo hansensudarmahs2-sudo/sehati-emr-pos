@@ -22,6 +22,7 @@ from app.db.models import (
     MasterTreatment,
     PasienRencanaTreatment,
     PemeriksaanKlinis,
+    StatusTindakanEnum,
 )
 
 
@@ -247,20 +248,40 @@ class PemeriksaanRepository:
         self,
         id_pasien: int,
         limit: int = 10,
-    ) -> list[tuple[KunjunganTindakan, MasterTreatment]]:
-        """Treatment COMPLETED untuk pasien."""
+    ) -> list[tuple[KunjunganTindakan, MasterTreatment, Kunjungan]]:
+        """Treatment SELESAI untuk pasien — cardbox kanan-bawah dashboard dokter.
+
+        ⚠ DIPERBAIKI 2026-10-04. Versi sebelumnya ditulis terhadap model yang tidak
+        pernah ada dan **tidak mungkin pernah berhasil** — empat kesalahan sekaligus:
+
+        | Ditulis | Kenyataannya |
+        |---|---|
+        | `KunjunganTindakan.id_pasien` | tidak ada; pasien hanya terjangkau lewat `kunjungan` |
+        | `KunjunganTindakan.status` | namanya `status_tindakan` |
+        | `KunjunganTindakan.tgl_selesai` | namanya `waktu_selesai` |
+        | `== "COMPLETED"` | enumnya PENDING/PROSES/**SELESAI** — "COMPLETED" tak pernah cocok |
+
+        Akibatnya `GET /api/v1/dokter/pasien/{id}/summary` SELALU membalas 500
+        (`AttributeError`). Tidak ada yang melaporkannya karena UI klinik tidak memakai
+        endpoint itu — nol rujukan di 127 template.
+
+        Mengembalikan TIGA nilai, bukan dua: pemanggilnya
+        (`pemeriksaan_service.get_summary_pasien`) membongkar `tindakan, tr, kj` dan
+        memakai `kj.tgl_kunjungan` sebagai tanggal. Tanggal diambil dari KUNJUNGAN,
+        bukan dari `waktu_selesai`, supaya sebaris dengan `get_produk_dibeli` di atas —
+        dua cardbox bersebelahan tidak boleh memakai sumber tanggal yang berbeda.
+        """
         stmt = (
-            select(KunjunganTindakan, MasterTreatment)
+            select(KunjunganTindakan, MasterTreatment, Kunjungan)
+            .join(Kunjungan, KunjunganTindakan.id_kunjungan == Kunjungan.id_kunjungan)
             .join(MasterTreatment, KunjunganTindakan.id_treatment == MasterTreatment.id_treatment)
-            .where(
-                KunjunganTindakan.id_pasien == id_pasien,
-                KunjunganTindakan.status == "COMPLETED",
-            )
-            .order_by(KunjunganTindakan.tgl_selesai.desc())
+            .where(Kunjungan.id_pasien == id_pasien)
+            .where(KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI)
+            .order_by(Kunjungan.tgl_kunjungan.desc())
             .limit(limit)
         )
         rows = self.db.execute(stmt).all()
-        return [(row[0], row[1]) for row in rows]
+        return [(row[0], row[1], row[2]) for row in rows]
 
 
 __all__ = ["PemeriksaanRepository"]
