@@ -121,6 +121,39 @@ diputuskan dipakai atau dibuang.
 
 ---
 
+## 4b. ⚠ KOREKSI 2026-10-04 (putaran 5 audit) — sapuan ini punya DUA TITIK BUTA
+
+Ditemukan saat mengaudit pengadaan, dan berlaku surut ke seluruh daftar di atas.
+
+1. **`__all__` menggelembungkan hitungan pemakaian.** Nama yang terdaftar di `__all__`
+   muncul dua kali (definisi + daftar ekspor), sehingga lolos dari syarat
+   "pemakaian ≤ jumlah definisi". Itu sebabnya `hitung_dari_total` dan
+   `hitung_dari_diskon` (`app/services/faktur_calc.py`) **tidak pernah muncul** di
+   daftar 14 — padahal kode produksi tidak memanggil keduanya.
+
+2. **Memberi penanda pada kode mati membuatnya tampak hidup.** Komentar yang saya
+   tambahkan sendiri di `membership_service.py` menyebut `create_kunjungan_billing`,
+   dan itu cukup membuatnya HILANG dari sapuan berikutnya. Ironi yang layak dicatat:
+   mendokumentasikan kode mati menyembunyikannya dari pemeriksa.
+
+**Sapuan diulang dengan blok `__all__` dibuang: 14 → 16 kandidat.** Tiga nama baru:
+
+| Fungsi | Berkas | Catatan |
+|---|---|---|
+| `session_expired` | `web/routes/_shared.py:503` | ⚠ salah satu helper yang **A8/DEC-084** buat sebagai bentuk baku. Kalau benar tak terpakai, itu pertanda bentuk bakunya tidak diadopsi |
+| `user_can_purchase_bahan` | `web/routes/_shared.py:407` | belum diselidiki |
+| `user_can_purchase_produk_cabin_alat` | `web/routes/_shared.py:415` | belum diselidiki |
+
+`faktur_calc` sendiri **punya unit test** (`tests/unit/test_faktur_calc.py`), jadi ia
+bukan "kode mati tanpa jejak" melainkan **modul teruji yang tidak dipakai produksi** —
+kategori tersendiri. Rinciannya di `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 7.
+
+**Pelajaran:** sapuan berbasis hitung-nama rapuh terhadap hal-hal yang bukan pemakaian —
+daftar ekspor, komentar, dokumen. Daftar mana pun darinya adalah **kandidat**, bukan
+vonis. Aturan "jangan hapus buta" terbukti benar.
+
+---
+
 ## 5. Rekomendasi
 
 1. **Hapus `create_kunjungan_billing`** — niatnya mati dan terdokumentasi (§3).

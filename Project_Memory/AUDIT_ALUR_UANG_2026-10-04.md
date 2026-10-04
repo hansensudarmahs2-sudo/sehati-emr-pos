@@ -492,6 +492,120 @@ barang rusak tidak boleh kembali ke stok.
 
 ---
 
+---
+
+# PUTARAN 5 — pengadaan (uang KELUAR ke distributor)
+
+Jalur uang keluar belum pernah diaudit utuh; putaran 1 hanya memastikan ia tidak bocor
+ke laporan omzet pasien.
+
+---
+
+## TEMUAN 7 — 🟡 Yang DIUJI tidak dipakai; yang DIPAKAI tidak diuji
+
+`app/services/faktur_calc.py` adalah modul yang ditulis rapi: murni Decimal, tanpa
+dependensi DB, berdokumentasi rumus, dan punya unit test sendiri
+(`tests/unit/test_faktur_calc.py`). Saya uji-properti dengan 20.000 faktur acak —
+**rekonsiliasinya nol meleset.**
+
+**Tapi produksi tidak pernah memanggilnya.** Perhitungan faktur yang benar-benar
+berjalan ada **inline di route** (`app/web/routes/pengadaan.py:862–880`), dan memakai
+**model yang berbeda**:
+
+| | `faktur_calc` (tidak dipakai) | Route (live) |
+|---|---|---|
+| Penggerak | Total ditagih Y → turunkan harga per item | **Harga terima per item** (bisa diedit) → turunkan total |
+| Arah | Diskon TERBALIK | Maju |
+| Unit test | **Ada** | **Tidak ada** |
+
+Komentar di route menyatakannya eksplisit: *"Faktur digerakkan oleh HARGA TERIMA per
+item (source of truth; editable)"*. Jadi `faktur_calc` adalah model **lama yang
+tergantikan**, bukan bug — sama kategorinya dengan `create_kunjungan_billing`.
+
+**Akibatnya yang perlu disadari:** suite test memberi rasa aman yang keliru untuk area
+ini. Yang lulus test adalah rumus yang tidak dipakai; rumus yang menentukan berapa
+klinik membayar distributor tidak punya unit test sendiri (hanya tersentuh tidak sengaja
+oleh `test_stok_lot.py`).
+
+**Saran:** ekstrak perhitungan inline di route ke fungsi murni — lalu salah satu dari:
+hapus `faktur_calc` (tergantikan), atau jadikan ia rumah bagi kedua model. Keputusan
+dr. Hansen. Saya tidak menyentuhnya.
+
+### ⚠ Koreksi atas klaim saya sendiri
+
+Saya sempat menulis bahwa `faktur_calc` **"tidak pernah diimpor di mana pun"**. Itu
+**salah**: ia diimpor oleh unit test-nya. Saya men-grep hanya folder `app/` lalu
+menyatakan kesimpulan tanpa menyebut batasan itu. Yang benar: **tidak dipanggil kode
+produksi**, dan itu klaim yang berbeda.
+
+---
+
+## TEMUAN 8 — 🟡 Subtotal PO memakai float — tapi hanya menggigit kuantitas pecahan
+
+`pemesanan_service.py:169` menghitung `subtotal = float(harga_satuan) * float(qty_dipesan)`
+dan menyimpannya ke kolom `DECIMAL(14,2)`. Tetangganya, `faktur_calc`, sengaja ditulis
+"murni Decimal" — dua pendekatan berbeda di satu modul pengadaan.
+
+⚠ Lebih dalam dari itu: **`pemesanan_item.qty_dipesan` bertipe `float` DI DATABASE**,
+bukan DECIMAL. Jadi kuantitasnya sudah biner sebelum dikalikan.
+
+**Diukur**, 200.000 kombinasi acak per kelompok:
+
+| Kuantitas | Meleset |
+|---|---|
+| **Bulat** (produk: box, strip, pcs) | **0 dari 200.000 — nol** |
+| **Pecahan** (bahan: gram, ml) | **762 dari 200.000 (0,38%)**, masing-masing 1 sen |
+
+Jadi dampaknya **terbatas pada pemesanan bahan dengan kuantitas pecahan**. Untuk produk
+yang dipesan per satuan utuh, float di sini persis. Lebih sempit daripada temuan komisi
+(Temuan 4) yang 2,43%.
+
+Prioritas rendah. Angkanya pun **estimasi PO**, bukan uang yang dibayar — yang dibayar
+dihitung ulang saat faktur, dan jalur itu memakai Decimal.
+
+---
+
+## Yang DIPERIKSA di putaran 5 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Penerimaan parsial** | **BERSIH.** `received` dibangun HANYA dari item yang qty-nya diisi di form penerimaan — qty **diterima**, bukan qty dipesan. Klinik tidak membayar barang yang tidak datang |
+| **Rekonsiliasi faktur** | Diuji-properti 20.000 faktur acak: `subtotal_setelah_diskon × (1+PPN) − extra_diskon == total_ditagih` **persis, nol meleset**. ⚠ Tapi itu menguji `faktur_calc` yang TIDAK DIPAKAI (Temuan 7) |
+| **`diskon_persen` faktur** | **BERSIH.** Hanya untuk tampilan di cetakan, dan rupiah yang ditampilkan adalah selisih sebenarnya (`subtotal_order − subtotal_setelah_diskon`), **bukan** dihitung ulang dari persentase. Tidak ada risiko hitung-ulang |
+| **Harga terima per item** | Decimal sejak dibaca dari form; `float` hanya sebagai perantara string→angka, lalu `Decimal(str(...))` yang memulihkan nilainya |
+
+---
+
+## TEMUAN METODE — sapuan kode mati saya sendiri punya dua titik buta
+
+Ditemukan saat putaran ini, dan berlaku surut ke `DEAD_CODE_SWEEP_2026-10-04.md`:
+
+1. **`__all__` menggelembungkan hitungan.** Nama yang terdaftar di `__all__` muncul dua
+   kali (definisi + daftar), sehingga lolos dari syarat "pemakaian ≤ jumlah definisi".
+   Itu sebabnya `hitung_dari_total` tidak pernah muncul di daftar 14.
+2. **Memberi penanda pada kode mati membuatnya tampak hidup.** Komentar yang saya
+   tambahkan sendiri di `membership_service.py` menyebut `create_kunjungan_billing`,
+   dan itu cukup membuatnya **hilang** dari sapuan berikutnya.
+
+Sapuan diulang dengan blok `__all__` dibuang: **14 → 16 kandidat**. Tiga nama baru
+muncul, dua di antaranya di `_shared.py`:
+
+```
+session_expired                      app/web/routes/_shared.py:503
+user_can_purchase_bahan              app/web/routes/_shared.py:407
+user_can_purchase_produk_cabin_alat  app/web/routes/_shared.py:415
+```
+
+⚠ `session_expired` justru salah satu helper yang A8/DEC-084 buat sebagai bentuk baku —
+kalau ia benar tidak terpakai, itu pertanda helper bakunya tidak diadopsi. Belum
+diselidiki.
+
+**Pelajarannya:** sapuan berbasis hitung-nama rapuh terhadap hal-hal yang bukan
+pemakaian (daftar ekspor, komentar, dokumen). Daftar mana pun darinya adalah
+**kandidat**, bukan vonis — dan itu sebabnya aturan "jangan hapus buta" benar.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -502,11 +616,15 @@ barang rusak tidak boleh kembali ke stok.
 ~~1. Ekspor Finance vs laporan layar~~ · ~~2. Tutup kasir~~ · ~~4. Stok saat void~~
 — **selesai di putaran 4.**
 
-Sisa & usulan putaran 5:
-1. **F2 — konsep "periode payroll ditutup"**. Bukan audit melainkan desain, dan ia
-   prasyarat agar penarikan komisi surut (Temuan 5) punya aturan yang jelas.
+~~3. Pengadaan: PO & faktur penerimaan~~ — **selesai di putaran 5.**
+
+Sisa & usulan putaran 6:
+1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit). Prasyarat agar
+   penarikan komisi surut punya aturan yang jelas.
 2. **Pembersihan baris yang terlanjur rusak** oleh Temuan 5 — query deteksi sudah ada,
    keputusannya belum.
-3. Pengadaan: PO, faktur penerimaan, retur ke distributor — jalur uang KELUAR, belum
-   pernah diaudit utuh (putaran 1 hanya memastikan ia tidak bocor ke omzet pasien).
+3. **Retur ke distributor** — belum diaudit sendiri; putaran 5 hanya menyentuh PO dan
+   faktur penerimaan.
 4. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
+5. `session_expired` & dua helper `_shared.py` dari temuan metode — selidiki apakah
+   bentuk baku A8/DEC-084 benar-benar diadopsi.
