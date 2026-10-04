@@ -108,3 +108,6 @@ clinical_pack/
 *_map.csv
 *_map.json
 *_map.sql
+
+# Konfigurasi lokal Claude Code (launch.json server dev, dll.) — per mesin, bukan bagian aplikasi
+.claude/
