@@ -1434,6 +1434,103 @@ kalinya ditegakkan.
 
 ---
 
+---
+
+# PUTARAN 12 — ekonomi tindakan gratis (kuota membership)
+
+---
+
+## ✅ DEC-088 Opsi A TERVERIFIKASI — dan angkanya baru sekarang terlihat
+
+DEC-088 menetapkan: *komisi tindakan gratis (series/kuota) **tetap dibayar***. Diuji
+dengan tindakan berkuota sungguhan sampai ke kasir:
+
+| | |
+|---|---|
+| Ditagih ke pasien | **Rp 0** (kuota) |
+| Komisi dokter | **Rp 180.000** `AKTIF` |
+| BHP terpakai | Rp 100.000 |
+| Harga master tindakan | Rp 500.000 |
+
+Keputusannya terpenuhi. Komisi dihitung dari **harga master**
+(`hitung_komisi_treatment`, komentar: *"basis harga master"*), bukan dari yang ditagih,
+jadi tindakan Rp 0 tetap menghasilkan komisi penuh.
+
+**Yang baru terlihat: klinik mengeluarkan Rp 280.000 untuk satu tindakan kuota**
+(BHP 100.000 + komisi 180.000), dengan pendapatan Rp 0.
+
+Angka itu **tidak bisa dilihat sebelum perbaikan F3** — transaksi berkuota tidak
+meninggalkan baris `transaksi_detail_tindakan` sama sekali.
+
+### Konsekuensi F3 yang baru ketahuan sekarang
+
+`export_service.export_transaction_items_raw` punya query **khusus**
+`TransaksiDetailTindakan` (`stmt_t`, baris ±590). Karena tabel itu tidak pernah ditulis,
+ekspor Finance selama ini mengirim rincian **produk dan racikan** tapi **nol baris
+tindakan** — lini terbesar di klinik dermatologi — dan tidak ada apa pun di keluarannya
+yang menandakan ketiadaan itu.
+
+Jadi F3 bukan sekadar "mulai menulis tabel": ia **menghidupkan kembali ekspor Finance
+yang diam-diam mengirim kosong**.
+
+---
+
+## TEMUAN 21 — 🟡 "Estimasi Omzet" menampilkan harga penuh untuk tindakan yang gratis
+
+Dua laporan menghitung omzet dari `SUM(master_treatment.harga)`, bukan dari yang
+benar-benar ditagih:
+
+| Laporan | Fungsi |
+|---|---|
+| Kinerja Dokter | `reports_service.kinerja_dokter` |
+| Top Treatment | `reports_service.top_treatment` |
+
+**Labelnya jujur** — kolomnya bernama **"Estimasi Omzet"** di kedua halaman, dan
+docstring `top_treatment` menyebut *"estimasi, sebelum diskon membership"*. Dugaan awal
+saya bahwa labelnya menyesatkan **salah**; saya periksa sampai ke template.
+
+**Tapi tidak ada satu kalimat pun** di kedua halaman yang menjelaskan apa yang
+dikecualikan. (Hitungan "ada catatan" pada pemeriksaan pertama saya ternyata hanya
+menghitung kata "estimasi" termasuk nama variabel — koreksi atas langkah saya sendiri.)
+
+Dan dengan angka putaran ini, selisihnya bukan sekadar "estimasi":
+
+```
+Estimasi Omzet menampilkan : Rp 500.000   (harga master)
+Klinik benar-benar terima  : Rp 0
+Klinik benar-benar keluar  : Rp 280.000   (BHP + komisi)
+```
+
+Untuk dokter yang banyak mengerjakan tindakan kuota, angka itu tidak hanya
+melebih-lebihkan — **tandanya bisa terbalik**. "Estimasi" tidak menyampaikan itu.
+
+**Saran:** satu kalimat di kedua halaman, misalnya *"Dihitung dari harga master ×
+jumlah. Belum dikurangi diskon membership, dan tindakan berkuota dihitung harga penuh
+meski ditagih Rp 0."* Tidak mengubah angkanya; hanya mengatakannya.
+
+---
+
+## TEMUAN 22 — 🟡 Tidak ada laporan ekonomi membership
+
+Klinik menjual tier seharga **Rp 5.000.000**, dan tidak ada satu pun laporan yang
+menunjukkan berapa biaya kuota yang dipakai pemegangnya. `reports_service` tidak
+menyebut kuota atau membership sama sekali kecuali satu komentar.
+
+Pertanyaan yang tidak bisa dijawab sistem hari ini:
+
+- Berapa tindakan kuota yang sudah ditebus tier ini?
+- Berapa BHP + komisi yang keluar karenanya?
+- Pada tebusan ke berapa sebuah tier berhenti menguntungkan?
+
+**Datanya kini LENGKAP** — `transaksi_detail_tindakan` (BHP + harga, berkat F3),
+`komisi_ledger` (komisi per tindakan), `pasien_membership_kuota` (kuota terpakai).
+Yang belum ada hanyalah yang menjumlahkannya.
+
+Ini **celah kemampuan, bukan cacat** — tapi ia menyentuh keputusan harga tier, yang
+nilainya jauh lebih besar daripada kebanyakan temuan di dokumen ini.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
