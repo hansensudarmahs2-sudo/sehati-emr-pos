@@ -1637,6 +1637,91 @@ berbeda.
 
 ---
 
+---
+
+# PUTARAN 14 — PPN & penomoran dokumen
+
+---
+
+## TEMUAN 25 — 🟡 Nomor faktur distributor tidak unik — duplikat TERBUKTI diterima
+
+Empat dari lima nomor dokumen dijaga `UNIQUE` di database:
+
+| Dokumen | Kolom | Dijaga? |
+|---|---|---|
+| Transaksi kasir | `doc_number` | ✅ UNIK |
+| Retur | `nomor_retur` | ✅ UNIK |
+| Stock opname | `nomor_opname` | ✅ UNIK |
+| Pemesanan (PO) | `nomor_po` | ✅ UNIK |
+| **Faktur penerimaan** | **`nomor_faktur`** | ❌ **tidak ada indeks sama sekali** |
+
+Tidak ada indeksnya di model maupun di migrasi mana pun, dan **tidak ada pemeriksaan
+duplikat di kode**. Dibuktikan:
+
+```sql
+INSERT INTO faktur_penerimaan (nomor_faktur, tgl_faktur, id_pemesanan)
+VALUES ('INV-DUP-001', CURDATE(), @po), ('INV-DUP-001', CURDATE(), @po);
+
+faktur_nomor_SAMA_po_SAMA: 2
+```
+
+Satu faktur distributor yang sama bisa dicatat **dua kali**. Akibatnya barang tercatat
+diterima dua kali, dan begitu modul Finance (AP/hutang faktur) dibangun, klinik bisa
+**membayar faktur yang sama dua kali**.
+
+### ⚠ Jangan dipasang UNIQUE global
+
+`nomor_faktur` datang dari **distributor**, bukan dibuat Sehati. Dua distributor berbeda
+bisa sah-sah saja memakai nomor yang sama. Indeks yang benar adalah
+**`UNIQUE (id_distributor, nomor_faktur)`**, bukan `UNIQUE (nomor_faktur)`.
+
+Itu mungkin alasan kenapa indeksnya tidak pernah dipasang — yang mudah justru yang
+salah. Tapi akibatnya tetap: tidak ada penjagaan sama sekali.
+
+**Butuh migrasi**, jadi harus dikerjakan di desktop. Bersihkan duplikat lebih dulu:
+
+```sql
+SELECT id_distributor, nomor_faktur, COUNT(*) n
+FROM faktur_penerimaan
+WHERE nomor_faktur IS NOT NULL AND nomor_faktur <> ''
+GROUP BY id_distributor, nomor_faktur HAVING n > 1;
+```
+
+---
+
+## TEMUAN 26 — 🟡 "Aktif saat PKP" menyiratkan tombol yang belum ada
+
+`transaksi_kasir` punya kolom `ppn` dan `is_kena_ppn`, dan kamus data menjelaskannya
+**dengan jujur**:
+
+> *"PPN keluaran (Rp). **0 untuk non-PKP (KLN). Aktif saat PKP.**"*
+
+Isinya memang 0 untuk seluruh 19 transaksi, dan itu **benar** — klinik belum PKP.
+
+**Kontras dengan Temuan 13** layak dicatat: di sana kamus mengklaim `nilai_mutasi`
+*"menilai PENYESUAIAN/WRITE_OFF/RETUR"* padahal kolomnya selalu NULL. Di sini kamusnya
+menyatakan keadaan sebenarnya. Jadi Temuan 13 adalah **kelalaian**, bukan kebiasaan.
+
+**Yang perlu diluruskan:** frasa *"Aktif saat PKP"* menyiratkan sakelar. Tidak ada:
+
+- **tidak ada setelan PKP** di `config.py` maupun `master_klinik_config`
+- **tidak ada kode** di `kasir_service.py` yang menghitung PPN
+
+Jadi menjadi PKP menuntut **pengembangan** — setelan, perhitungan di `proses_bayar`, dan
+penulisan kedua kolom itu — bukan sekadar mengubah konfigurasi. Siapa pun yang membaca
+kamus dan merencanakan transisi PKP akan salah memperkirakan usahanya.
+
+---
+
+## Yang DIPERIKSA di putaran 14 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **PPN tidak ditagihkan ke pasien** | **BERSIH dan konsisten.** `RingkasanBiaya` tidak punya field pajak, dan `hitung_komisi_treatment` memperlakukan pajak sebagai **beban klinik** (`laba_bersih = laba_kotor − pajak`). Artinya harga bersifat SUDAH TERMASUK pajak — model yang koheren, bukan pajak yang terlupa |
+| **Empat nomor dokumen lain** | Semua ber-`UNIQUE` di database |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
