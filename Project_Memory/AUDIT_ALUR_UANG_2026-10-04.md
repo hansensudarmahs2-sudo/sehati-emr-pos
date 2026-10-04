@@ -2289,6 +2289,152 @@ Oktober tidak punya cara tahu bahwa angka hari ke-3 masih bisa berubah di hari k
 
 ---
 
+## TEMUAN 33 — 🔴 Referensi jurnal Finance berhenti dibuat sejak hari ia diperkenalkan
+
+**Putaran 20 — idempotensi pembayaran & jembatan Finance.**
+
+`transaksi_kasir.doc_number` adalah **referensi jurnal stabil** untuk Finance
+(`TRX-YYYY-MM-######`, M-FIN-1). Kamus data mengirimkannya ke penerima dengan janji itu:
+
+> *"Nomor dokumen stabil TRX-YYYY-MM-###### (referensi jurnal Finance, M-FIN-1).
+> Backfill dari id_transaksi untuk baris lama."*
+
+**Tidak ada satu baris kode pun yang mengisinya untuk baris BARU.**
+
+| Yang dicari | Hasil |
+|---|---|
+| Penulis `doc_number` di seluruh `app/` | **nihil** — satu-satunya kemunculan adalah komentar di model |
+| Migrasi `20260706_0100` | mem-backfill `WHERE doc_number IS NULL`, lalu membuat indeks unik |
+| Trigger / `server_default` untuk baris baru | **tidak ada** |
+| Data laptop | **0 dari 26** transaksi punya `doc_number` |
+
+Jadi migrasi itu memberi nomor pada semua baris yang ada **pada 6 Juli 2026**, membuat
+indeks uniknya, dan **berhenti di situ**. Setiap transaksi sejak hari itu `doc_number`-nya
+NULL — termasuk di mini PC, karena yang hilang bukan indeksnya melainkan **penulisnya**.
+
+Kamus datanya tidak berbohong; ia hanya menjelaskan backfill dan tidak pernah
+menjelaskan jalur ke depan. Yang menulis dokumentasinya dan yang menulis alur bayarnya
+mengasumsikan hal berbeda — §4.1 lagi.
+
+### Refund lebih buruk: tidak ada backfill sama sekali
+
+`transaksi_refund.doc_number_refund` ("Nomor dokumen refund (RFN-...)") muncul **hanya**
+di dua tempat: definisi model, dan query ekspor. **Tidak ada penulis, tidak ada migrasi
+backfill.** Jadi ia NULL sejak awal, selalu.
+
+Dan `refunds_raw` juga mengirim `doc_number_asal` = "doc_number transaksi asal (TRX-...)" —
+yang ikut NULL untuk setiap transaksi pasca-Juli. Akibatnya **refund tidak bisa
+ditambatkan ke transaksi asalnya lewat nomor dokumen** di sisi Finance; satu-satunya
+kaitan yang tersisa `id_transaksi`, yaitu autoincrement internal yang justru ingin
+dihindari oleh konsep "referensi jurnal stabil".
+
+### Bentuknya identik dengan Temuan 13 — ini pola, bukan kejadian tunggal
+
+| | Kolom | Dirancang untuk | Keadaan |
+|---|---|---|---|
+| Temuan 13 | `inventory_history.nilai_mutasi` / `hpp_satuan` | nilai rupiah mutasi stok | tak pernah diisi, **tetap diekspor** |
+| **Temuan 33** | `transaksi_kasir.doc_number`, `transaksi_refund.doc_number_refund` | referensi jurnal | tak pernah diisi untuk baris baru, **tetap diekspor** |
+
+Dua kali kolom jembatan Finance dibuat, didokumentasikan, diekspor — dan tidak diisi.
+Yang perlu diputuskan bukan hanya dua kolom ini, melainkan **apakah ada pemeriksa yang
+menjaga bahwa kolom yang DIEKSPOR benar-benar terisi**. `cek_finance_pack` ada dan lulus
+5/5, jadi ia memeriksa hal lain — bukan keterisian.
+
+### Usul (butuh keputusan dr. Hansen)
+
+1. **Isi saat INSERT**, di `proses_bayar` dan di refund, dengan pola yang sama seperti
+   backfill: `TRX-YYYY-MM-` + `LPAD(id_transaksi, 6, '0')`. Perlu `flush()` dulu supaya
+   `id_transaksi` ada. Tanpa migrasi.
+2. **Backfill ulang baris Juli–sekarang** di mini PC — satu `UPDATE ... WHERE doc_number
+   IS NULL`, persis seperti migrasi 20260706_0100. ⚠ Indeks uniknya sudah ada, jadi
+   backfill-nya aman dari duplikat.
+3. **Tambah pemeriksa keterisian** untuk kolom jembatan Finance, supaya kejadian ketiga
+   tidak perlu ditemukan lewat audit.
+
+⚠ **Kalau usul 1 dikerjakan, perbaiki juga pesan errornya** — lihat catatan di bawah.
+
+---
+
+## TEMUAN 34 — 🟡 Pagar anti-bayar-ganda hanya hidup di migrasi, bukan di model
+
+Pembayaran dilindungi `idempotency_key`: token dibuat **per render form** Bayar, jadi
+klik ganda / retry mengirim token yang sama, kena UNIQUE, dan submit kedua dibatalkan
+dengan 409 yang ramah — tanpa transaksi, komisi, atau potongan stok ganda. Rancangannya
+benar (lihat BERSIH di bawah).
+
+Masalahnya di mana keunikan itu tinggal. Model hanya memuat **komentar**:
+
+```python
+# UNIQUE via index uq_transaksi_kasir_idempotency_key; NULL boleh duplikat.
+idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+```
+
+Diperiksa langsung di metadata model — apa yang AKAN dibuat `create_all()`:
+
+```
+Indeks yang DIKETAHUI model untuk transaksi_kasir:   (kosong)
+Kolom ber-unique=True di model:                      doc_number
+=> model tahu keunikan idempotency_key?              TIDAK
+```
+
+Jadi DB yang dibangun `create_all()` **tidak punya pagar itu**. Dan ketika pagarnya
+tidak ada, `IntegrityError` tidak pernah terjadi — sehingga backstop P0-2 **diam-diam
+tidak melakukan apa pun**, dan dua submit identik dua-duanya berhasil: dua transaksi,
+dua baris komisi, dua kali potong stok.
+
+Ini **akibat Temuan 18 yang mendarat di uang.** Temuan 18 mencatat bahwa skema
+`create_all()` kehilangan 26 indeks; yang ini menunjukkan salah satunya menjaga
+pembayaran ganda.
+
+⚠ **DB laptop ternyata PUNYA indeks itu** (`uq_transaksi_kasir_idempotency_key`, unique),
+padahal modelnya tidak tahu dan `alembic_version` hanya di-*stamp*. Jadi indeksnya datang
+dari migrasi yang pernah dijalankan di sini, bukan dari model. Saya **tidak** menyimpulkan
+mini PC aman dari itu — di mini PC migrasi memang berjalan, jadi indeksnya ada. Yang
+rapuh adalah **DB mana pun yang dibangun dari model**, yaitu jalur yang CLAUDE.md §8
+sendiri sebut dipakai untuk laptop.
+
+### Usul
+
+Pindahkan keunikannya ke model (`__table_args__` dengan `UniqueConstraint`/`Index`),
+supaya ia ikut ke mana pun skema dibangun. Itu membuat migrasi dan model menyatakan hal
+yang sama, dan menghapus ketergantungan pada "kebetulan migrasinya pernah jalan".
+
+---
+
+## ⚠ Dua temuan ini SALING TERKAIT — jangan kerjakan 33 tanpa membaca ini
+
+Blok penangkap di `proses_bayar` menangkap `IntegrityError` **apa pun** lalu berkata:
+
+> *"Pembayaran ini sudah diproses (submit ganda terdeteksi). Muat ulang halaman untuk
+> melihat status terbaru."*
+
+Hari ini pesan itu benar, karena satu-satunya kendala unik yang bisa menyala di jalur itu
+adalah `idempotency_key` — `doc_number` tidak pernah diisi, jadi tidak pernah bentrok.
+
+**Begitu Temuan 33 diperbaiki, pesan itu bisa berbohong.** Kalau dua pembayaran bersamaan
+menghasilkan `doc_number` yang sama (misalnya karena pola nomornya dihitung dari
+`COUNT(*)` atau `MAX()`), kasir kedua akan diberi tahu "pembayaran sudah diproses"
+padahal **tidak ada yang tersimpan** — lalu ia tidak menagih lagi. Itu uang yang hilang
+karena pesan yang salah.
+
+Karena itu usul Temuan 33 memakai `LPAD(id_transaksi, …)` — nomornya diturunkan dari
+primary key yang sudah dijamin unik, bukan dari hitungan. Dan tetap: **pisahkan
+penangkapnya** per kendala (periksa nama constraint di pesan errornya) sebelum menambah
+kolom unik kedua ke jalur itu.
+
+---
+
+## Yang DIPERIKSA di putaran 20 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Rancangan idempotensi** | **BERSIH dan cermat.** Token dibuat **per render form** (`kasir.py:119`), bukan per kunjungan — jadi klik ganda tertangkap, sementara **split billing** (render baru) tetap boleh. Komentarnya menyatakan maksud itu eksplisit |
+| **Perilaku saat duplikat tertangkap** | `rollback()` lalu **409**, bukan 500. Tidak ada transaksi/komisi ganda. Pesannya memberi tahu kasir apa yang harus dilakukan ("muat ulang halaman") |
+| **Indeks unik `doc_number`** | Ada di model (`unique=True`) **dan** di migrasi — jadi ia selamat di DB hasil `create_all()`. Berbeda dari `idempotency_key` |
+| **Backfill migrasi 20260706_0100** | Benar dan aman: `UPDATE ... WHERE doc_number IS NULL` **sebelum** indeks unik dibuat — urutannya tepat, kalau dibalik migrasinya akan gagal |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
