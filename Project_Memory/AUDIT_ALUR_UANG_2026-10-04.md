@@ -412,6 +412,86 @@ Dicatat jujur sebagai sisa, bukan dilewatkan diam-diam.
 
 ---
 
+---
+
+# PUTARAN 4 — ekspor Finance, tutup kasir, stok saat void
+
+---
+
+## TEMUAN 6 — ✅ DIPERBAIKI — kamus data ekspor bisa membuat analis mengurangi VOID DUA KALI
+
+Angkanya **benar**; **deskripsinya** yang menyesatkan — dan untuk paket yang kontraknya
+adalah kamus data, itu cukup untuk menghasilkan laporan yang salah di sisi penerima.
+
+Kamus data punya dua jenis dataset:
+
+| Jenis | Isi kamus | Kenyataan di kode |
+|---|---|---|
+| **Mentah** (`transaksi_raw`) | Kolom `status_transaksi` ber-peringatan tegas: *"untuk omzet filter status='BAYAR'; VOID JANGAN dihitung sebagai penjualan"* | Benar — analis memang harus menyaring sendiri |
+| **Agregat** (`daily_operational_summary`) | *"Sum total_tagihan transaksi_kasir di tanggal ini (Rp)."* — **tanpa menyebut VOID** | Kode **SUDAH** menyaring (`status_transaksi == 'BAYAR'`, komentar `# A1: exclude VOID`) |
+
+Analis yang menuruti peringatan di dataset mentah lalu menerapkannya ke dataset agregat
+akan **mengurangi VOID dua kali**, dan melaporkan omzet **terlalu kecil**. Arah salahnya
+spesifik dan bisa diprediksi.
+
+**Diperbaiki:** tiga deskripsi (`total_omzet`, `total_diskon`, `jumlah_transaksi`)
+sekarang menyatakan secara eksplisit bahwa VOID **sudah** dikecualikan, berikut
+peringatan untuk tidak menguranginya lagi. Tidak ada angka yang berubah.
+
+---
+
+## Yang DIPERIKSA di putaran 4 dan ternyata BERSIH
+
+### Ekspor Finance vs laporan layar — COCOK PERSIS
+
+Sisa yang tertunda dari putaran 3. Diuji untuk 2026-10-04 dengan tiga cara berbeda:
+
+```
+SQL langsung (BAYAR) : 6 trx | 8.676.790,14
+Rekap layar          : 6 trx | 8.676.790,14
+Ekspor Finance       : 6 trx | 8.676.790,14
+```
+
+Ketiganya sepakat, termasuk transaksi MEMBERSHIP yang `id_kunjungan`-nya NULL.
+
+### Tutup kasir — snapshot beku, dan itu BENAR
+
+`kasir_closing` menyimpan `total_expected`, `total_counted`, `total_selisih`, dan
+`detail_metode` (JSON) **pada saat tutup**. Void yang terjadi belakangan **tidak**
+mengubahnya — dan itu memang seharusnya: uang fisiknya sudah dihitung malam itu.
+Mengubah angka tutup kasir surut akan membuat petugas disalahkan atas selisih yang
+tidak pernah ada di lacinya.
+
+Konsekuensinya — `SUM(closing.total_counted)` lintas hari **tidak akan sama** dengan
+omzet, kalau ada void menyusul. Itu bukan kesalahan; keduanya mengukur hal berbeda
+(uang terhitung vs pendapatan bersih).
+
+Dan jalur rekonsiliasinya **sudah ada**: transaksi punya penanda `late_void` (TRUE hanya
+kalau `days_past > 0`), dan **Laporan Void menampilkan `late_void_count`**. Jadi void
+yang terjadi setelah shift ditutup bisa dilihat, bukan tersembunyi.
+
+---
+
+## Observasi, BUKAN temuan — `lot_map` hanya ada di satu jalur void
+
+`void_transaksi` meneruskan `lot_map` ke `_reverse_stok_per_item`;
+`force_past_day_void` tidak, dan route-nya juga tidak mengumpulkannya.
+
+Saya **tidak** menyebutnya cacat: docstring `_reverse_stok_per_item` menyatakan
+perilakunya secara eksplisit — *"Kalau batch tak dipilih → buat lot 'VOID-RETURN' baru"*.
+Itu fallback yang terdefinisi, dan untuk void hari lampau bisa dibilang **lebih aman**:
+stoknya kembali dengan penanda "dari transaksi lampau yang dibatalkan", bukan diam-diam
+bercampur ke batch asal yang mungkin sudah habis atau kedaluwarsa.
+
+**Pertanyaan untuk dr. Hansen, bukan untuk saya:** apakah jalur force-void sebaiknya ikut
+menawarkan dropdown pilih-batch demi jejak QC yang setara? Itu keputusan produk.
+
+⚠ Catatan: kalau kasir tidak mencentang item apa pun, `_reverse_stok_per_item` keluar
+lebih awal dan **tidak ada stok yang dikembalikan sama sekali**. Itu juga disengaja —
+barang rusak tidak boleh kembali ke stok.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -419,8 +499,14 @@ Dicatat jujur sebagai sisa, bukan dilewatkan diam-diam.
 
 ~~1. Membership~~ · ~~2. Retur distributor~~ — **selesai di putaran 3.**
 
-Sisa & usulan putaran 4:
-1. **Ekspor Finance vs laporan layar** — sisa dari putaran 3
-2. Tutup kasir: selisih laci, modal awal, slip cetak (baru disentuh dari sisi refund)
-3. Komisi Fase 2 (F2): konsep "periode payroll ditutup" — prasyarat perbaikan Temuan 5
-4. Stok: `_reverse_stok_per_item` & FEFO saat void/retur
+~~1. Ekspor Finance vs laporan layar~~ · ~~2. Tutup kasir~~ · ~~4. Stok saat void~~
+— **selesai di putaran 4.**
+
+Sisa & usulan putaran 5:
+1. **F2 — konsep "periode payroll ditutup"**. Bukan audit melainkan desain, dan ia
+   prasyarat agar penarikan komisi surut (Temuan 5) punya aturan yang jelas.
+2. **Pembersihan baris yang terlanjur rusak** oleh Temuan 5 — query deteksi sudah ada,
+   keputusannya belum.
+3. Pengadaan: PO, faktur penerimaan, retur ke distributor — jalur uang KELUAR, belum
+   pernah diaudit utuh (putaran 1 hanya memastikan ia tidak bocor ke omzet pasien).
+4. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
