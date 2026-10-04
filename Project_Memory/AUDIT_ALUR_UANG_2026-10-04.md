@@ -1803,6 +1803,78 @@ lewat alur kasir sungguhan).
 
 ---
 
+---
+
+# PUTARAN 16 — tutup kasir: modal awal, selisih, dan celah antar-shift
+
+---
+
+## TEMUAN 28 — 🔴 Uang yang masuk di luar jam shift tidak masuk hitungan shift mana pun
+
+Dua fakta yang masing-masing wajar, bertemu jadi celah:
+
+1. **`proses_bayar` TIDAK menuntut sesi kasir terbuka.** Pembayaran bisa diproses
+   kapan saja, tanpa `buka_kasir`.
+2. **Rekonsiliasi shift menyaring `waktu_bayar >= shift_mulai`** saja — tidak ada
+   batas atas, dan tidak ada yang menangkap uang di luar jendela mana pun.
+
+Dibuktikan dengan rentang waktu nyata:
+
+```
+pembayaran Rp 250.000 TUNAI pukul 12:38
+   (setelah shift A ditutup 11:38, sebelum shift B dibuka 13:38)
+
+shift A (mulai 10:38) melihat TUNAI : 250.000
+   └ tapi shift A sudah DITUTUP 11:38 — angkanya dibekukan sebelum uang ini ada
+shift B (mulai 13:38) melihat TUNAI : 0
+
+>>> Rp 250.000 tidak masuk hitungan shift mana pun
+```
+
+### Akibatnya
+
+Omzetnya **benar** — transaksinya tercatat dan masuk laporan. Yang rusak adalah
+**rekonsiliasi laci**:
+
+- Uangnya **ada fisik** di laci, tapi `expected` shift B tidak memuatnya
+- Jadi ia muncul sebagai **selisih lebih yang tidak bisa dijelaskan** saat shift B
+  dihitung — dan `tutup_kasir` **mewajibkan catatan** kalau selisih ≠ 0
+- Petugas shift B diminta menjelaskan uang yang bukan dari shift-nya
+
+### Skenario yang paling mungkin bukan yang saya uji
+
+Saya menguji "bayar setelah tutup". Yang lebih sering terjadi justru kebalikannya:
+**kasir mulai melayani sebelum membuka sesi**. Pagi hari, pasien pertama sudah datang,
+pembayaran diproses, dan `buka_kasir` baru ditekan setelahnya — maka `shift_mulai`
+jatuh SESUDAH pembayaran itu, dan uangnya hilang dari hitungan dengan cara yang sama.
+
+Di klinik yang sibuk, itu bukan kelalaian langka; itu urutan yang wajar.
+
+### Tiga arah perbaikan — pilihannya keputusan dr. Hansen
+
+| Opsi | Konsekuensi |
+|---|---|
+| **A. Wajibkan sesi terbuka untuk menerima pembayaran** | Paling tegas, dan menutup kedua arah. Tapi memblokir kasir yang lupa membuka — di tengah antrian pasien |
+| **B. Hitung per TANGGAL, bukan per `shift_mulai`** | Tidak memblokir siapa pun; semua uang hari itu masuk hitungan. Tapi kabur kalau satu hari punya dua shift |
+| **C. Peringatkan saat tutup** kalau ada pembayaran di luar jendela shift mana pun | Tidak mengubah alur, hanya memunculkan yang tersembunyi. Paling murah, tapi tetap menuntut orang membacanya |
+
+Saya tidak memilih: A memblokir orang di depan pasien, dan itu keputusan operasional
+klinik, bukan keputusan teknis.
+
+---
+
+## Yang DIPERIKSA di putaran 16 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **`modal_awal` tidak bisa diubah** | **BERSIH.** Hanya ditulis di `buka_kasir`; tidak ada satu pun jalur yang memperbaruinya. Jadi selisih laci tidak bisa disembunyikan dengan menyesuaikan modal |
+| **Aritmetika selisih** | `total_selisih = total_counted − total_expected`, dihitung ulang **saat tutup** (bukan dari angka basi), dan `expected` TUNAI = `modal_awal + penjualan_tunai` |
+| **Catatan wajib saat selisih** | Ada. `tutup_kasir` menolak kalau `total_selisih != 0` tanpa catatan |
+| **Hard block pasien antri** | Ada (2026-07-10). Tutup kasir ditolak kalau masih ada pasien belum selesai hari ini |
+| **VOID dikecualikan** | Sudah diverifikasi putaran 1 (`_bayar_today`) dan putaran 2 (refund tidak dobel-kurang) |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
