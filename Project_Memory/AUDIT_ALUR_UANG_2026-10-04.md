@@ -2144,6 +2144,151 @@ jalur lain tidak akan mendapat pagar itu.
 
 ---
 
+## TEMUAN 31 — 🟡 Kembalian dihitung, ditampilkan besar-besar, lalu DIBUANG
+
+**Putaran 19 — pembayaran & rekonsiliasi laci.**
+
+`kembalian = max(0, total_bayar − total_tagihan)` dihitung di `kasir_service.py:641` dan
+ditampilkan **sebagai angka paling menonjol** di halaman sukses
+(`kasir_bayar_sukses.html:65-66`, teks 2xl tebal). Lalu tidak pernah disimpan:
+
+```
+kolom ber-"kembali" di SELURUH 57 tabel: NIHIL
+```
+
+Yang disimpan adalah `transaksi_pembayaran.nominal = bayar.nominal` — **apa yang diketik
+kasir**, tanpa dibatasi tagihan. Pagar bayar-KURANG ada (baris 625); pagar bayar-LEBIH
+tidak ada, selisihnya cuma jadi `kembalian` yang lenyap.
+
+Tutup kasir menghitung `expected_laci = modal_awal + SUM(transaksi_pembayaran.nominal)`
+per metode (`kasir_closing_service.py:66-76`, `_build_rows`). Jadi uang yang sudah keluar
+sebagai kembalian tetap dihitung sebagai isi laci.
+
+### Dibuktikan dengan menjalankan hitungan tutup kasirnya
+
+Modal awal Rp 200.000, satu transaksi tunai:
+
+| | |
+|---|---|
+| Tagihan | Rp 90.000 |
+| Diserahkan pasien | Rp 100.000 |
+| Kembalian (keluar laci) | Rp 10.000 |
+| **Uang yang BENAR-BENAR di laci** | **Rp 290.000** |
+| **Kata sistem harus ada** | **Rp 300.000** |
+| **Kasir tampak KURANG** | **Rp 10.000 — tepat sebesar kembalian** |
+
+### ⚠ Kenapa ini 🟡 dan bukan 🔴 — jalur yang dirancang BENAR
+
+Form bayar sudah **terisi pas**: `value="{{ total_tagihan|int }}"`
+(`kasir_tagihan.html:582`), dan `autoFillSisaNominal()` mengisi sisanya untuk pembayaran
+terpisah. Jadi kasir yang menekan Simpan apa adanya menghasilkan `nominal` = tagihan,
+kembalian 0, dan tidak ada selisih. Di DB laptop: **nol** transaksi yang
+`SUM(nominal) ≠ total_tagihan`.
+
+Yang membuatnya tetap layak dicatat: field itu **bisa disunting**, `min="1"` tanpa `max`,
+dan halaman sukses justru **menghadiahi** perilaku mengetik uang yang diserahkan dengan
+menampilkan "Kembalian" besar-besar. Dua bagian dari satu alur memakai asumsi berbeda —
+pola §4.1, kali ini di UI.
+
+### Yang membuatnya menonjol: perlindungan yang sama ADA untuk refund
+
+Berkas yang sama sudah mengantisipasi persis kelas masalah ini, dengan kalimatnya sendiri:
+
+> *"uang yang DIKEMBALIKAN ke pasien lewat refund item keluar dari laci tapi tidak
+> terlihat di `transaksi_pembayaran` — tanpa pengurangan ini, tutup kasir pasti selisih
+> sebesar nilai refund dan **petugas yang disalahkan**."*
+
+Jadi uang refund yang keluar laci dilacak; uang kembalian yang keluar laci tidak. Bukan
+karena tidak terpikir — melainkan karena kembaliannya tidak pernah punya tempat disimpan.
+
+### Pilihan (butuh keputusan dr. Hansen)
+
+| Opsi | Konsekuensi |
+|---|---|
+| **A. Pagari di server**: tolak `total_bayar > total_tagihan` | Simetris dengan pagar bayar-kurang. Paling murah. Tapi "Kembalian" di halaman sukses jadi mati dan harus dihapus — padahal kasir mungkin memang ingin mencatat uang yang diterima |
+| **B. Simpan kembaliannya** di `transaksi_kasir`, kurangi di tutup kasir | Paling benar, dan menjadikan nota bisa mencetak kembalian. **Butuh migrasi** → desktop |
+| **C. Jadikan field nominal tidak bisa disunting** | Menghilangkan gejala tanpa memutuskan artinya; pembayaran terpisah jadi rumit |
+
+Catatan: opsi B membuat nota akhirnya bisa mencetak "kembalian" — yang hari ini hanya
+muncul di layar sukses dan hilang begitu halaman ditutup.
+
+---
+
+## TEMUAN 32 — 🔴 Refund hari ini MENGUBAH omzet hari yang sudah lewat
+
+`refund_item_tertunda` melakukan dua tulisan (`kasir_service.py` ~1395-1400): INSERT
+`transaksi_refund`, lalu **`trx.total_tagihan = max(0, total_lama − nilai)`** — ia
+**memutasi transaksi aslinya**, bukan menulis baris penyeimbang.
+
+Sementara itu `omzet_harian(tanggal)` menyaring `waktu_bayar` di tanggal itu lalu
+menjumlahkan `total_tagihan` (`reports_service.py:53-65`). Kolom yang dimutasi.
+
+### Dibuktikan dengan menjalankan laporannya
+
+| | 3 Okt (hari transaksi) | 4 Okt (hari refund) |
+|---|---|---|
+| Sesudah transaksi Rp 500.000 dibayar 3 Okt | Rp 1.000.000 | — |
+| **Sesudah refund Rp 200.000 pada 4 Okt** | **Rp 800.000** ← berubah | **tidak bergerak** |
+
+Uang keluar laci **4 Oktober**, tapi buku mencatat **3 Oktober** berpenghasilan lebih
+kecil. Tidak ada baris penyeimbang di sisi 3 Oktober yang menjelaskannya.
+
+### Satu refund, dua tanggal, menurut dua pembaca
+
+| Pembaca | Refund dicatat pada |
+|---|---|
+| Tutup kasir (`_penjualan_per_metode`) | **tanggal refund** — benar, uangnya keluar hari itu, dan diatribusikan ke PELAKU refund |
+| Laporan omzet / rekap harian / ekspor `transactions` | **tanggal transaksi asli** — lewat mutasi `total_tagihan` |
+
+Pola §4.1 lagi, dan keduanya yakin dirinya benar.
+
+### Akibat yang nyata
+
+1. **Hari yang sudah ditutup berubah angkanya.** Tutup kasir 3 Oktober sudah
+   ditandatangani dengan omzet Rp 1.000.000; hari ini laporan hari itu berkata Rp 800.000.
+2. **Ekspor Finance harian sudah terkirim** dengan angka lama. Ekspor ulang rentang yang
+   sama akan menghasilkan angka berbeda untuk hari yang sama, tanpa apa pun yang menandai
+   kenapa.
+3. `rekap_harian_service` (laporan analitik owner) memakai `total_tagihan` yang sama dan
+   **tidak pernah menyebut refund** — ia ikut berubah.
+
+### ⚠ Yang HARUS disebut supaya tidak dilebih-lebihkan
+
+**Totalnya BENAR.** Pengurangannya tidak hilang dan tidak dobel — yang salah hanya
+**periodenya**. Dan kamus data ekspor **sudah** menutup jebakan kurang-dua-kali:
+
+> *"Refund per item MENGURANGI `transaksi_kasir.total_tagihan`, jadi omzet di laporan
+> lain sudah bersih dari nilai ini — JANGAN dikurangkan dua kali saat menyusun jurnal."*
+
+Dugaan awal saya bahwa penerima akan mengurangi dua kali (seperti Temuan 6) **salah** —
+peringatannya sudah ada. Tapi kamus itu **tidak menyebut sama sekali** bahwa
+pengurangannya mendarat di **periode yang sudah lewat**. Penerima yang menutup buku
+Oktober tidak punya cara tahu bahwa angka hari ke-3 masih bisa berubah di hari ke-20.
+
+### Pilihan (butuh keputusan dr. Hansen)
+
+| Opsi | Konsekuensi |
+|---|---|
+| **A. Jangan mutasi; laporkan netto saat dibaca** — omzet = `SUM(total_tagihan) − SUM(refund pada tanggal itu)` | Paling benar secara akuntansi: setiap periode tetap seperti saat ditutup. Menyentuh beberapa laporan sekaligus |
+| **B. Biarkan mutasinya, tapi tulis di kamus data + layar** bahwa periode lewat bisa berubah | Paling murah dan jujur, tapi tidak memperbaiki pembukuan |
+| **C. Larang refund atas transaksi di hari yang sudah ditutup**, arahkan ke void | Menjaga buku, tapi mengurangi keleluasaan operasional — perlu pertimbangan klinik |
+
+**Saya tidak memilih** — A menyentuh laporan yang Anda pakai setiap hari.
+
+---
+
+## Yang DIPERIKSA di putaran 19 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Pagar bayar KURANG** | **BERSIH.** `total_bayar < total_tagihan` ditolak, dan tagihan Rp 0 menolak pembayaran apa pun (DEC-049, untuk series sesi 2..N dan kuota member) |
+| **Refund di tutup kasir** | **BERSIH dan justru cermat — dugaan saya salah.** Saya menduga refund tak terlihat di tutup kasir; ternyata ia dikurangi **per metode** (tunai mengurangi laci, transfer mengurangi setoran) dan diatribusikan ke **pelaku refund**, bukan kasir yang dulu menerima bayaran. Komentarnya menyebut sendiri alasannya: *"petugas yang disalahkan"* |
+| **Ekspor Finance: refund dikurangi dua kali?** | **BERSIH — dugaan saya salah.** `refunds_raw` ada sebagai dataset sendiri DAN `catatan`-nya memperingatkan eksplisit jangan mengurangi dua kali. Jebakan Temuan 6 tidak terulang di sini |
+| **VOID di tutup kasir** | Hanya `status_transaksi='BAYAR'` yang dihitung — docstringnya menyebut ini memperbaiki gap `aggregate_pembayaran_shift` lama |
+| **Metode pembayaran kanonik** | `TUNAI/QRIS/DEBIT/KREDIT/TRANSFER` dinormalkan `.upper()` dengan default `TUNAI`; metode tak dikenal tidak menghilang diam-diam |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
