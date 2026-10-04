@@ -2435,6 +2435,110 @@ kolom unik kedua ke jalur itu.
 
 ---
 
+## TEMUAN 35 — 🟡 Diskon PRODUK tidak punya pengaman yang dimiliki kedua saudaranya
+
+**Putaran 21 — diskon & promo.** Putaran paling bersih sejauh ini: satu temuan, lima
+area terbukti sehat, dan satu dugaan saya dibantah oleh datanya sendiri.
+
+Diskon dihitung di dua tempat yang harus sepakat: **kepala** transaksi
+(`transaksi_kasir.nominal_diskon`) dan **per baris** (`diskon_item`, dipakai Finance untuk
+margin per lini dan dipakai refund untuk tahu berapa yang benar-benar dibayar).
+
+Tiga lini menanganinya dengan tiga tingkat kehati-hatian — di dalam satu fungsi yang sama:
+
+| Lini | Kepala dihitung | Baris dihitung | Dijamin sama? |
+|---|---|---|---|
+| **Racikan** | `sum()` dari nilai PER BARIS | per baris | **YA** — dan komentarnya menyatakan maksudnya: *"supaya angka di ringkasan selalu sama persis dengan jumlah diskon_item"* |
+| **Tindakan** | sekali dari subtotal agregat | per baris **+ sisa pembulatan dititipkan ke baris terakhir** (`_selisih`) | **YA** |
+| **Produk** | sekali dari subtotal agregat | per baris, masing-masing dibulatkan | **TIDAK** |
+
+Jadi dua saudaranya menyelesaikan masalah yang sama dengan dua cara berbeda, dan produk
+tidak menyelesaikannya sama sekali.
+
+### Kenapa hari ini TIDAK menggigit — dan dugaan saya yang dibantah
+
+Saya menduga selisihnya sudah terjadi. Brute force 300.000 kombinasi memakai **harga
+produk NYATA** (bukan contoh pilihan tangan — pelajaran dari putaran sebelumnya):
+
+```
+harga produk aktif dipakai : 154 nilai
+kombinasi diuji            : 300.000
+yang HASILNYA BEDA         : 0  (0,00%)
+```
+
+Sebabnya **struktural, bukan kebetulan baik**: ke-154 harga aktif adalah **kelipatan 100**
+(100%), dan harga bulat × persen berdesimal ≤2 selalu pas di 2 desimal — tidak ada
+pembulatan yang terjadi di kedua sisi, jadi tidak ada yang bisa berbeda.
+
+### Yang membuatnya pecah: satu harga bersen
+
+Kolomnya `decimal(12,2)` — harga bersen **diizinkan skema**, hanya belum dipakai:
+
+| Keadaan | Beda |
+|---|---|
+| Harga bulat ratusan, 3% (keadaan sekarang) | **0 / 200.000** |
+| **Harga BERSEN, 3%** | **62.056 / 200.000 — 31,03%** |
+| Harga bulat, persen 3,33% (3 desimal) | 0 / 200.000 |
+| Harga bulat, persen 12,5% | 0 / 200.000 |
+
+Contoh nyata dari percobaan:
+
+```
+baris : 112502.31, 112502.31, 75001.54
+  diskon kepala (1x bulat) = 9000.18
+  jumlah diskon per baris  = 9000.19    selisih +0.01
+```
+
+Jadi pemicunya **tepat satu**: harga yang punya sen. Bukan persennya, bukan jumlah
+barisnya.
+
+### Kenapa Rp 0,01 tetap layak dicatat
+
+Nilainya sepele; tempatnya tidak. `diskon_item` ada **justru** supaya Finance punya
+rincian per lini (itu seluruh alasan F3 dikerjakan). Selisih satu sen antara kepala dan
+jumlah barisnya adalah jenis ketidakcocokan yang membuat rekonsiliasi Finance berhenti
+dan ditelusuri manual — biayanya jam kerja, bukan seratus rupiah.
+
+Dan ia **tidak akan muncul sebagai error**. Tidak ada pemeriksa yang membandingkan
+`nominal_diskon_produk` dengan `SUM(diskon_item)`.
+
+### Usul (murah, tanpa migrasi)
+
+Pakai **salah satu** pola yang sudah ada di fungsi yang sama — jangan pola ketiga:
+
+1. **Seperti racikan:** hitung kepala sebagai `sum()` dari nilai per baris. Paling
+   sederhana; kepala jadi turunan dari baris, bukan hitungan terpisah.
+2. **Seperti tindakan:** titipkan sisa pembulatan ke baris terakhir (`_selisih`).
+
+Opsi 1 lebih disukai karena menghapus sumber kebenaran kedua, bukan menambalnya.
+
+⚠ Dan tambahkan pemeriksa dua arah: `nominal_diskon_* == SUM(diskon_item)` per transaksi.
+Tanpa itu, kejadian berikutnya tetap hanya bisa ditemukan lewat audit — keluhan yang sama
+dengan Temuan 33 tentang kolom jembatan Finance yang tidak dijaga pemeriksa.
+
+---
+
+## Yang DIPERIKSA di putaran 21 dan ternyata BERSIH
+
+Ini putaran dengan hasil paling sehat sejauh ini. Layak disebut terang-terangan: jalur
+diskon dibangun hati-hati.
+
+| Area | Hasil |
+|---|---|
+| **Sumber persen diskon** | **BERSIH dan ini kontrol yang kuat.** Persen HANYA datang dari `membership.get_diskon_for_pasien(id_pasien)`. **Tidak ada input diskon manual** di UI kasir — diperiksa di `kasir_tagihan.html`: nol field diskon. Kasir **tidak bisa** memberi diskon sesukanya; itu menutup seluruh kelas penyalahgunaan tanpa perlu pagar tambahan |
+| **Batas persen tier** | Divalidasi `ge=0, le=100` di skema **buat DAN ubah** (`master_membership.py:33,35,51,52`). Jadi `total = subtotal − diskon` tidak bisa negatif; pada 100% ia tepat 0 |
+| **Diskon racikan** | Dikenakan ke SELURUH total racikan — bahan **dan** ongkos racik (keputusan dr. Hansen 2026-09-21), memakai persen PRODUK. Dan dijumlah per baris supaya cocok dengan `diskon_item` |
+| **Diskon tindakan** | Sisa pembulatan dititipkan ke baris terakhir, jadi `SUM(diskon_item) == nominal_diskon_treatment` persis |
+| **`keterangan_promo`** | **BERSIH — dan ini kebalikan Temuan 24.** Teks bebas dari form, tapi terjaga di TIGA lapis: kolom `varchar(100)`, skema `Field(max_length=100)` (menolak dengan 422 sebelum menyentuh DB), dan `maxlength="100"` di template. Jebakan `user_agent` tidak terulang |
+
+⚠ Satu catatan kecil, bukan temuan: `keterangan_promo` tersimpan dan **dicetak di nota**
+(`nota_a5.html:106`) tetapi **tidak punya efek uang apa pun** — angkanya selalu dari tier.
+Jadi kasir bisa menulis "Promo ulang tahun 50%" di nota sementara diskon yang benar-benar
+diberikan 3%. Itu bukan cacat kode; itu soal SOP. Disebut di sini supaya tidak ditemukan
+sebagai kejutan nanti.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
