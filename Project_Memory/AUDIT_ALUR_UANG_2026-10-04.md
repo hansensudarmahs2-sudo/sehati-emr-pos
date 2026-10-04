@@ -807,6 +807,96 @@ cukup dihitung di laporan saat dibutuhkan.
 
 ---
 
+---
+
+# PUTARAN 8 — nilai pergerakan stok & membership upgrade
+
+---
+
+## TEMUAN 13 — 🔴 Kolom nilai di `inventory_history` tak pernah diisi, TAPI diekspor ke Finance
+
+Lebih berat dari Temuan 12, karena ada **tiga lapis** dan lapis ketiganya membuat klaim
+positif:
+
+| Lapis | Keadaan |
+|---|---|
+| **Penulis** | `InventoryRepository.add_history()` **tidak punya parameter** untuk `hpp_satuan` maupun `nilai_mutasi`; konstruktor `InventoryHistory(...)` di dalamnya tidak menyebut keduanya |
+| **Ekspor** | `export_service.py:712–713` **mengekspor kedua kolom itu** ke paket Finance |
+| **Kamus data** | Menjelaskannya seolah berisi: *"Snapshot cost per unit saat mutasi (produk HPP / bahan harga_modal). M-FIN-3."* dan *"Nilai mutasi = qty_perubahan × hpp_satuan (Rp). **Menilai PENYESUAIAN/WRITE_OFF/RETUR**."* |
+
+Jadi Finance menerima dua kolom yang **selalu NULL**, dengan kamus yang memberi tahu
+bahwa kolom itulah penilai write-off dan penyesuaian. Analis yang membangun laporan susut
+stok dari sana akan mendapat kosong — dan kamusnya tidak memberi alasan untuk curiga.
+
+**Dibuktikan**, bukan disimpulkan dari pembacaan kode:
+
+```
+add_history(jenis=PENYESUAIAN, qty_perubahan=-3, stok_akhir=97, ...)
+baris ditulis : ('PENYESUAIAN', -3.0, 97.0, None, None)
+hpp_satuan    : None
+nilai_mutasi  : None
+```
+
+Penanda **M-FIN-3** di kamus menandakan ini milestone Finance yang direncanakan lalu
+tidak pernah diselesaikan.
+
+⚠ Berbeda dari Temuan 12, di sini nilainya **TIDAK selalu bisa direkonstruksi**:
+`inventory_history` tidak menyimpan `id_lot`, jadi harga perolehan pada saat mutasi tidak
+bisa dipastikan untuk mutasi lampau. Untuk produk masih bisa didekati dari
+`master_produk.hpp_per_unit` **sekarang**, tapi itu harga hari ini, bukan harga saat
+mutasi — persis masalah snapshot yang sama dengan nama tindakan di Tahap B.
+
+**Ini kehilangan data, bukan sekadar celah kemampuan.**
+
+---
+
+## TEMUAN 14 — 🟡 UPGRADE membership menghanguskan sisa hari, dan UI-nya diam
+
+Aturannya **disengaja dan terdokumentasi di kode**:
+
+```python
+# UPGRADE/ACTIVATION tetap reset (start fresh)
+if action_upper == "RENEWAL" and active_now is not None:
+    base_date = max(active_now.tgl_expired, today)   # carry-over
+else:
+    tgl_expired_baru = today + timedelta(days=durasi_days)
+    tgl_aktif_baru = today                            # RESET
+harga_bayar = float(tier.harga_aktivasi or 0)         # HARGA PENUH
+```
+
+Jadi pasien yang upgrade membayar **harga penuh tier baru** dan **kehilangan seluruh
+sisa hari** tier lama. Itu keputusan bisnis dr. Hansen, bukan cacat.
+
+**Yang menjadi temuan adalah pengungkapannya.** Di halaman yang sama, berdampingan:
+
+| Kotak | Teks |
+|---|---|
+| RENEWAL | *"Extend tier yang sama. **Carry-over** — sisa hari tidak hilang."* |
+| UPGRADE | *"⬆ Upgrade Tier"* + dropdown tier + harga. **Tidak ada keterangan apa pun** |
+
+UI menjelaskan kasus yang menguntungkan dan **diam pada yang merugikan**, bersebelahan.
+CS yang membaca keduanya mendapat gambaran yang timpang.
+
+Besarnya nyata: pasien VIP dengan sisa 300 hari dari 360 yang upgrade ke VVIP
+menghanguskan ±83% nilai membership berjalannya — pada harga tier Rp 5.000.000 itu
+sekitar Rp 4,2 juta — tanpa satu kalimat pun di layar.
+
+**Saran:** satu baris di kotak UPGRADE, menampilkan sisa hari yang akan hangus (datanya
+sudah ada — halaman itu sudah menampilkan "Sisa hari:" di bagian atas). Bukan mengubah
+aturannya; hanya mengatakannya.
+
+---
+
+## Yang DIPERIKSA di putaran 8 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Carry-over RENEWAL** | **BERSIH.** `base_date = max(active_now.tgl_expired, today)` dan `tgl_aktif` dipertahankan — tidak ada hari hilang. Alasannya tercatat (#362F, #362B-A), dan catatannya ikut ditulis ke `history.catatan` |
+| **Stok dipotong saat SERAH, bukan saat bayar** | Terverifikasi: void sesudah bayar (tanpa serah) tidak mengembalikan stok, karena memang belum pernah dipotong. `_reverse_stok_per_item` menjaganya lewat `_produk_stok_sudah_dipotong()` |
+| **Pencatatan pergerakan stok** | `inventory_history` mencatat jenis, qty, stok akhir, referensi, pelaku, dan waktu. Yang hilang hanya dimensi **nilai** (Temuan 13) |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -819,13 +909,16 @@ cukup dihitung di laporan saat dibutuhkan.
 
 ~~4. Stock opname~~ · ~~5. Laporan komisi vs ledger~~ — **selesai di putaran 7.**
 
-Sisa & usulan putaran 8:
+~~3. Membership upgrade/perpanjang~~ · ~~4. inventory_history~~ — **selesai di putaran 8.**
+
+Sisa & usulan putaran 9:
 1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit).
-2. **Pembersihan baris yang terlanjur rusak** — Temuan 11 membuktikan baris itu
-   TERBAYAR, jadi ini tidak lagi sekadar kehati-hatian.
-3. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
-4. `inventory_history` & `inventory_stok` — jejak pergerakan stok sebagai dasar nilai.
-5. Booking & deposit (F8, PARKIR) — belum ada uangnya, jadi belum perlu diaudit.
+2. **Pembersihan baris yang terlanjur rusak** — Temuan 11 membuktikan baris itu TERBAYAR.
+3. **M-FIN-3** — melengkapi `hpp_satuan`/`nilai_mutasi` saat mutasi (Temuan 13). Perlu
+   keputusan: dari `id_lot` (perlu kolom baru) atau dari HPP master saat itu.
+4. Kuota membership: `get_or_create_kuota_for_treatment`, increment/decrement — belum
+   diaudit; nyambung ke Temuan 5 (revert kuota saat void).
+5. Booking & deposit (F8, PARKIR) — belum ada uangnya.
 
 ⚠ **Catatan jujur:** tujuh putaran telah menghasilkan 12 temuan, dan antrean keputusan
 yang menunggu dr. Hansen kini lebih panjang daripada nilai putaran berikutnya. Audit
