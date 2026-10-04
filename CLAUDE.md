@@ -107,7 +107,7 @@ dengan asumsi apa?*
 | Draf SOAP apoteker vs SOAP dokter di tabel yang sama | Halaman basi menghapus data yang lebih baru |
 | `_produk_stok_sudah_dipotong`, `id_resep_asal` | Sama polanya |
 | `REPORTS_ROLES` dipakai ulang untuk laporan klinis | Laporan tanpa uang ikut terkunci oleh aturan yang dibuat untuk data uang |
-| Void diterima walau racikan/resep sudah DISERAHKAN | Transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. Terbukti 2026-10-04, lihat `AUDIT_ALUR_UANG_2026-10-04.md` |
+| ~~Void diterima walau racikan/resep sudah DISERAHKAN~~ | **DIPAGARI 2026-10-04** (`_pagari_void_item_diserahkan`). Dulu: transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. `AUDIT_ALUR_UANG_2026-10-04.md` |
 
 **Sebelum memakai ulang fungsi simpan mana pun: periksa siapa yang commit.**
 **Sebelum memakai ulang himpunan role: periksa apakah artinya sama.**

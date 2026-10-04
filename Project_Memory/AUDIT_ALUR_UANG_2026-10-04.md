@@ -5,9 +5,19 @@ Temuan utama dibuktikan dengan **menjalankannya**, bukan dengan membaca kode.
 
 ---
 
-## TEMUAN 1 — 🔴 Laporan racikan & apoteker menghitung barang dari transaksi yang DI-VOID
+## TEMUAN 1 — ✅ DIPERBAIKI (Opsi A) — dulu: laporan apotek menghitung barang dari transaksi VOID
 
-**Statusnya: terbukti, bukan dugaan.**
+> **Keputusan dr. Hansen 2026-10-04: Opsi A.** Pagar void diperluas —
+> `_pagari_void_item_diserahkan` menolak void kalau ada resep/racikan ber-status
+> `DISERAHKAN`, sejajar pagar tindakan `SELESAI`. Terpasang di **dua** titik panggil
+> jalur void. Diuji dua arah; lihat §"Bukti perbaikan" di bawah.
+>
+> ⚠ Ini **memperketat perilaku kasir**: void yang dulu diterima sekarang ditolak.
+> Itu disengaja — yang dulu "berhasil" meninggalkan laporan yang salah. Pesan
+> penolakannya mengarahkan ke jalur retur/refund.
+
+**Uraian di bawah adalah keadaan SEBELUM perbaikan**, disimpan karena sebabnya layak
+diingat — bukan karena masalahnya masih ada.
 
 ### Skenario yang terjadi
 
@@ -68,11 +78,33 @@ JOIN transaksi_kasir t ON t.id_kunjungan = kr.id_kunjungan
 WHERE kr.status_item = 'DISERAHKAN' AND t.status_transaksi = 'VOID';
 ```
 
-### Tiga pilihan perbaikan — butuh keputusan dr. Hansen
+### Bukti perbaikan (2026-10-04)
+
+Diuji lewat `void_transaksi` sungguhan di laptop, bukan simulasi:
+
+| Skenario | Hasil | Status transaksi |
+|---|---|---|
+| Racikan masih `DIBAYAR` — void **sah** | **DITERIMA** | `VOID` |
+| Racikan sudah `DISERAHKAN` | **DITOLAK** | tetap `BAYAR` |
+| Resep sudah `DISERAHKAN` | **DITOLAK** | tetap `BAYAR` |
+
+Resep dan racikan diuji **terpisah**: `kunjungan_resep.status_item` adalah ENUM
+sedangkan `kunjungan_racikan.status_item` adalah VARCHAR (CLAUDE.md §4.4), jadi
+jalur kodenya berbeda dan satu uji tidak membuktikan yang lain.
+
+⚠ Satu percobaan sempat menghasilkan "DITOLAK" yang **menyesatkan** — penolakannya
+datang dari validasi panjang catatan void (`minimal 5 karakter`), bukan dari pagar
+baru. Diulang dengan catatan yang sah, barulah pagarnya yang menolak. Pesan penolakan
+yang kebetulan muncul bukan bukti bahwa pagar bekerja.
+
+Regresi: `tests/integration/test_kasir_void_exclusion.py` tetap 4 lulus / 1 gagal —
+kegagalan yang sama sudah terbukti pra-ada (lihat commit F3).
+
+### Tiga pilihan yang dipertimbangkan — Opsi A dipilih
 
 | Opsi | Apa yang dilakukan | Pertimbangan |
 |---|---|---|
-| **A. Perluas pagar void** (disarankan) | Tolak void kalau ada resep/racikan sudah `DISERAHKAN`, sejajar dengan pagar tindakan `SELESAI` | **Paling konsisten dengan aturan dr. Hansen** (CLAUDE.md §7): *void hanya untuk yang belum selesai dikerjakan*. Barang yang sudah keluar = pekerjaan selesai. Mengubah perilaku kasir: void yang selama ini diterima akan ditolak |
+| **A. Perluas pagar void** ← **DIPILIH** | Tolak void kalau ada resep/racikan sudah `DISERAHKAN`, sejajar dengan pagar tindakan `SELESAI` | **Paling konsisten dengan aturan dr. Hansen** (CLAUDE.md §7): *void hanya untuk yang belum selesai dikerjakan*. Barang yang sudah keluar = pekerjaan selesai. Mengubah perilaku kasir: void yang selama ini diterima akan ditolak |
 | B. Laporan join ke status transaksi | Laporan mengecualikan item yang transaksinya VOID | Angka laporan langsung benar tanpa mengubah perilaku kasir. Tapi barangnya **memang keluar** dari stok — laporan apotek jadi tidak mencerminkan apa yang benar-benar diserahkan |
 | C. Cascade `DISERAHKAN` → `BATAL` | Void membatalkan juga yang sudah diserahkan | **Tidak disarankan** — menulis kebohongan ke rekam: barangnya sudah di tangan pasien |
 

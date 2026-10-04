@@ -2038,6 +2038,89 @@ class KasirService:
             })
         return out
 
+    def _item_diserahkan_di_transaksi(self, trx) -> list:
+        """Resep & racikan berstatus DISERAHKAN pada kunjungan transaksi ini.
+
+        Sejajar dengan `_tindakan_selesai_di_transaksi`, untuk alasan yang sama
+        persis: barang yang sudah berpindah ke tangan pasien adalah pekerjaan yang
+        sudah selesai. Stok sudah dipotong, racikan sudah diracik, dan — berbeda
+        dari tindakan — barangnya tidak bisa diambil kembali.
+        """
+        from sqlalchemy import select
+        from app.db.models import KunjunganResep, MasterProduk, StatusItemResepEnum
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+
+        if not trx.id_kunjungan:
+            return []
+
+        out = []
+        for r in self.db.execute(
+            select(KunjunganResep).where(
+                KunjunganResep.id_kunjungan == trx.id_kunjungan,
+                KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
+            )
+        ).scalars().all():
+            prod = self.db.get(MasterProduk, r.id_produk)
+            out.append({
+                "jenis": "Resep",
+                "nama": (prod.nama_produk if prod else f"produk #{r.id_produk}"),
+            })
+
+        # Racikan: VARCHAR, bukan enum (CLAUDE.md §4.4) — bandingkan string.
+        for rc in self.db.execute(
+            select(_KRC).where(
+                _KRC.id_kunjungan == trx.id_kunjungan,
+                _KRC.status_item == "DISERAHKAN",
+            )
+        ).scalars().all():
+            out.append({"jenis": "Racikan", "nama": rc.nama_snapshot or "racikan"})
+
+        return out
+
+    def _pagari_void_item_diserahkan(self, trx) -> None:
+        """Tolak void bila ada resep/racikan yang SUDAH DISERAHKAN ke pasien.
+
+        [Keputusan dr. Hansen 2026-10-04 — Opsi A audit alur uang]
+
+        KENAPA PAGAR INI ADA. Sebelum ini, void DITERIMA walau obat/racikan sudah
+        di tangan pasien, dan akibatnya tidak terlihat di mana pun:
+
+          - `_cascade_void_kunjungan` hanya mengubah DIBAYAR -> BATAL. Yang sudah
+            DISERAHKAN tidak cocok, jadi statusnya TETAP DISERAHKAN.
+          - Laporan omzet mengecualikan transaksi VOID.
+          - Laporan racikan / top-produk / apoteker-dispensed menghitung dari
+            `status_item='DISERAHKAN'` TANPA melihat status transaksi.
+
+        Hasilnya dua laporan berbeda pendapat tentang uang yang sama, tanpa error
+        dan tanpa peringatan. Terbukti 2026-10-04 dengan racikan Rp 225.000 yang
+        tetap muncul sebagai omzet apotek padahal transaksinya VOID.
+        Rinciannya: `Project_Memory/AUDIT_ALUR_UANG_2026-10-04.md`.
+
+        Aturannya sama dengan pagar tindakan SELESAI (CLAUDE.md §7): void hanya
+        untuk yang BELUM selesai dikerjakan. Alasan void TIDAK dibedakan di sini —
+        alasan mudah dipilih keliru, dan celah sekecil apa pun mengembalikan
+        selisih laporan yang baru saja ditutup.
+
+        ⚠ Ini MEMPERKETAT perilaku kasir: void yang dulu diterima sekarang ditolak.
+        Itu disengaja. Yang dulu "berhasil" meninggalkan laporan yang salah.
+        """
+        diserahkan = self._item_diserahkan_di_transaksi(trx)
+        if not diserahkan:
+            return
+        nama = ", ".join(f"{d['jenis']} {d['nama']}" for d in diserahkan[:3])
+        if len(diserahkan) > 3:
+            nama += f", +{len(diserahkan) - 3} lainnya"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Transaksi ini tidak bisa di-void: {len(diserahkan)} item SUDAH "
+                f"DISERAHKAN ke pasien ({nama}). Barangnya sudah keluar dari stok "
+                "dan tidak bisa ditarik kembali — void akan membuat laporan omzet "
+                "dan laporan apotek berbeda angka. Untuk obat yang dikembalikan "
+                "pasien, pakai jalur retur/refund, bukan void."
+            ),
+        )
+
     def _pagari_void_tindakan_selesai(self, trx, reason_enum) -> None:
         """Tolak void bila ada tindakan yang SUDAH SELESAI dikerjakan — APA PUN alasannya.
 
@@ -2114,6 +2197,7 @@ class KasirService:
         if trx.status_transaksi != StatusTransaksiEnum.BAYAR.value:
             raise HTTPException(400, f"Hanya status BAYAR. Status: {trx.status_transaksi}")
         self._pagari_void_tindakan_selesai(trx, reason_enum)
+        self._pagari_void_item_diserahkan(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar
@@ -2238,6 +2322,7 @@ class KasirService:
         # Pagar yang sama berlaku di jalur past-day — justru di sinilah
         # REFUND_PASCA_TINDAKAN paling mungkin dipakai (batasnya 10 hari).
         self._pagari_void_tindakan_selesai(trx, reason_enum)
+        self._pagari_void_item_diserahkan(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar

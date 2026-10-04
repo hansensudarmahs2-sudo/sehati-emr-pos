@@ -61,11 +61,24 @@ Anda ambil — berhenti dan lihat dulu. Tanpa `--ff-only`, git akan membuat merg
 yang tidak Anda rencanakan, dan di proyek satu orang itu hampir selalu berarti ada
 pekerjaan yang terlupakan di mesin lain.
 
-**Selesai kerja** — jangan tinggalkan commit yang belum di-push:
+**Selesai kerja** — jangan tinggalkan commit yang belum di-push.
+
+⚠ **Kerja dari LAPTOP masuk BRANCH, bukan `main`** [keputusan dr. Hansen 2026-10-04]:
 
 ```bash
-git push
+git checkout -b laptop/<nama-tugas>     # saat mulai tugas baru
+git push -u origin laptop/<nama-tugas>  # saat selesai
 ```
+
+Kenapa: laptop tidak bisa menguji ujung-ke-ujung. Tidak ada `BACKUP_RECIPIENT` untuk
+paket klinis, tidak ada data historis, dan tidak ada akses mini PC. Perubahan dari sini
+**belum terverifikasi penuh** — menaruhnya langsung di `main` membuat satu-satunya
+cabang yang dideploy berisi pekerjaan yang belum selesai diperiksa.
+
+Desktop yang meninjau lalu menggabungkannya ke `main`, karena di sanalah pengujian yang
+kurang itu bisa dijalankan.
+
+Dari **desktop**, `main` langsung tetap boleh — di sana pengujiannya lengkap.
 
 **Aturan praktis:** mesin yang Anda tinggalkan harus selalu dalam keadaan `git status`
 bersih dan sudah ter-push. Kalau tidak, mesin berikutnya mulai dari dasar yang salah.
@@ -301,6 +314,7 @@ docker compose ... exec -T sehati-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD
 1. **Deploy ke mini PC hanya dari desktop.** Tanpa pengecualian.
 2. **Laptop = kode + smoke test UI lokal.** Bukan uji alur yang butuh data historis.
 3. `git pull --ff-only` sebelum mulai, `git push` sebelum berhenti.
+3b. **Kerja dari laptop masuk branch `laptop/<nama-tugas>`, bukan `main`.** Desktop yang meninjau dan menggabungkan — di sanalah pengujian yang tidak bisa dilakukan laptop bisa dijalankan (§3).
 4. **Tinggalkan mesin dengan `git status` bersih dan sudah ter-push.**
 5. **Jangan salin database atau `.env` antar mesin.** Tiap mesin punya sendiri.
 6. **Satu mesin saja per migrasi Alembic.**
