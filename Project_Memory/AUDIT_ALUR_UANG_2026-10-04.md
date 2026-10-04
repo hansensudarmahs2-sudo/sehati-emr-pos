@@ -1264,7 +1264,88 @@ Perbaikannya sama persis dengan Temuan 15: `select(...).with_for_update()`.
 
 ---
 
-## TEMUAN 20 — 🟡 Jalur PERSETUJUAN juga baca-cek-ubah, tanpa kunci maupun kunci idempotensi
+## TEMUAN 20 — 🔴 DIDEMONSTRASIKAN (putaran 12) — dan hasilnya BUKAN yang saya duga
+
+> **Prediksi saya di putaran 11 SALAH untuk keduanya, dan untuk `opname` saya sempat
+> salah DUA KALI.** Rinciannya di bawah; saya menuliskannya karena cara temuan ini
+> meleset lebih berguna daripada temuan itu sendiri.
+
+### Hasil demonstrasi
+
+| Jalur | Prediksi putaran 11 | Kenyataan |
+|---|---|---|
+| `retur.approve_retur` | lot terpotong dua kali | **Pagar jebol, tapi stok NET BENAR** — kehilangan pembaruan, bukan pemotongan ganda |
+| `opname.approve` | selisih diterapkan dua kali | **Selisih MEMANG diterapkan dua kali** — tapi lewat mekanisme lain, dan akibatnya lebih halus |
+
+### `approve_retur` — pagar jebol, aritmetikanya menutupi
+
+```
+A membaca: retur=DRAFT lot=10.0
+B membaca: retur=DRAFT lot=10.0
+A -> OK
+B -> OK
+
+lot akhir     : 7.0        (benar untuk SATU approve; dua kali potong = 4)
+audit APPROVE : 2          <- retur disetujui DUA KALI
+```
+
+Pagarnya **benar-benar jebol**: keduanya membaca `DRAFT`, keduanya lolos, dua entri
+audit tertulis, dan `id_staf_approver` tertimpa. Tapi stoknya **net benar**, karena
+keduanya menghitung `10 − 3 = 7` dari snapshot yang sama lalu menulis angka yang sama.
+Itu **kehilangan pembaruan**, bukan pemotongan ganda.
+
+⚠ **Benarnya KEBETULAN.** Ia bergantung pada aritmetika absolut (`lot.qty_sisa = sisa -
+qty`). Siapa pun yang kelak mengubahnya jadi relatif (`-=`) akan memperkenalkan
+pemotongan ganda **tanpa menyentuh pagarnya**, dan tidak ada yang akan menyadari —
+karena pagarnya terlihat ada.
+
+### `opname.approve` — dua lot, dan buku berselisih dengan cache
+
+Percobaan pertama saya menyimpulkan **"aman"** karena `stok_terkini` berakhir di 5 (benar).
+Itu **salah**: saya hanya melihat cache, dan filter nama batch saya meleset. Dengan
+melihat lot-nya langsung:
+
+```
+lot 210  qty_masuk=5  qty_sisa=5  AKTIF
+lot 211  qty_masuk=5  qty_sisa=5  AKTIF    -> total lot = 10
+stok_terkini : 5.0                          -> cache    = 5
+audit opname : 2
+```
+
+**Selisih diterapkan dua kali: dua lot dibuat.** Tapi `stok_terkini` tetap 5, karena
+tiap thread menghitung ulang `SUM(qty_sisa)` dari snapshot-nya sendiri dan sama-sama
+menulis 5 — kehilangan pembaruan di cache.
+
+Hasilnya **buku lot dan cache stok berselisih**: lot bilang 10, cache bilang 5.
+
+Itu lebih berbahaya daripada penggandaan yang terlihat. FEFO membaca **lot**; laporan
+dan tagihan membaca **cache**. Selisihnya tidak memicu error apa pun dan baru muncul
+sebagai keanehan stok berminggu-minggu kemudian — persis kelas masalah yang
+`test_repro_P0_1_void_stock_inflation` ditulis untuk menjaga.
+
+⚠ Catatan: `opname.approve` **memang** memanggil `get_produk_for_update()` — jadi
+baris produknya dikunci. Yang tidak dikunci adalah **baris opname-nya**, dan kunci
+produk tidak menghalangi pembuatan lot kedua.
+
+### Kesimpulan yang bisa dipertanggungjawabkan
+
+Pagar `status != DRAFT` **tidak berlaku di bawah konkurensi** pada kedua jalur — itu
+terbukti, dua kali, dengan dua entri audit sebagai bukti. Yang berbeda hanya seberapa
+terlihat akibatnya:
+
+- `retur` : tertutupi oleh aritmetika absolut — **risiko laten**
+- `opname`: **nyata sekarang** — lot ganda, cache berselisih
+
+Perbaikannya sama untuk keduanya: kunci baris header (`select(...).with_for_update()`)
+sebelum memeriksa statusnya, persis seperti kuota (Temuan 15) dan sesi series
+(Temuan 19).
+
+**Tidak saya kerjakan** — ini mengubah stok, dan dua kali dalam satu putaran saya salah
+menebak perilakunya. Keputusan dr. Hansen.
+
+---
+
+## TEMUAN 20 (uraian awal putaran 11, sebelum didemonstrasikan)
 
 Dua jalur "setujui sekali, lalu ubah stok" berbentuk sama:
 
