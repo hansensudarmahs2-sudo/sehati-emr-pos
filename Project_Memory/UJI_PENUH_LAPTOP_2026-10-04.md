@@ -570,3 +570,81 @@ rekam yang BENAR.** Peringatan itu kini ada di docstring pemeriksanya.
 | Suite | **139 lulus / 0 gagal / 1 dilewati** |
 | `cek_smoke_web` | **1291 halaman · 1291 OK · 0 bermasalah** — bersih sepenuhnya, pertama kali |
 | `cek_kelas_tailwind` | 3 template yang disunting: 0 kelas hilang (§4.2) |
+
+---
+
+# ✅ Tautan nota aktivasi membership, dipagari peran Kasir — 2026-10-04
+
+Keputusan dr. Hansen. Nomor transaksi aktivasi di halaman membership kini **tertaut ke
+nota** (`/web/kasir/nota/{id_transaksi}/cetak?paper=a5`, tab baru), bukan lagi teks mati.
+
+## Nota memang tujuan yang benar — diverifikasi, bukan diasumsikan
+
+`print_service.py:93` sudah menangani kasus ini dengan sengaja:
+
+> *"M2/M3: transaksi MEMBERSHIP (id_kunjungan NULL) -> pasien via trx.id_pasien"*
+
+JOIN ke `kunjungan` di sana memang `isouter=True`. Jadi nota sanggup menampilkan
+transaksi membership yang tidak terikat kunjungan — berbeda dari halaman tagihan yang
+mustahil.
+
+## DUA pagar, dan keduanya perlu
+
+### 1. Pagar PERAN — `can_lihat_nota = require_kasir_role(user)`
+
+Halaman membership sengaja boleh dilihat **semua peran**, sedangkan nota menuntut
+Kasir/Admin/Owner/Superadmin. Tanpa pagar ini dokter & perawat akan menabrak 403 setiap
+kali mengklik. Mereka tetap melihat nomornya sebagai teks untuk rujukan silang.
+
+### 2. Pagar DATA — `trx_milik_pasien`
+
+Ini yang tidak diminta tapi harus ada, dan alasannya ketemu justru saat mengerjakan ini.
+Di data laptop ada baris `pasien_membership_history` milik **pasien 2** yang
+`id_transaksi_aktivasi`-nya menunjuk **transaksi pasien 1**:
+
+| trx | pemilik membership | pasien di transaksi | jenis |
+|---|---|---|---|
+| 1 | pasien **2** | pasien **1** (A-T901) | KLINIS |
+| 50 | pasien 2 | pasien 2 (A-T902) | MEMBERSHIP ✓ |
+
+Nota ber-kunci `id_transaksi` dan **tidak tahu** dari halaman pasien mana ia dibuka —
+ia tidak bisa memverifikasi apa pun. Jadi tanpa pagar data, tautan baru ini akan
+mengulang kebocoran yang baru saja ditutup, hanya lewat pintu lain.
+
+Route kini mengumpulkan transaksi yang memang milik pasien itu (satu query, dua jalur
+karena `transaksi_kasir` punya `id_pasien` SENDIRI di samping `id_kunjungan` — §4.1), dan
+template hanya menautkan yang ada di himpunan itu.
+
+⚠ **Baris trx 1 itu sampah data uji, bukan cacat kode.** Penulisnya benar:
+`membership_service.py:508` menetapkan `hist.id_transaksi_aktivasi = trx.id_transaksi`
+dari transaksi yang baru dibuat untuk pasien itu sendiri. Jadi pagar data ini jaring
+pengaman terhadap data yang seharusnya tidak ada — bukan tambalan untuk alur yang rusak.
+**Perlu diperiksa di mini PC** apakah ada baris semacam itu di data sungguhan:
+
+```sql
+SELECT h.id_history, h.id_pasien AS pemilik, t.id_pasien AS pasien_di_transaksi
+  FROM pasien_membership_history h
+  JOIN transaksi_kasir t ON t.id_transaksi = h.id_transaksi_aktivasi
+  LEFT JOIN kunjungan k ON k.id_kunjungan = t.id_kunjungan
+ WHERE h.id_transaksi_aktivasi IS NOT NULL
+   AND h.id_pasien NOT IN (COALESCE(t.id_pasien, 0), COALESCE(k.id_pasien, 0));
+```
+
+## Diverifikasi TIGA ARAH
+
+| Arah | Hasil |
+|---|---|
+| Peran Kasir, trx **50** (memang milik pasien 2) | **tertaut** → nota 200, menampilkan **A-T902** = orang yang BENAR |
+| Peran Kasir, trx **1** (milik pasien 1) | **teks biasa** — pagar data menyala |
+| Peran **Dokter** | halaman tetap terbuka, semua nomor teks biasa, **nol** tautan nota (tidak ada jebakan 403) |
+
+Arah kedua yang paling berarti: ia membuktikan pagar datanya benar-benar bekerja, bukan
+hanya ada di kode.
+
+## Hasil uji
+
+| | |
+|---|---|
+| Suite | **139 lulus / 0 gagal / 1 dilewati** |
+| `cek_smoke_web` | **1310 halaman · 1310 OK · 0 bermasalah · 0 segmen kosong** |
+| `cek_kelas_tailwind` | `pasien_membership.html`: 0 kelas hilang |

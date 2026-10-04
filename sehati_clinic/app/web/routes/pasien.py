@@ -1212,11 +1212,41 @@ def pasien_membership_page(id_pasien: int, request: Request, db: DbSession):
         )
     # Permission untuk action: ANTRIAN_MGMT (FO + Admin + Owner + Superadmin)
     can_manage = require_antrian_mgmt_role(user)
+    # Tautan nota aktivasi hanya untuk yang boleh membuka /web/kasir/*
+    # (Kasir/Admin/Owner/Superadmin). Halaman ini sendiri boleh dilihat SEMUA peran,
+    # jadi tanpa pagar ini dokter & perawat akan menabrak 403 di halaman nota.
+    can_lihat_nota = require_kasir_role(user)
+
+    # PAGAR DATA, terpisah dari pagar peran di atas.
+    # Nota ber-kunci id_transaksi, jadi menautkannya hanya aman kalau transaksinya
+    # MEMANG milik pasien ini. Di data uji laptop terbukti ada baris
+    # `pasien_membership_history.id_transaksi_aktivasi` yang menunjuk transaksi pasien
+    # LAIN — dan tautan semacam itu membuka rekam keuangan orang lain dengan status 200,
+    # tanpa error (lihat `UJI_PENUH_LAPTOP_2026-10-04.md`). Penulisnya sendiri benar
+    # (`membership_service` memakai transaksi yang baru dibuat untuk pasien itu), jadi
+    # ini jaring pengaman terhadap data yang seharusnya tidak ada — bukan tambalan
+    # untuk alur yang rusak. Satu query, tanpa mengubah payload service.
+    from sqlalchemy import or_ as _or, select as _sel_trx
+    from app.db.models import Kunjungan as _Kj, TransaksiKasir as _TK
+
+    trx_milik_pasien = {
+        int(r[0])
+        for r in db.execute(
+            _sel_trx(_TK.id_transaksi)
+            .outerjoin(_Kj, _Kj.id_kunjungan == _TK.id_kunjungan)
+            # Dua jalur, karena `transaksi_kasir` punya `id_pasien` SENDIRI di samping
+            # `id_kunjungan` (CLAUDE.md §4.1) — transaksi MEMBERSHIP memakai yang pertama,
+            # transaksi KLINIS bisa dijangkau lewat keduanya.
+            .where(_or(_TK.id_pasien == id_pasien, _Kj.id_pasien == id_pasien))
+        ).all()
+    }
     ctx = build_shell_context(
         user, db=db, current_path="/web/pasien",
         page_subtitle=f"Membership - {status_data['pasien']['nama']}",
         status_data=status_data,
         can_manage=can_manage,
+        can_lihat_nota=can_lihat_nota,
+        trx_milik_pasien=trx_milik_pasien,
         flash=request.query_params.get("ok"),
         flash_error=request.query_params.get("err"),
     )

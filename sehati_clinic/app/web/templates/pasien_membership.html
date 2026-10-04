@@ -360,17 +360,29 @@
                     </td>
                     <td class="py-2 px-3 text-right font-mono text-xs">Rp {{ "{:,.0f}".format(h.harga_bayar).replace(",", ".") }}</td>
                     <td class="py-2 px-3 font-mono text-xs">
-                        {# ⚠ JANGAN dijadikan tautan ke /web/kasir/tagihan/<n>.
-                           Halaman itu ber-parameter id_KUNJUNGAN, sementara yang ada di sini
-                           id_TRANSAKSI — dua penomoran berbeda. Dulu baris ini menautkannya,
-                           dan karena nomornya kebetulan bertabrakan, halaman membership
-                           A-T902 membuka tagihan A-T901 dan BKT-1791088098-591: rekam
-                           tagihan PASIEN LAIN, status 200, tanpa error. Terbukti 2026-10-04.
-                           Tujuan yang benar ber-kunci transaksi adalah
-                           /web/kasir/nota/<id_transaksi>/cetak, tapi itu menuntut peran Kasir
-                           sedangkan halaman ini boleh dilihat semua peran — perlu keputusan
-                           dr. Hansen dulu. Sampai itu diputuskan: nomor saja, tanpa tautan. #}
-                        {% if h.id_transaksi_aktivasi %}#{{ h.id_transaksi_aktivasi }}{% else %}—{% endif %}
+                        {# ⚠ JANGAN menautkan ini ke /web/kasir/tagihan/<n>. Halaman itu
+                           ber-parameter id_KUNJUNGAN, sementara yang ada di sini id_TRANSAKSI
+                           — dua penomoran berbeda. Dulu baris ini menautkannya, dan karena
+                           nomornya kebetulan bertabrakan, halaman membership A-T902 membuka
+                           tagihan A-T901 dan BKT-1791088098-591: rekam keuangan PASIEN LAIN,
+                           status 200, tanpa error. Terbukti 2026-10-04.
+
+                           Tujuan yang BENAR ber-kunci transaksi adalah halaman nota, dan
+                           `print_service` memang sudah menangani transaksi MEMBERSHIP yang
+                           id_kunjungan-nya NULL (pasien diambil via trx.id_pasien).
+
+                           Dipagari `can_lihat_nota` (Kasir/Admin/Owner/Superadmin): halaman
+                           membership ini boleh dilihat SEMUA peran, jadi tanpa pagar itu
+                           dokter & perawat akan menabrak 403. Mereka tetap melihat nomornya
+                           sebagai teks untuk rujukan silang. #}
+                        {% if h.id_transaksi_aktivasi %}
+                          {% if can_lihat_nota and h.id_transaksi_aktivasi in trx_milik_pasien %}
+                        <a href="/web/kasir/nota/{{ h.id_transaksi_aktivasi }}/cetak?paper=a5"
+                           target="_blank" rel="noopener"
+                           class="text-blue-600 hover:underline"
+                           title="Buka nota pembayaran aktivasi (tab baru)">#{{ h.id_transaksi_aktivasi }}</a>
+                          {% else %}#{{ h.id_transaksi_aktivasi }}{% endif %}
+                        {% else %}—{% endif %}
                     </td>
                     <td class="py-2 px-3 text-center">
                         {% if h.status_label == 'ACTIVE' %}
