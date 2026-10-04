@@ -2367,6 +2367,32 @@ class KasirService:
                 cascade_info = self._cascade_void_kunjungan(trx.id_kunjungan, actor_id_staf, request)
                 kuota_reverted = self._revert_kuota_per_tindakan(trx.id_kunjungan, actor_id_staf, request)
 
+            # #362E - Revert membership history kalau transaksi mengandung aktivasi.
+            # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.
+            #
+            # ⚠ DITAMBAHKAN 2026-10-04 — dulu HILANG di jalur ini saja.
+            # `force_past_day_void` ternyata salinan `void_transaksi` yang kehilangan
+            # TIGA langkah pengembalian, dan ini dua di antaranya. Akibat terburuknya
+            # bukan di transaksinya, melainkan MENEMPEL KE PASIEN: membership yang sudah
+            # ACTIVE tetap ACTIVE, `pasien.tipe_membership` tetap VVIP, dan diskonnya
+            # terus berlaku di SETIAP kunjungan berikutnya — atas pembayaran yang
+            # sudah di-VOID. Terbukti dengan menjalankannya; lihat
+            # `Project_Memory/AUDIT_ALUR_UANG_2026-10-04.md` Temuan 5.
+            #
+            # Urutannya sama dengan void_transaksi: ACTIVE dulu, baru PAID — hanya satu
+            # yang akan cocok untuk satu transaksi.
+            reverted_mship_history = self.membership.revert_active_to_pending(
+                id_transaksi=trx.id_transaksi,
+                actor_id_staf=actor_id_staf,
+                request=request,
+            )
+            if reverted_mship_history is None:
+                reverted_mship_history = self.membership.revert_paid_to_pending(
+                    id_transaksi=trx.id_transaksi,
+                    actor_id_staf=actor_id_staf,
+                    request=request,
+                )
+
             self.audit.log(
                 aksi="VOID_TRANSAKSI_FORCE_PAST_DAY",
                 id_staf=actor_id_staf,
@@ -2383,8 +2409,25 @@ class KasirService:
                     "late_void": True,
                     "days_past": days_past,
                     "actor_role": actor_role.value if hasattr(actor_role, "value") else str(actor_role),
+                    # Ditambahkan bersama perbaikan 3 langkah yang hilang: tanpa angka
+                    # ini, jejak audit tidak bisa membuktikan rollback benar terjadi.
+                    "membership_history_reverted": reverted_mship_history,
                 },
                 request=request,
+            )
+            # K-L2: void baris komisi terkait transaksi ini.
+            #
+            # ⚠ DITAMBAHKAN 2026-10-04 — langkah ketiga yang hilang di jalur ini.
+            # Tanpa ini staf tetap menerima komisi atas transaksi yang sudah
+            # dibatalkan dan sudah dikeluarkan dari omzet.
+            #
+            # CATATAN TERBUKA (backlog F2): kalau periode payroll untuk hari itu SUDAH
+            # DITUTUP dan komisinya sudah dibayar, penarikan ini terjadi SURUT. Itu
+            # persoalan nyata — tapi berlaku untuk KEDUA jalur void, bukan alasan
+            # membiarkan jalur ini pincang. Penanganannya menunggu konsep "periode
+            # payroll ditutup" yang belum ada (F2).
+            KomisiService(self.db).void_komisi_transaksi(
+                id_transaksi=trx.id_transaksi, actor_id_staf=actor_id_staf, request=request,
             )
             self.db.commit()
             self.db.refresh(trx)

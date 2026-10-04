@@ -277,7 +277,63 @@ Sudah ditulis di sana; dicatat di sini supaya tidak hilang.
 
 ---
 
-## TEMUAN 5 — 🔴 `force_past_day_void` adalah `void_transaksi` DIKURANGI TIGA LANGKAH
+## TEMUAN 5 — ✅ DIPERBAIKI — dulu: `force_past_day_void` kehilangan 3 langkah
+
+> **Keputusan dr. Hansen 2026-10-04: perbaiki ketiganya.** Ditambahkan ke
+> `force_past_day_void`: `revert_active_to_pending`, `revert_paid_to_pending`, dan
+> `void_komisi_transaksi` — sejajar `void_transaksi`. Hasil rollback membership ikut
+> dicatat di jejak audit (`membership_history_reverted`), karena tanpa angka itu jejaknya
+> tidak bisa membuktikan rollback benar terjadi.
+>
+> **Bukti sesudah perbaikan**, lewat `force_past_day_void` sungguhan:
+>
+> ```
+> 1. KOMISI            : AKTIF  -> VOID      OK
+> 2. MEMBERSHIP PAID   : PAID   -> PENDING   OK
+> 3. MEMBERSHIP ACTIVE : ACTIVE -> PENDING   OK
+> ```
+>
+> Jalur harian diuji ulang (tidak boleh rusak): `trx VOID | komisi VOID`.
+> Regresi `test_kasir_void_exclusion` tetap 4 lulus / 1 gagal pra-ada. 37 halaman 200.
+>
+> Diff pemanggilan diulang **tanpa saringan kata kunci** — saringan di putaran 3 bisa
+> melewatkan langkah yang namanya tidak mengandung kata kunci itu. Sesudah perbaikan,
+> satu-satunya yang berbeda tinggal `_is_same_calendar_day_utc7`, dan itu memang
+> pemeriksaan hari-sama yang tidak berlaku di jalur hari-lampau.
+
+### ⚠ KODE SUDAH DIPERBAIKI, BARIS YANG TERLANJUR RUSAK BELUM
+
+Perbaikan ini **tidak menyentuh data yang sudah telanjur salah**. Di mesin produksi
+mungkin ada membership yang masih PAID/ACTIVE dan komisi yang masih AKTIF atas transaksi
+yang sudah di-VOID lewat jalur lama. **Jalankan di mini PC:**
+
+```sql
+-- Membership masih PAID/ACTIVE padahal transaksinya VOID
+SELECT h.id_history, h.id_pasien, m.nama_tier, h.status_aktivasi, h.is_active,
+       h.id_transaksi_aktivasi
+FROM pasien_membership_history h
+JOIN transaksi_kasir t ON t.id_transaksi = h.id_transaksi_aktivasi
+JOIN master_membership m ON m.id_membership = h.id_membership
+WHERE t.status_transaksi = 'VOID' AND h.status_aktivasi IN ('PAID','ACTIVE');
+
+-- Komisi masih AKTIF padahal transaksinya VOID
+SELECT k.id_komisi, k.id_transaksi, k.sumber, k.komisi_nominal, k.status
+FROM komisi_ledger k
+JOIN transaksi_kasir t ON t.id_transaksi = k.id_transaksi
+WHERE t.status_transaksi = 'VOID' AND k.status = 'AKTIF';
+```
+
+Kedua query diuji di laptop dan menemukan tepat 3 baris rusak — sisa dari uji
+**pra-perbaikan** saya sendiri. Itu sekaligus bukti bahwa kerusakannya bertahan di DB,
+bukan hanya di jalannya kode.
+
+Pembersihannya **belum diputuskan**: menurunkan membership yang terlanjur ACTIVE berarti
+mencabut tier dari pasien yang mungkin sudah memakai diskonnya; menarik komisi yang
+sudah dibayar berarti menagih staf. Keduanya keputusan dr. Hansen, bukan `UPDATE` massal.
+
+**Uraian di bawah adalah keadaan SEBELUM perbaikan.**
+
+### Dulu: `force_past_day_void` = `void_transaksi` dikurangi tiga langkah
 
 Putaran 2 menemukan komisi tidak ditarik, dan saya mencatat dua bacaan: kelupaan, atau
 sengaja demi payroll. **Putaran 3 menyelesaikan pertanyaan itu.**
