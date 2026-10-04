@@ -1722,6 +1722,87 @@ kamus dan merencanakan transisi PKP akan salah memperkirakan usahanya.
 
 ---
 
+---
+
+# PUTARAN 15 — nota cetak: harga master vs yang benar-benar dibayar
+
+---
+
+## TEMUAN 27 — 🔴 Nota dicetak dari HARGA MASTER, bukan dari yang ditagih
+
+`PrintService.prepare_nota_context()` membangun baris nota dengan menggabungkan
+`KunjunganTindakan → MasterTreatment.harga` dan `KunjunganResep → MasterProduk.harga_jual`
+(`print_service.py:136` dan `:198`). **Totalnya** diambil dari
+`transaksi_kasir.total_tagihan`.
+
+Jadi satu lembar nota memuat **dua sumber kebenaran yang berbeda**: barisnya dari harga
+hari ini, totalnya dari transaksi saat itu.
+
+### Bukti 1 — harga berubah, nota lama ikut berubah
+
+```
+nota SEBELUM : Basic Treatment Rp 500.000   | total nota 2.790,14
+harga master DINAIKKAN 2x
+nota SESUDAH : Basic Treatment Rp 1.000.000 | total nota 2.790,14
+```
+
+Baris berubah, total tidak. Nota cetak-ulang menampilkan angka yang **tidak pernah
+disetujui pasien**.
+
+### Bukti 2 — terjadi SETIAP HARI, tanpa perubahan harga apa pun
+
+Transaksi 311, pasien membership dengan tindakan berkuota:
+
+```
+snapshot tersimpan : harga_satuan = 0,00 · subtotal = 0,00 · total = 0,00
+yang DICETAK       : "Basic Treatment — Rp 500.000"
+total di nota      : Rp 0
+```
+
+**Nota yang diserahkan ke pasien memuat baris Rp 500.000 dan total Rp 0** — saling
+bertentangan di kertas yang sama. Ini bukan skenario hipotetis: setiap tindakan kuota
+dan setiap diskon membership mencetak nota seperti ini **hari ini**.
+
+Kalau maksudnya menunjukkan penghematan member, itu wajar — tapi harus **ditulis
+sebagai itu** (*"Harga normal Rp 500.000 — ditanggung membership"*), bukan disajikan
+sebagai angka yang ditagih.
+
+### Datanya untuk memperbaiki SUDAH ADA
+
+| Lini | Snapshot | Sejak |
+|---|---|---|
+| Produk | `transaksi_detail_produk.harga_satuan`, `diskon_item`, `subtotal` | lama |
+| Racikan | `transaksi_detail_racikan.nama_snapshot`, `subtotal` | Fase 3 |
+| **Tindakan** | `transaksi_detail_tindakan.harga_satuan`, `diskon_item`, `subtotal` | **F3, 2026-10-04** |
+
+⚠ **Transaksi SEBELUM perbaikan F3 tidak punya baris `transaksi_detail_tindakan`.**
+Jadi perbaikan nota butuh fallback ke harga master untuk transaksi lama — dan idealnya
+penanda bahwa angkanya rekonstruksi, bukan snapshot.
+
+Ini juga alasan kenapa perbaikan ini tidak bisa sekadar "ganti sumber datanya": ia
+harus menangani dua generasi data sekaligus.
+
+**Tidak saya kerjakan** — nota adalah dokumen yang diserahkan ke pasien, dan
+keputusan apa yang dicetak untuk tindakan kuota (Rp 0, atau harga normal dengan
+keterangan) adalah keputusan dr. Hansen, bukan keputusan teknis.
+
+### Kenapa ini mungkin yang paling terlihat dari seluruh audit
+
+Dua puluh enam temuan sebelumnya hidup di laporan, ekspor, dan basis data. **Yang ini
+tercetak di kertas dan diberikan ke pasien.**
+
+---
+
+## Catatan kejujuran tentang bukti di atas
+
+Ketidakcocokan `1.300.000` vs `2.790,14` pada transaksi 3 sebagian **akibat data uji
+saya sendiri** — harga tindakan itu saya ubah di putaran 1 untuk menguji pembulatan,
+lalu saya kembalikan. Yang membuktikan cacatnya bukan angka itu, melainkan **uji
+penggandaan** (baris berubah, total tidak) dan **transaksi 311** (data bersih, dibuat
+lewat alur kasir sungguhan).
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
