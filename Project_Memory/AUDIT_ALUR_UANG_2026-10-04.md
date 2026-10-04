@@ -606,6 +606,128 @@ pemakaian (daftar ekspor, komentar, dokumen). Daftar mana pun darinya adalah
 
 ---
 
+---
+
+# PUTARAN 6 — retur ke distributor + helper A8 yang tak teradopsi
+
+---
+
+## TEMUAN 9 — 🟡 Nilai refund retur diketik tanpa pembanding apa pun
+
+Nota retur punya dua jenis penyelesaian, dan keduanya mengisi kolom yang sama:
+
+| Jenis | `total_nilai` diisi dari | Artinya |
+|---|---|---|
+| **TUKAR_BARANG** | **dihitung** `Σ Decimal(harga) × Decimal(qty)` barang pengganti | nilai barang yang DITERIMA |
+| **REFUND** | **diketik operator** di form | uang yang DIKREDIT distributor |
+
+Untuk REFUND, formnya hanya kotak angka kosong berplaceholder *"mis. 500000"* —
+**tidak ada nilai pembanding yang ditampilkan.** Bagian TUKAR justru menampilkan qty
+dan harga per item.
+
+Datanya **ada**: `retur_produk_item` menyimpan `qty` dan `harga_terima` (snapshot dari
+lot). Tapi tidak pernah dijumlahkan, tidak ditampilkan, dan tidak dibandingkan. Salah
+ketik satu angka nol lolos tanpa perlawanan dan langsung tercetak di nota.
+
+**Dampaknya hari ini terbatas** — `total_nilai` tidak diagregasi di mana pun; ia hanya
+muncul di cetakan nota. Tapi backlog memindahkan AP/hutang faktur ke **modul Finance**,
+dan begitu modul itu dibangun, angka inilah yang jadi dasar piutang ke distributor.
+
+**Saran:** tampilkan `Σ qty × harga_terima` sebagai nilai acuan di sisi form REFUND —
+tidak memaksa harus sama (distributor memang bisa mengkredit beda), hanya memberi
+operator sesuatu untuk dibandingkan.
+
+### Satu kolom, dua arti — belum menggigit, tapi perangkapnya sudah terpasang
+
+`total_nilai` berarti *uang diterima* pada REFUND dan *nilai barang diterima* pada TUKAR.
+Hari ini tidak ada yang menjumlahkannya lintas jenis, jadi belum ada laporan yang salah.
+Tapi siapa pun yang nanti menulis `SUM(total_nilai)` untuk modul Finance akan menjumlah
+dua hal yang berbeda. Pola CLAUDE.md §4.1 persis, terpasang menunggu.
+
+---
+
+## TEMUAN 10 — 🟡 Bentuk baku A8/DEC-084 tidak teradopsi, dan `web_guard` punya cacat laten
+
+A8/DEC-084 (2026-07-02) membuat empat helper bersama supaya bentuk 403 dan
+sesi-habis dibakukan. Kenyataannya:
+
+| Helper | Dipakai? |
+|---|---|
+| `login_redirect` | ✓ dipakai |
+| `forbidden` | ✓ dipakai |
+| **`session_expired`** | **nol** |
+| **`web_guard`** | **nol** — dua "pemanggilan" yang terlihat adalah definisinya sendiri dan contoh di dalam docstring-nya |
+
+Sementara itu ada **288 pemanggilan `get_user_from_cookie` langsung** di route.
+DEC-084 memang menetapkan migrasi ~180 call-site sebagai **bertahap** ("route baru wajib
+pakai; legacy migrasi saat disentuh"), jadi ini bukan pelanggaran — tapi setelah 3 bulan,
+adopsinya **nol**, termasuk di route baru.
+
+### Cacat laten di helper-nya sendiri
+
+`web_guard` menerima `partial: bool` dan memakainya untuk `forbidden(partial=partial)` —
+tapi cabang **sesi habis** mengembalikan `login_redirect()` **tanpa melihat `partial`**:
+
+```python
+user = get_user_from_cookie(request, db)
+if user is None:
+    return None, login_redirect()        # <- 303 redirect, partial DIABAIKAN
+if role_check is not None and not role_check(user):
+    return None, forbidden(partial=partial)
+```
+
+Untuk fragmen HTMX, 303 ke `/web/login` membuat **halaman login utuh di-swap ke dalam
+panel kecil**. Itu persis yang `session_expired(partial=True)` ditulis untuk cegah — ia
+mengembalikan 401 + fragmen pesan singkat — dan ia **tidak pernah dipanggil**.
+
+Dampaknya **nol hari ini** (tidak ada yang memakai `web_guard`). Tapi cacat ini akan
+**ikut membesar seiring adopsi**: setiap route partial yang bermigrasi mewarisinya.
+
+**Perbaikannya dua baris** — ganti `login_redirect()` dengan
+`session_expired(partial=partial)` saat `partial=True`. Saya tidak menyentuhnya:
+menunggu keputusan dr. Hansen, sekalian dengan apakah migrasi A8 diteruskan atau
+helpernya dibuang.
+
+---
+
+## Yang DIPERIKSA di putaran 6 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Total retur TUKAR** | **BERSIH.** `Decimal(str(harga)) * Decimal(str(qty))`, murni Decimal |
+| **`total_nilai` hilir** | Hanya dipakai untuk **cetakan nota**. Tidak diagregasi di laporan mana pun |
+| **`ttl_cache.invalidate` menganggur** | **Tidak berisiko.** Saya curiga cache antrian bisa basi tanpa invalidasi — diperiksa: `ANTRIAN_TTL = 12 detik`, dan ada `clear()` manual di halaman cache-stats. Basi maksimal 12 detik |
+
+---
+
+## TEMUAN METODE (lanjutan) — titik buta KETIGA, lalu metodenya diganti
+
+Putaran 5 menemukan dua titik buta sapuan kode mati (`__all__`, komentar). Putaran 6
+menemukan yang **ketiga: contoh di dalam docstring.** `web_guard` muncul di docstring-nya
+sendiri, dan itu cukup membuatnya lolos dari sapuan berbasis hitung-teks.
+
+Ketiganya satu akar: **hitung-teks tidak bisa membedakan pemakaian dari penyebutan.**
+Metodenya diganti:
+
+| Metode | Hasil | Masalah |
+|---|---|---|
+| Hitung-teks | 14 → 16 | **Menggelembung** — `__all__`, komentar, docstring dihitung sebagai pemakaian |
+| AST saja (`Name`/`Attribute` Load) | 36 | **Mengempis** — semua `export_*_raw` salah tertuduh; dipanggil `getattr(svc, nama)` dari registry |
+| **AST + literal string (kecuali isi `__all__`) + template** | **20** | metode yang dipakai sekarang |
+
+Yang terakhir menangani keduanya: panggilan nyata lewat AST, dispatch dinamis lewat
+literal string, dan `__all__` dikecualikan agar daftar ekspor tidak menyelamatkan kode
+mati. `export_*_raw` tidak lagi salah tertuduh.
+
+**Enam nama baru** yang tiga metode sebelumnya lewatkan: `create_kunjungan_billing`,
+`get_draf_apotek`, `invalidate`, `session_expired`, `web_guard`,
+`user_can_purchase_bahan`/`_produk_cabin_alat`.
+
+⚠ Daftar 20 ini **tetap kandidat, bukan vonis**. Tiga kali metodenya diperbaiki dan tiga
+kali angkanya berubah — itu sendiri alasan kenapa "jangan hapus buta" benar.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -616,15 +738,13 @@ pemakaian (daftar ekspor, komentar, dokumen). Daftar mana pun darinya adalah
 ~~1. Ekspor Finance vs laporan layar~~ · ~~2. Tutup kasir~~ · ~~4. Stok saat void~~
 — **selesai di putaran 4.**
 
-~~3. Pengadaan: PO & faktur penerimaan~~ — **selesai di putaran 5.**
+~~3. Retur ke distributor~~ · ~~5. helper A8/DEC-084~~ — **selesai di putaran 6.**
 
-Sisa & usulan putaran 6:
+Sisa & usulan putaran 7:
 1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit). Prasyarat agar
    penarikan komisi surut punya aturan yang jelas.
 2. **Pembersihan baris yang terlanjur rusak** oleh Temuan 5 — query deteksi sudah ada,
    keputusannya belum.
-3. **Retur ke distributor** — belum diaudit sendiri; putaran 5 hanya menyentuh PO dan
-   faktur penerimaan.
-4. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
-5. `session_expired` & dua helper `_shared.py` dari temuan metode — selidiki apakah
-   bentuk baku A8/DEC-084 benar-benar diadopsi.
+3. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
+4. Stock opname: selisih stok & penyesuaian nilai — jalur uang yang belum disentuh.
+5. Komisi: laporan per-staf vs `komisi_ledger` — apakah angkanya cocok.

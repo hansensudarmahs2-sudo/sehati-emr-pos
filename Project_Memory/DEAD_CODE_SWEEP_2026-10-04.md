@@ -154,6 +154,42 @@ vonis. Aturan "jangan hapus buta" terbukti benar.
 
 ---
 
+## 4c. ⚠ KOREKSI KEDUA (putaran 6) — metodenya diganti, hasilnya 20 kandidat
+
+Titik buta **ketiga** ditemukan: **contoh di dalam docstring.** `web_guard` muncul di
+docstring-nya sendiri, dan itu cukup membuatnya lolos dari sapuan hitung-teks.
+
+Ketiga titik buta (`__all__`, komentar, docstring) satu akar: **hitung-teks tidak bisa
+membedakan PEMAKAIAN dari PENYEBUTAN.** Metodenya diganti:
+
+| Metode | Hasil | Masalah |
+|---|---|---|
+| Hitung-teks | 14 → 16 | **menggelembung** |
+| AST saja (`Name`/`Attribute` ber-ctx `Load`) | 36 | **mengempis** — 14 `export_*_raw` salah tertuduh; dipanggil `getattr(svc, nama)` dari registry |
+| **AST + literal string (kecuali isi `__all__`) + token template** | **20** | dipakai sekarang |
+
+Metode terakhir menangani keduanya: panggilan nyata lewat AST, dispatch dinamis lewat
+literal string, dan `__all__` dikecualikan supaya daftar ekspor tidak menyelamatkan kode
+mati.
+
+**Enam nama yang tiga metode sebelumnya lewatkan:**
+
+| Fungsi | Berkas | Catatan |
+|---|---|---|
+| `create_kunjungan_billing` | `services/membership_service.py:804` | hilang dari daftar karena komentar penanda saya sendiri |
+| `web_guard` | `web/routes/_shared.py:512` | ⚠ bentuk baku A8/DEC-084, **nol adopsi** + cacat laten. Lihat `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 10 |
+| `session_expired` | `web/routes/_shared.py:503` | ⚠ idem |
+| `user_can_purchase_bahan` | `web/routes/_shared.py:407` | belum diselidiki |
+| `user_can_purchase_produk_cabin_alat` | `web/routes/_shared.py:415` | belum diselidiki |
+| `get_draf_apotek` | `repositories/pemeriksaan_repo.py:159` | belum diselidiki |
+| `invalidate` | `core/ttl_cache.py:72` | **diperiksa: tidak berisiko.** `ANTRIAN_TTL = 12 detik` + ada `clear()` manual. Basi maksimal 12 detik |
+
+⚠ **Tiga kali metodenya diperbaiki, tiga kali angkanya berubah** (14 → 16 → 36 → 20).
+Itu sendiri alasan kenapa aturan "jangan hapus buta" benar, dan kenapa daftar ini
+**kandidat, bukan vonis**.
+
+---
+
 ## 5. Rekomendasi
 
 1. **Hapus `create_kunjungan_billing`** — niatnya mati dan terdokumentasi (§3).
