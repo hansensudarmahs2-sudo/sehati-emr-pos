@@ -728,6 +728,85 @@ kali angkanya berubah — itu sendiri alasan kenapa "jangan hapus buta" benar.
 
 ---
 
+---
+
+# PUTARAN 7 — laporan komisi & stock opname
+
+---
+
+## TEMUAN 11 — 🔴 BUKTI: baris komisi yang rusak IKUT TERBAYAR
+
+Bukan temuan baru melainkan **demonstrasi** akibat Temuan 5. Saya kejar sampai ke angka
+payroll, karena "mungkin ada baris rusak" dan "baris rusak terbayarkan" adalah dua
+pernyataan yang sangat berbeda bobotnya.
+
+Isi `komisi_ledger` di laptop sesudah perbaikan putaran 3:
+
+```
+trx=45  trx_status=VOID  PRODUK  komisi=AKTIF  5000.00   <- rusak (void PRA-perbaikan)
+trx=46  trx_status=VOID  PRODUK  komisi=VOID   5000.00   <- benar (void_transaksi)
+trx=51  trx_status=VOID  PRODUK  komisi=VOID   5000.00   <- benar (force void, SESUDAH)
+trx=63  trx_status=VOID  PRODUK  komisi=VOID   3750.00   <- benar
+```
+
+Laporan komisi Oktober:
+
+```
+per_staf[0] = {'nama_staf': 'dr. Hansen Sudarma', 'produk': 5000.0, 'total': 5000.0}
+```
+
+**Rp 5.000 itu persis baris trx=45** — komisi atas transaksi yang sudah di-VOID, masuk
+utuh ke angka payroll.
+
+Laporannya **tidak salah**: `komisi_report_service` menyaring `status == 'AKTIF'` dan
+memakai Decimal, dengan dokumentasi yang menyebutkannya. Yang salah adalah **barisnya**,
+dan barisnya salah karena bug `force_past_day_void` yang sudah diperbaiki — tapi
+perbaikan kode tidak menyentuh baris yang terlanjur dibuat.
+
+**Konsekuensinya langsung:** setiap baris rusak di mini PC = komisi yang dibayarkan atas
+penjualan yang dibatalkan. Query deteksinya ada di Temuan 5. Menjalankannya bukan lagi
+sekadar kehati-hatian.
+
+---
+
+## TEMUAN 12 — 🟡 Nilai rupiah selisih stok opname tidak pernah dicatat
+
+`stock_opname.total_selisih_value` bertipe `DECIMAL(14,2)`, diekspos di schema dan di
+dua route (`float(op.total_selisih_value) if op.total_selisih_value else None`), dan
+repo-nya punya parameter untuk mengisinya.
+
+**Tidak ada yang pernah mengisinya.** `approve_opname` memanggil `update_status()` tanpa
+`total_selisih_value`; jalur reject juga tidak. Kolomnya selalu NULL.
+
+Kelas yang sama dengan **F3** (`transaksi_detail_tindakan` yang tak pernah ditulis):
+kolom uang yang ada, terdokumentasi, dan tidak pernah terisi.
+
+Akibatnya: **klinik tidak bisa menyatakan kerugian stok dalam rupiah.** Selisih
+KUANTITAS tercatat (`total_selisih_qty` masuk audit log), tapi nilainya tidak. Dan
+`reports_service` **tidak menyebut opname sama sekali** — tidak ada laporan susut stok.
+
+### Yang meringankan, dan ini penting
+
+Berbeda dari F3, di sini datanya **masih bisa dihitung ulang kemudian**:
+`stock_opname_item` menyimpan `selisih` **dan** `id_lot`, dan `stok_lot` menyimpan
+`harga_terima`. Jadi nilai rupiah setiap opname lampau bisa direkonstruksi.
+
+**Ini celah kemampuan, bukan kehilangan data** — dan karena itu tidak mendesak seperti
+F3 dulu. Yang perlu diputuskan: apakah nilainya dihitung saat approve (ke depan), atau
+cukup dihitung di laporan saat dibutuhkan.
+
+---
+
+## Yang DIPERIKSA di putaran 7 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Laporan komisi** | **BERSIH.** `komisi_report_service` menyaring `status == 'AKTIF'`, agregasi Decimal (A9), dan docstring-nya menyatakan keduanya: *"Hanya status AKTIF (VOID dikecualikan). Agregasi pakai Decimal (A9), convert float di boundary."* |
+| **Perbaikan putaran 3 sampai ke laporan** | **YA.** Tiga transaksi yang di-void SESUDAH perbaikan komisinya VOID dan tidak muncul di laporan; hanya baris pra-perbaikan yang tersisa |
+| **Penerapan selisih stok opname** | Qty variance dihitung per item dengan snapshot `qty_sistem`, dicatat ke `inventory_history`, dan `total_selisih_qty` masuk audit log |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
@@ -738,13 +817,17 @@ kali angkanya berubah — itu sendiri alasan kenapa "jangan hapus buta" benar.
 ~~1. Ekspor Finance vs laporan layar~~ · ~~2. Tutup kasir~~ · ~~4. Stok saat void~~
 — **selesai di putaran 4.**
 
-~~3. Retur ke distributor~~ · ~~5. helper A8/DEC-084~~ — **selesai di putaran 6.**
+~~4. Stock opname~~ · ~~5. Laporan komisi vs ledger~~ — **selesai di putaran 7.**
 
-Sisa & usulan putaran 7:
-1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit). Prasyarat agar
-   penarikan komisi surut punya aturan yang jelas.
-2. **Pembersihan baris yang terlanjur rusak** oleh Temuan 5 — query deteksi sudah ada,
-   keputusannya belum.
+Sisa & usulan putaran 8:
+1. **F2 — konsep "periode payroll ditutup"** (desain, bukan audit).
+2. **Pembersihan baris yang terlanjur rusak** — Temuan 11 membuktikan baris itu
+   TERBAYAR, jadi ini tidak lagi sekadar kehati-hatian.
 3. Membership Fase 2: upgrade & perpanjang di tengah periode — proporsi harga.
-4. Stock opname: selisih stok & penyesuaian nilai — jalur uang yang belum disentuh.
-5. Komisi: laporan per-staf vs `komisi_ledger` — apakah angkanya cocok.
+4. `inventory_history` & `inventory_stok` — jejak pergerakan stok sebagai dasar nilai.
+5. Booking & deposit (F8, PARKIR) — belum ada uangnya, jadi belum perlu diaudit.
+
+⚠ **Catatan jujur:** tujuh putaran telah menghasilkan 12 temuan, dan antrean keputusan
+yang menunggu dr. Hansen kini lebih panjang daripada nilai putaran berikutnya. Audit
+yang temuannya menumpuk tanpa diputuskan berhenti menjadi audit dan mulai menjadi
+daftar yang diabaikan — persis pola yang berulang kali ditemukan dokumen ini sendiri.
