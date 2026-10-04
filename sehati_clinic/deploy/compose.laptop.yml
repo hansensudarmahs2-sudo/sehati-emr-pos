@@ -1,0 +1,55 @@
+# Override Compose untuk LAPTOP (workspace kode + smoke test UI lokal).
+# Dipakai bersama docker-compose.yml, SELALU disebut eksplisit:
+#
+#   docker compose -f docker-compose.yml -f deploy/compose.laptop.yml up -d --build
+#   docker compose -f docker-compose.yml -f deploy/compose.laptop.yml down     # TANPA -v
+#
+# ⚠ KENAPA NAMANYA BUKAN `docker-compose.override.yml`
+# ----------------------------------------------------
+# Compose memuat `docker-compose.override.yml` OTOMATIS kalau ada di folder yang sama.
+# Berkas itu akan ikut git, lalu ikut ter-rsync ke mini PC — ia TIDAK ada di daftar
+# KECUALI pada deploy/push-ke-minipc.sh. Hasilnya: stack produksi klinik diam-diam
+# jalan dengan bind-mount kode yang tidak ada di sana, dan `restart: "no"` sehingga
+# aplikasi TIDAK bangkit lagi setelah mini PC reboot — kegagalan yang baru terasa
+# pada pagi berikutnya saat meja FO tidak bisa dibuka.
+#
+# Nama `compose.laptop.yml` tidak pernah dimuat otomatis. Ia hanya aktif kalau
+# disebut dengan -f. Berkas ini juga masuk daftar KECUALI rsync sebagai lapis kedua.
+#
+# ⚠ JANGAN dipakai di mini PC. Lihat Project_Memory/ALUR_DUA_MESIN.md §1.
+
+services:
+  sehati-db:
+    # Laptop bukan mesin produksi: jangan hidup sendiri saat boot.
+    restart: "no"
+    # Port MySQL dibuka ke loopback laptop supaya bisa diperiksa dari host kalau
+    # perlu. Mini PC SENGAJA tidak publish port ini (lihat docker-compose.yml).
+    ports:
+      - "127.0.0.1:3307:3306"
+
+  sehati-app:
+    restart: "no"
+    volumes:
+      # Kode di-bind-mount supaya edit langsung terlihat tanpa rebuild image.
+      #
+      # Template Jinja & CSS: tampak LANGSUNG (Jinja memeriksa mtime per request).
+      # Berkas .py: perlu `docker compose restart sehati-app` (~3 detik).
+      #
+      # Tidak memakai `uvicorn --reload` secara sengaja: itu menuntut perubahan
+      # deploy/entrypoint.sh, yang juga dipakai produksi. Satu berkas dengan dua
+      # arti adalah jebakan paling mahal di proyek ini (CLAUDE.md §4.1) — dan
+      # restart 3 detik tidak cukup mahal untuk membayar risiko itu.
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+      - ./static:/app/static
+      - ./alembic.ini:/app/alembic.ini
+      # `scripts/` TIDAK ikut di-COPY oleh deploy/Dockerfile — image produksi tidak
+      # memuatnya sama sekali. Tanpa mount ini, SEMUA pemeriksa di CLAUDE.md §5
+      # gagal di laptop dengan "No module named scripts", yang terbaca seperti
+      # kesalahan environment padahal berkasnya memang tidak ada di container.
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
+      # `seed_data/` ada di AKAR repo, bukan di sehati_clinic/. Skrip seed memanggilnya
+      # sebagai `../seed_data/...` relatif terhadap CWD container (/app) -> /seed_data.
+      # Read-only: seed adalah masukan, tidak pernah ditulis balik.
+      - ../seed_data:/seed_data:ro

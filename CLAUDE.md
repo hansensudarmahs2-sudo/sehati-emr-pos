@@ -44,6 +44,22 @@ mysql -e "SQL"                                # ~/.my.cnf sudah berisi kredensia
 alembic upgrade head
 ```
 
+**Laptop** (workspace sementara, `~/JoDerma/sehati-emr-pos`) — **aplikasi jalan di
+dalam container**, bukan venv. Ubuntu 26.04 bawaannya Python 3.14 dan `python3.11` tidak
+ada di apt, sedangkan produksi `python:3.11-slim`; selisih tiga versi membuat smoke test
+tak bisa dipercaya. Jadi:
+
+```bash
+cd ~/JoDerma/sehati-emr-pos/sehati_clinic
+docker compose -f docker-compose.yml -f deploy/compose.laptop.yml up -d --build
+docker compose exec sehati-app python -m scripts.cek_nik   # pemeriksa §5: DI DALAM container
+```
+
+⚠ Di laptop, `python -m scripts.…`, `alembic`, dan `mysql` di shell host **akan gagal**
+(tidak ada dependensi, tidak ada MySQL). Selalu lewat `docker compose exec`.
+⚠ **Laptop TIDAK pernah deploy ke mini PC.** Rsync hanya dari desktop — alasannya di
+`Project_Memory/ALUR_DUA_MESIN.md` §1.
+
 **Produksi** — mini PC klinik, Docker Compose:
 
 ```bash
@@ -161,9 +177,21 @@ Jangan lepaskan pagar itu.
 ## 6. Privasi — ini klinik, bukan aplikasi biasa
 
 - **Gerbang PHI pra-commit** = symlink `.git/hooks/pre-commit → scripts/cek_phi_tracked.sh`.
-  ⚠ `.git/hooks/` **tidak ikut git**. Setelah kloning baru, pasang lagi:
-  `ln -s ../../scripts/cek_phi_tracked.sh .git/hooks/pre-commit`
-  Tanpa itu gerbangnya hilang **diam-diam**.
+  ⚠ `.git/hooks/` **tidak ikut git**. Setelah kloning baru, pasang lagi — **DUA
+  langkah, bukan satu**:
+  ```bash
+  ln -sf ../../scripts/cek_phi_tracked.sh .git/hooks/pre-commit
+  chmod +x scripts/cek_phi_tracked.sh
+  ```
+  **Kenapa `chmod` ikut:** skripnya ter-commit dengan mode `100644`. Git **melewati hook
+  yang tidak executable** — ia mencetak satu baris *hint*, tapi **commit-nya tetap
+  jalan**. Jadi gerbangnya terpasang, path-nya benar, isinya benar, dan tidak menahan
+  apa pun. Terbukti dua arah 2026-10-04: dengan `644` berkas `data_pasien.csv` berisi
+  kolom `nama_pasien,nomor_ktp` lolos commit; dengan `755` ditolak.
+  Verifikasi, jangan diasumsikan — harus ada `x`:
+  `ls -l scripts/cek_phi_tracked.sh` → `-rwxrwxr-x`.
+  ⚠ Mode `100644` itu ada **di repo**, jadi setiap klon memasang gerbang mati dengan
+  cara yang sama. **Periksa di desktop dan mini PC.**
 - Riwayat git pernah memuat PHI dan **sudah dibersihkan** (2026-09-27), diikuti rotasi
   password. Jangan pernah mengulang: dump SQL, folder `exports/`, `.age`, `.key`,
   `.env` tidak pernah masuk repo.
@@ -238,6 +266,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 | `11_decisions_log.md` | Kenapa sesuatu dibuat begitu |
 | `DESAIN_*.md` | Rancangan per modul — **baca sebelum mengubah modul itu** |
 | `12_smoke_test_guide.md` | Sebelum & sesudah deploy |
+| `ALUR_DUA_MESIN.md` | **Kerja di laptop**, sinkron desktop⇄laptop, aturan deploy |
 
 ⚠ `00_README.md` dan `10_ai_collaboration_guide.md` ditulis Juni 2026 untuk skema
 multi-AI review yang sudah tidak dipakai. Masih berguna sebagai indeks, tapi

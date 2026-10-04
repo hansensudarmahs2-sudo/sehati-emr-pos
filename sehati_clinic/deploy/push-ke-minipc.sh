@@ -34,6 +34,9 @@ KECUALI=(
   ".ruff_cache/"
   ".mypy_cache/"
   "node_modules/"
+  "compose.laptop.yml"  # override Docker khusus laptop. Compose tidak memuatnya
+                        # otomatis, jadi kehadirannya di mini PC tidak berbahaya —
+                        # tapi berkas dev tidak punya urusan di mesin klinik.
 )
 
 ARGS=(-av --checksum --delete)
