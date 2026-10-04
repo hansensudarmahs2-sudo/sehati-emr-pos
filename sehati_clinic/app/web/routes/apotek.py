@@ -463,6 +463,7 @@ def apotek_detail_resep(id_kunjungan: int, request: Request, db: DbSession):
         pass  # audit gagal tidak boleh memblokir tampilan
 
     # P-L5: preview batch/ED yang akan diserahkan (FEFO) per produk.
+    from datetime import date as _date
     from app.services.inventory_lot_service import InventoryLotService
     _lot = InventoryLotService(db)
     fefo_map = {}
@@ -479,6 +480,10 @@ def apotek_detail_resep(id_kunjungan: int, request: Request, db: DbSession):
         page_subtitle=f"Resep - {detail_dict.get('nama_pasien', '-')}",
         detail=detail_dict,
         fefo_map=fefo_map,
+        # T29 (audit alur uang 2026-10-04): FEFO menyodorkan lot KEDALUWARSA lebih
+        # dulu (ED-nya paling awal). Template memakai ini untuk menandai merah, supaya
+        # apoteker MEMBACA PERINGATAN, bukan menghitung tanggal. Alur tidak diblokir.
+        hari_ini=_date.today(),
         flash=request.query_params.get("ok"),
         error=request.query_params.get("err"),
     )

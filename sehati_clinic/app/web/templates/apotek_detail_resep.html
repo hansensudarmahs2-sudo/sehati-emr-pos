@@ -98,7 +98,9 @@
                         {% if _lots %}
                         <div class="mt-1 text-slate-500">Batch (FEFO):
                             {% for l in _lots %}
-                            <span class="inline-block px-1.5 py-0.5 bg-slate-100 rounded mr-1 mt-0.5">{{ l.qty|int if l.qty == l.qty|int else l.qty }}× {{ l.batch_no or "(tanpa batch)" }}{% if l.tgl_ed %} · ED {{ l.tgl_ed.strftime("%d/%m/%y") }}{% endif %}</span>
+                            {# T29: FEFO tidak menyaring ED, jadi lot kedaluwarsa justru muncul PERTAMA. Tandai, jangan blokir. #}
+                            {% set _ed_lewat = l.tgl_ed and hari_ini and l.tgl_ed < hari_ini %}
+                            <span class="inline-block px-1.5 py-0.5 {% if _ed_lewat %}bg-red-100 text-red-700 font-semibold{% else %}bg-slate-100{% endif %} rounded mr-1 mt-0.5">{{ l.qty|int if l.qty == l.qty|int else l.qty }}× {{ l.batch_no or "(tanpa batch)" }}{% if l.tgl_ed %} · ED {{ l.tgl_ed.strftime("%d/%m/%y") }}{% endif %}{% if _ed_lewat %} · ⚠ KEDALUWARSA{% endif %}</span>
                             {% endfor %}
                         </div>
                         {% endif %}

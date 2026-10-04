@@ -2569,3 +2569,44 @@ Sisa & usulan putaran 12:
 yang menunggu dr. Hansen kini lebih panjang daripada nilai putaran berikutnya. Audit
 yang temuannya menumpuk tanpa diputuskan berhenti menjadi audit dan mulai menjadi
 daftar yang diabaikan — persis pola yang berulang kali ditemukan dokumen ini sendiri.
+
+---
+
+---
+
+# VERIFIKASI DESKTOP — 2026-10-05
+
+Seluruh temuan terbuka dicocokkan ulang dengan kode cabang `laptop/audit-alur-uang-putaran-21`
+(dibaca, bukan disimpulkan). Hasilnya: audit ini kuat, tetapi ada koreksi. Bagian di atas
+**tidak diubah**; yang berlaku adalah catatan di sini.
+
+## Status baru
+
+| Temuan | Status | Catatan |
+|---|---|---|
+| **23** | ✅ DIPERBAIKI | Keputusan dr. Hansen: *aksi tetap jalan, kegagalan audit juga tercatat*. `AuditService.log()` kini menulis di dalam SAVEPOINT (`begin_nested`); kalau gagal, hanya baris audit itu yang batal, lalu dicoba baris pengganti `AUDIT_GAGAL` (status FAILED, berisi sebabnya). Diuji dua arah: kode lama → sesi bisnis `PendingRollbackError`; kode baru → aksi bisnis bertahan + baris `AUDIT_GAGAL` ada |
+| **24** | ✅ DIPERBAIKI | `aksi`, `tabel_target`, `ip_address`, `user_agent`, `endpoint`, `http_method` dipotong ke lebar kolom — lebarnya dibaca dari model, bukan angka kedua. Diuji dua arah dengan UA 314 karakter |
+| **29** | ✅ DITANDAI (bukan diblokir) | Keputusan dr. Hansen: tandai merah. Layar serah obat menandai lot `tgl_ed < hari ini` merah + "⚠ KEDALUWARSA". FEFO **tetap** tidak menyaring ED — alur apotek tidak berubah. Diuji dua arah dengan FEFO palsu (tanpa tulis DB) |
+| **32** | 🔵 KEPUTUSAN ADA, belum dikerjakan | Refund atas transaksi hari lampau butuh **PIN Admin/Superadmin/Owner** (uang tetap dikembalikan); refund **dibukukan di hari refund**, hari asal tidak berubah |
+| **27** | 🔵 ARAH DIUSULKAN | Baris tindakan kuota dicetak Rp 0 dengan keterangan *"Benefit <tier> (prabayar) — nilai normal Rp X"*; nilai benefit terpakai sebagai ringkasan terpisah. Menunggu persetujuan tampilan |
+| **28** | 🔵 KEPUTUSAN ADA, belum dikerjakan | Hitung per tanggal + peringatan uang di luar jendela shift. Belum dipastikan apakah klinik pernah punya dua shift kasir sehari |
+
+## Koreksi atas klaim di atas
+
+| Temuan | Klaim semula | Kenyataan di kode |
+|---|---|---|
+| **4** | Komisi float dari ujung ke ujung, 2,43% meleset 1 sen | **Keliru.** `_hitung_komisi_satu` (P2-1) menghitung dalam Decimal dan quantize 2dp; nilai yang DISIMPAN (`komisi_nominal`) sudah benar. Float tersisa hanya pada pajak/HPP/laba untuk tampilan |
+| **29** | "Tidak ada penyaring status" | Ada (`status == "AKTIF"`), tapi tak ada kode yang pernah menandai lot kedaluwarsa — status yang pernah ditulis hanya `HABIS`. Akibatnya sama |
+| **16** | Indeks unik `(id_pasien, id_treatment, bulan_periode)` | **Kunci itu salah.** Pencarian juga menyaring `id_membership_history` dan `is_active`; kuota TOTAL_PAKET punya `bulan_periode` NULL dan MySQL membolehkan NULL kembar di indeks unik. Rancangan migrasi harus diulang |
+| **30** | Diperbaiki | Benar untuk jalur **per-item** saja; cabang data lama (`else`) masih membuat lot `VOID-RETURN` — tampaknya disengaja untuk data pra-#54 |
+| **32** | Cacat | Komentar di `kasir_service.py` menunjukkan mutasi header adalah **keputusan dr. Hansen dulu**. Trade-off yang kini ditinjau ulang, bukan kelalaian. `waktu_bayar` tidak punya `ON UPDATE` (dicek di DB dev) — tanggal transaksi tidak bergeser |
+| **26** | Temuan | Kolom PPN sengaja DORMANT dan terdokumentasi di model (`transaksi.py`). Bukan masalah |
+| **27** | Nota dari harga master | Racikan **sudah** dari snapshot `TransaksiDetailRacikan`; yang dari master hanya tindakan & resep |
+| **10** | ~288 panggilan `get_user_from_cookie` | 256 di 28 berkas route (di luar `_shared.py`) |
+
+## Temuan baru dari verifikasi
+
+- **34 lebih luas:** `except IntegrityError` di `proses_bayar` melabeli kesalahan integritas **apa pun** sebagai "pembayaran sudah diproses (submit ganda)". Kasir bisa mengira uang tercatat padahal tidak.
+- **27 (dugaan, BELUM dibuktikan):** baris nota tindakan & resep dipilih per `id_kunjungan`, bukan per `id_transaksi`. Kalau split billing menghasilkan dua transaksi untuk satu kunjungan, satu nota memuat item transaksi lain.
+- **31 tambahan:** kembalian di nota cetak-ulang dihitung `total_bayar − total_tagihan`; sesudah refund menurunkan `total_tagihan`, kembalian cetak-ulang membesar.
+- **33 catatan:** satu-satunya penulis `doc_number` adalah `scripts/seed_finance_cleanslate.py` — data seed terlihat terisi, data hidup NULL. Pola yang sama dengan `nilai_mutasi` (Temuan 13).
