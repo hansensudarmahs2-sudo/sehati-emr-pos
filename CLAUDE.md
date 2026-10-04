@@ -198,6 +198,7 @@ Semua dari `sehati_clinic/`, kecuali yang pertama dari akar repo.
 | `python -m scripts.cek_top_diagnosa` | Angka laporan kasus terbanyak |
 | `python -m scripts.cek_finance_pack` | `medical_soap_raw` tidak ikut paket finance |
 | `python -m scripts.cek_serah_tanpa_lot` | Obat `DISERAHKAN` yang lotnya tidak pernah keluar (Temuan 30) |
+| `python -m scripts.cek_smoke_web` | Membuka 1235 halaman web yang bisa diklik; cari error. **Butuh `TEST_USERNAME`/`TEST_PASSWORD`** |
 | `python -m scripts.cek_soap_basi` · `cek_tunda_item` · `cek_laporan_racikan` · `cek_tebus_resep` | Modul masing-masing |
 | `python scripts/cek_kelas_tailwind.py` | Kelas Tailwind yang tidak ada di app.css |
 
@@ -276,7 +277,12 @@ Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + g
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.
 
-✅ **Suite test HIJAU** (108 lulus / 0 gagal; 96 saat triase 2026-10-04). Enam test
+✅ **Suite test: 137 lulus / 2 gagal / 1 dilewati** dengan kredensial uji terpasang.
+⚠ **Tanpa `TEST_USERNAME`/`TEST_PASSWORD` yang sah, 31 test DILEWATI — seluruh lapisan
+endpoint HTTP (pasien, kunjungan, dokter, antropometri, auth).** Ringkasan pytest
+menampilkan "dilewati" dengan warna yang sama seperti lulus, sehingga laporan lama
+"96/108 lulus, 0 gagal" sesungguhnya **belum pernah menjalankan route sekali pun**.
+Dua cacat 500 ketemu begitu dijalankan — `Project_Memory/UJI_PENUH_LAPTOP_2026-10-04.md`. Enam test
 sempat merah: lima fixture usang dari dunia pra-#54 (menyetel `COMPLETED` sebagai bukti
 serah obat, padahal #54 menggantinya dengan bukti per-item), satu artefak skema laptop.
 
@@ -324,6 +330,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 | `DESAIN_CLINICAL_PACK_TAHAP_B.md` | Sebelum menyentuh ekspor paket klinis |
 | `DEAD_CODE_SWEEP_2026-10-04.md` | Sebelum menghapus fungsi yang "kelihatan tidak dipakai" |
 | `AUDIT_ALUR_UANG_2026-10-04.md` | **Sebelum menyentuh void/laporan apotek** — ada temuan terbuka |
+| `UJI_PENUH_LAPTOP_2026-10-04.md` | **Sebelum percaya "suite hijau"** — apa yang tidak teruji di laptop & kenapa |
 
 ⚠ `00_README.md` dan `10_ai_collaboration_guide.md` ditulis Juni 2026 untuk skema
 multi-AI review yang sudah tidak dipakai. Masih berguna sebagai indeks, tapi
