@@ -18,8 +18,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # folder sehati_clinic/
 cd "$ROOT"
 echo "==> Root project: $ROOT"
 
-VENDOR="app/web/static/vendor"
-CSSDIR="app/web/static/css"
+# ⚠ DIPERBAIKI 2026-10-04. Dulu kedua path ini menunjuk app/web/static/ — folder
+# yang TIDAK DILAYANI server. app/main.py memasang StaticFiles dari
+# parent.parent/"static", dan skrip ini sendiri menambal template agar menunjuk
+# "/static/vendor/..." dan "/static/css/app.css". Jadi ia mengunduh ke satu tempat
+# lalu menyuruh template memuat dari tempat lain.
+#
+# Akibatnya folder kembar app/web/static/ lahir dan hidup berdampingan dengan
+# static/ selama berbulan-bulan; cek_kelas_tailwind.py dan CLAUDE.md §4.2 ikut
+# menunjuk ke salinan yang salah. Folder kembarnya sudah dihapus 2026-10-04.
+# Kalau path di bawah dikembalikan ke app/web/static, folder itu lahir lagi.
+VENDOR="static/vendor"
+CSSDIR="static/css"
 mkdir -p "$VENDOR" "$CSSDIR"
 
 # ---------------------------------------------------------------------

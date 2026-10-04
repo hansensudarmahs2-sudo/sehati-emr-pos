@@ -113,17 +113,31 @@ dengan asumsi apa?*
 
 ### 4.2 Tailwind dikompilasi lebih dulu — kegagalan SENYAP
 
-Kelas yang tidak dipakai template mana pun **tidak ada** di
-`app/web/static/css/app.css`. Elemen tetap dirender, hanya tampilannya salah —
-tombol dengan latar hilang jadi teks putih di atas putih, tak terlihat.
+Kelas yang tidak dipakai template mana pun **tidak ada** di `static/css/app.css`.
+Elemen tetap dirender, hanya tampilannya salah — tombol dengan latar hilang jadi
+teks putih di atas putih, tak terlihat.
 
 ```bash
 python -m scripts.cek_kelas_tailwind nama_template.html
+bash deployment/build_tailwind.sh          # kompilasi ulang
 ```
 
-⚠ `app.css` hanya memuat 467 kelas dan tampaknya **usang**: 48 kelas warna hilang
-tersebar di 69 template. Belum dibereskan (butuh kompilasi ulang + uji tampilan
-seluruh aplikasi).
+✅ **Hanya ada SATU app.css sekarang: `sehati_clinic/static/css/app.css`.**
+Dulu ada salinan kembar di `app/web/static/` yang tidak dilayani dan tidak ikut
+di-build; dokumen ini dan `cek_kelas_tailwind.py` sama-sama menunjuk ke sana.
+Asalnya `deployment/setup_self_host.sh`, yang mengunduh ke `app/web/static/` lalu
+menambal template agar memuat dari `/static/` — dua tempat berbeda. Kembarnya
+**dihapus** dan skripnya diperbaiki (2026-10-04, keputusan dr. Hansen).
+
+✅ **Dikompilasi ulang 2026-10-04.** 467 → 526 kelas; kelas warna hilang **48 → 0**,
+diverifikasi pada 37 halaman **terender** (bukan template), tempat kelas dinamis
+sudah jadi nilai sebenarnya.
+
+⚠ `dashboard.html` merakit kelas saat render (`bg-{{ st.color }}-50/30`). Scanner
+Tailwind tidak bisa melihatnya — `bg-blue-50/30` dan `bg-teal-50/30` memang hilang
+sampai didaftarkan di `safelist` pada `tailwind.config.js`. **Kalau menambah warna
+di `dashboard_service.py`, daftarkan juga di safelist**, atau kartunya kehilangan
+warna tanpa error apa pun.
 
 ### 4.3 `.env` tidak masuk `os.environ`
 
@@ -243,7 +257,7 @@ container + folder drop klinis.
 | Combo obat (AB Reguler/Premium) | butuh migrasi · `DESAIN_APOTEK_BATCH_DAN_COMBO.md` |
 | Konversi batch (SR/SR2/SRO) | butuh migrasi · dokumen yang sama |
 | S1 — CSP + HSTS | pengerasan |
-| Kompilasi ulang Tailwind | §4.2 |
+| ~~Kompilasi ulang Tailwind~~ | **SELESAI 2026-10-04** — 48 → 0 kelas warna hilang. §4.2 |
 | NIK mentah di `audit_log` | `nonaktifkan()` & `gabungkan()` menulisnya mentah, padahal aturan proyek melarang. **Belum diubah — menunggu keputusan dr. Hansen**, bisa jadi disengaja untuk ketertelusuran. |
 
 **⚠ Pengerasan keamanan (#33–36, S1–S8) adalah GERBANG, bukan antrean.** Ia harus
