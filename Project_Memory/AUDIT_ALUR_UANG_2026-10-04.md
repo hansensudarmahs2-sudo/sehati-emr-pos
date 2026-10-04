@@ -1948,6 +1948,121 @@ alur.
 
 ---
 
+## TEMUAN 30 — 🔴 `DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong", padahal bisa terpasang tanpa satu lot pun keluar
+
+**Putaran 18 — obat tertunda.** Dibuktikan dengan menjalankan layanannya, bukan membacanya.
+
+### Yang sebenarnya terjadi
+
+Obat yang **sudah dibayar** tidak dicadangkan stoknya. Itu konsisten dengan keputusan
+klinik ("stok diizinkan minus — operasional jangan diblok", `apotek_repo.py:193`) dan
+**bukan** cacatnya. Cacatnya ada di akibat yang tidak terlihat siapa pun.
+
+Satu lot berisi 10 unit, batch `UJI-P18-B1`:
+
+| Langkah | cache `stok_terkini` | `SUM(qty_sisa)` lot | baris `kunjungan_lot_terpakai` |
+|---|---|---|---|
+| keadaan awal | 10 | 10 | 0 |
+| A bayar 10, obatnya ditunda 3 hari | **10** | 10 | 0 |
+| B bayar 10 dan langsung diserahkan | 0 | 0 | **1** (sah) |
+| A kembali menagih obat yang sudah dibayar | **−10** | **0** | **1 — tidak bertambah** |
+
+Tiga hal terbukti sekaligus:
+
+1. **Tidak ada pencadangan.** Sesudah A bayar dan obatnya ditunda, `stok_terkini` tetap
+   10. Petugas yang melayani B melihat 10 tersedia, tanpa petunjuk apa pun bahwa 10 di
+   antaranya sudah terjual. Pencarian di seluruh kode: tidak ada konsep reservasi.
+2. **Penyerahan A tidak diblokir.** Panggilan `serahkan_obat` **berhasil**, resep A
+   menjadi `DISERAHKAN`, dan `stok_terkini` turun ke −10.
+3. **Tidak ada lot yang keluar untuk A.** `SUM(qty_sisa)` tetap 0 dan
+   `kunjungan_lot_terpakai` tidak bertambah. FEFO melaporkan `shortfall 10`.
+
+### Kenapa ini soal uang, bukan soal gudang
+
+`DISERAHKAN` punya **dua arti** bagi dua penulis yang berbeda — pola CLAUDE.md §4.1:
+
+| Pembaca | Arti yang diasumsikan |
+|---|---|
+| Apoteker & modul apotek | "obat sudah di tangan pasien" |
+| `_reverse_stok_per_item` (void) | "stok **sudah dipotong**, jadi void boleh mengembalikannya" |
+
+Penjaga void menghitungnya lewat `_qty_diserahkan_produk`, yang menjumlahkan `qty` baris
+berstatus `DISERAHKAN` (`kasir_service.py:1656-1662`). Docstring-nya menyatakan maksudnya
+terang-terangan: *"hanya me-reverse kalau obat memang sudah diserah (stok sudah
+dipotong) … cegah overstate senyap."* Niatnya benar; buktinya yang tidak cukup. Baris A
+memenuhi syarat itu **tanpa** pernah mengurangi lot — sehingga void atas transaksi A akan
+mengembalikan 10 unit yang tidak pernah keluar.
+
+### Apa yang membersihkan jejaknya
+
+Divergensi cache-vs-lot **tidak** permanen, dan dugaan awal saya bahwa ia permanen salah.
+Dua jalur menghitung ulang cache dari lot:
+
+| Jalur | Perilaku |
+|---|---|
+| `retur_service._recompute_produk_cache` | `stok_terkini = SUM(qty_sisa)` |
+| `opname_service` (approve) | `stok_terkini = SUM(qty_sisa)` (baris 259-268) |
+
+Penerimaan barang **tidak** — ia menambah (`pemesanan_service.py:441`), begitu juga
+`update_stok_produk` (`apotek_repo.py:195-197`). Jadi angka −10 bertahan sampai ada
+opname, lalu **hilang** terserap sebagai selisih opname. Selisih itu muncul di periode
+lain, tanpa kaitan terlihat ke penjualan yang menyebabkannya.
+
+### Yang TIDAK saya temukan (supaya tidak dilaporkan berlebihan)
+
+- **Tidak ada laporan laba/margin sama sekali** di seluruh aplikasi. Jadi sudut "HPP tak
+  tercatat → margin terlalu tinggi" **belum punya permukaan untuk salah**. Saya tidak
+  melaporkannya sebagai akibat; ia menjadi relevan justru kalau Temuan 22 (laporan
+  ekonomi membership) dikerjakan.
+- **Tidak ada satu pun tempat yang menandai stok negatif.** Bukan di dashboard, bukan di
+  `inventory_report_service`. Peringatan `shortfall_warnings` hanya muncul di pesan satu
+  transaksi penyerahan dan di `keterangan` audit — hilang begitu apoteker menutup halaman.
+- **Tidak ada rekonsiliasi berjadwal** `stok_terkini` vs `SUM(qty_sisa)`.
+
+### Usul perbaikan (butuh keputusan dr. Hansen)
+
+Tanpa mengubah filosofi "jangan blokir operasional":
+
+1. **Catat kekurangannya sebagai keadaan, bukan sebagai pesan.** Saat `shortfall > 0`,
+   tulis baris `inventory_history` bertipe tersendiri (mis. `SERAH_TANPA_LOT`). Itu
+   membuat penyerahan fantom bisa dicari ulang, dan void bisa menolak mengembalikan
+   qty yang lotnya tidak pernah keluar.
+2. **Jangan samakan `DISERAHKAN` dengan "lot sudah dipotong".** Penjaga void sebaiknya
+   membaca `kunjungan_lot_terpakai`, bukan status resep — sumber yang memang mencatat lot.
+3. **Nilai kewajiban obat tertunda.** `list_obat_tertunda` menampilkan nama dan qty, tanpa
+   rupiah. Uangnya sudah diterima tapi barangnya belum diserahkan; nilainya layak terlihat.
+4. Pencadangan stok untuk obat yang sudah dibayar — **perubahan kebijakan**, bukan
+   perbaikan bug. Dicatat sebagai pilihan, bukan rekomendasi.
+
+### Catatan kejujuran tentang bukti
+
+Percobaan pertama saya memakai produk uji **tanpa** baris `stok_lot`, sehingga peringatan
+"lot kurang" juga muncul di kaki B — artefak setup saya, bukan temuan. Angka di tabel atas
+berasal dari percobaan kedua dengan satu lot nyata berisi 10, sehingga kaki B terbukti
+mengonsumsi lot secara sah dan kaki A terbukti tidak. Seluruh data uji (`UJI-P18`, 4
+kunjungan) sudah dihapus; `master_produk` kini nol baris berstok negatif.
+
+---
+
+## Yang DIPERIKSA di putaran 18 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Dua arti "tertunda"** | **BERSIH — dan kerangka awal saya keliru.** `DITUNDA` = ditunda di kasir, **belum ditagih**; `DIBAYAR` tanpa `DISERAHKAN` = **sudah dibayar**, menunggu diambil. Dua konsep berbeda yang tidak tertukar di kode |
+| **Pemisahan baris saat tunda di kasir** | Baris asli tetap `PENDING` (ditagih hari ini), baris baru membawa sisanya sebagai `DITUNDA`. Sengaja **tidak** memakai `id_resep_asal` — kolom itu berarti "salinan saat penebusan" (penanda anti-tebus-ganda); memakainya akan menyembunyikan baris tertunda dari `list_resep_belum_ditebus` |
+| **`refund_item_tertunda`** | **BERSIH dan pagarnya lengkap.** Hanya untuk item `DIBAYAR`; `DISERAHKAN` ditolak (jalurnya retur), `PENDING` ditolak (jalurnya `void_item_resep`), `BATAL` ditolak. Stok tidak disentuh — benar, karena `DIBAYAR` menjamin stok belum dipotong. Nilai refund = **bersih** (subtotal dikurangi porsi diskonnya), bukan harga daftar |
+| **Serah sebagian tanpa tanggal janji** | **BERSIH — dugaan saya salah.** Saya menduga sisa obat bisa mengendap tak terlihat karena daftar Obat Tertunda menyaring `tgl_janji_kirim IS NOT NULL`. Pagarnya ternyata ada di server, `apotek_service.py:495`, lengkap dengan syarat `kunjungan.tgl_janji_kirim is None` — bukan hanya di JavaScript template |
+| **`tgl_janji_kirim` dikosongkan terlalu cepat** | **BERSIH.** Hanya dikosongkan kalau `n_sisa == 0` (baris 614). Sisa yang masih ada mempertahankan tanggal lamanya, sehingga tetap muncul — dan tampil `overdue` kalau tanggalnya sudah lewat |
+| **`tunda_serah_obat` tanpa tanggal** | Ditolak eksplisit: "Tanggal janji kirim/ambil WAJIB diisi" |
+
+⚠ **Satu celah dokumentasi, bukan cacat perilaku:** docstring `SerahkanObatRequest`
+menyatakan `tgl_janji_kirim_sisa` **WAJIB**, tetapi tipenya `Optional[date] = None` tanpa
+validator. Perilakunya benar karena pagarnya ada di service. Yang perlu diingat: aturan
+itu hidup di **prosa**, bukan di skema — pembaca berikutnya yang memakai skema ini dari
+jalur lain tidak akan mendapat pagar itu.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
