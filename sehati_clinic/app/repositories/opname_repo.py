@@ -36,6 +36,24 @@ class OpnameRepository:
     def get_by_id(self, id_opname: int) -> Optional[StockOpname]:
         return self.db.get(StockOpname, id_opname)
 
+    def get_by_id_for_update(self, id_opname: int) -> Optional[StockOpname]:
+        """SELECT ... FOR UPDATE — kunci baris opname sampai transaksi commit.
+
+        Dipakai approve & reject. Tanpa ini, pagar `status != DRAFT` TIDAK BERLAKU
+        di bawah konkurensi: dua approve bersamaan sama-sama membaca DRAFT dan
+        sama-sama jalan. Terbukti 2026-10-04 — dua lot penyesuaian dibuat untuk
+        satu opname, sementara `stok_terkini` menulis angka satu-approve, sehingga
+        buku lot (10) dan cache stok (5) BERSELISIH tanpa error apa pun.
+        Lihat `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 20.
+
+        Penamaannya mengikuti pola yang sudah ada di proyek ini:
+        `apotek_repo.get_produk_for_update`, `inventory_repo.get_stok_for_update`,
+        `kunjungan_repo.get_by_id_for_update`.
+        """
+        return self.db.execute(
+            select(StockOpname).where(StockOpname.id_opname == id_opname).with_for_update()
+        ).scalar_one_or_none()
+
     def get_by_nomor(self, nomor: str) -> Optional[StockOpname]:
         stmt = select(StockOpname).where(StockOpname.nomor_opname == nomor).limit(1)
         return self.db.execute(stmt).scalar_one_or_none()

@@ -124,7 +124,17 @@ class ReturService:
 
     def approve_retur(self, id_retur: int, actor: MasterStaf,
                       request: Optional[Request] = None) -> ReturProduk:
-        retur = self.db.get(ReturProduk, id_retur)
+        # KUNCI BARIS — tanpa ini pagar `status != 'DRAFT'` di bawah TIDAK
+        # berlaku di bawah konkurensi. Terbukti 2026-10-04: dua approve bersamaan
+        # sama-sama lolos dan menulis DUA entri audit (id_staf_approver tertimpa).
+        # Stoknya kebetulan net benar karena aritmetikanya ABSOLUT
+        # (`lot.qty_sisa = sisa - qty`) — keduanya menghitung angka akhir yang sama.
+        # Itu keselamatan yang KEBETULAN: mengubahnya jadi relatif (`-=`) kelak akan
+        # memperkenalkan pemotongan ganda tanpa menyentuh pagarnya.
+        # Lihat `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 20.
+        retur = self.db.execute(
+            select(ReturProduk).where(ReturProduk.id_retur == id_retur).with_for_update()
+        ).scalar_one_or_none()
         if retur is None:
             raise HTTPException(404, f"Retur {id_retur} tidak ditemukan.")
         if retur.status != "DRAFT":

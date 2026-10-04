@@ -1264,7 +1264,43 @@ Perbaikannya sama persis dengan Temuan 15: `select(...).with_for_update()`.
 
 ---
 
-## TEMUAN 20 — 🔴 DIDEMONSTRASIKAN (putaran 12) — dan hasilnya BUKAN yang saya duga
+## TEMUAN 20 — ✅ DIPERBAIKI — dulu: pagar approve jebol di bawah konkurensi
+
+> **Keputusan dr. Hansen: perbaiki.** Baris header dikunci sebelum statusnya diperiksa,
+> di **tiga** titik:
+>
+> | Titik | Cara |
+> |---|---|
+> | `opname.approve` | `repo.get_by_id_for_update()` (baru) |
+> | `opname.reject` | `repo.get_by_id_for_update()` — **kembarannya**, lihat di bawah |
+> | `retur.approve_retur` | `select(...).with_for_update()` |
+>
+> **Kenapa `reject` ikut dikunci**, padahal Temuan 20 hanya menyebut approve: ia juga
+> bertransisi KELUAR dari DRAFT. Kalau approve dan reject berlomba, keduanya lolos
+> pagar — stoknya diterapkan oleh approve sementara statusnya berakhir REJECTED.
+> Pola "satu diperbaiki, saudaranya terlupa" sudah **tiga kali** menggigit audit ini
+> (`force_past_day_void`, `decrement_kuota_terpakai`, dan sekarang ini); kali ini
+> diperiksa lebih dulu.
+>
+> **Diuji dua arah, dan kali ini LOT DAN CACHE diperiksa sekaligus** — karena pada
+> demonstrasi saya sempat menyimpulkan "aman" hanya dari cache:
+>
+> | Uji | Sebelum | Sesudah |
+> |---|---|---|
+> | Dua approve opname bersamaan | **2 lot** (qty 10) · cache 5 · **berselisih** · audit 2 | **1 lot** · qty 5 · cache 5 · **cocok** · audit 1 |
+> | Dua approve retur bersamaan | lot 7 · **audit 2** (disetujui 2×) | lot 7 · **audit 1** |
+> | Berurutan: approve lalu ulangi | — | ke-1 OK · ke-2 **TOLAK** (opname & retur) |
+> | Reject lalu ulangi | — | ke-1 OK → REJECTED · ke-2 **TOLAK** |
+>
+> Suite 96 lulus / 0 gagal · 37 halaman 200.
+>
+> ⚠ **Dua kali skrip uji saya sendiri yang salah**, bukan kodenya — tanda tangan
+> `reject()` dan nama field `StockOpnameRejectRequest.alasan`. Keduanya sempat
+> menghasilkan "PERIKSA" yang kalau diterima mentah akan jadi temuan palsu.
+
+**Uraian di bawah adalah keadaan SEBELUM perbaikan.**
+
+### Dulu: didemonstrasikan, dan hasilnya BUKAN yang saya duga
 
 > **Prediksi saya di putaran 11 SALAH untuk keduanya, dan untuk `opname` saya sempat
 > salah DUA KALI.** Rinciannya di bawah; saya menuliskannya karena cara temuan ini

@@ -195,7 +195,9 @@ class OpnameService:
         4. Insert inventory_history (jenis=PENYESUAIAN, referensi=nomor_opname)
         5. Audit log per item + opname-level
         """
-        opname = self.repo.get_by_id(id_opname)
+        # KUNCI BARIS — pagar `status != DRAFT` di bawah ini tidak berlaku
+        # di bawah konkurensi tanpa ini (Temuan 20).
+        opname = self.repo.get_by_id_for_update(id_opname)
         if opname is None:
             raise HTTPException(404, f"Opname {id_opname} tidak ditemukan.")
         if opname.status != StatusOpnameEnum.DRAFT:
@@ -374,7 +376,9 @@ class OpnameService:
         actor: MasterStaf,
         request: Optional[Request] = None,
     ) -> StockOpname:
-        opname = self.repo.get_by_id(id_opname)
+        # KUNCI BARIS — pagar `status != DRAFT` di bawah ini tidak berlaku
+        # di bawah konkurensi tanpa ini (Temuan 20).
+        opname = self.repo.get_by_id_for_update(id_opname)
         if opname is None:
             raise HTTPException(404, f"Opname {id_opname} tidak ditemukan.")
         if opname.status != StatusOpnameEnum.DRAFT:
