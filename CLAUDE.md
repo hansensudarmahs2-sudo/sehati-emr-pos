@@ -271,6 +271,12 @@ penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Financ
 **Migrasi terakhir:** `20260930_0200` (tabel `pasien_pseudonim`). Dev dan mini PC
 sama-sama di kepala ini. 57 tabel.
 
+⚠ **Kerja 4 Oktober BELUM di `main`** — keputusan dr. Hansen: tetap di cabang.
+`main` ada di `304b58c`; cabang terakhir `laptop/perbaiki-tautan-tagihan-none`
+**29 commit** di atasnya, dalam **satu rantai lurus** (diverifikasi: semua cabang lain
+adalah leluhurnya, jadi menggabungkan nanti cukup SATU cabang).
+Peta lengkapnya: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
+
 **Baru selesai (2026-10-04, dari laptop):** kompilasi ulang Tailwind (48→0 kelas warna
 hilang) · paket klinis Tahap B · verifikasi S1 CSP/HSTS · **F3 snapshot line-item
 Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + gerbang PHI.
@@ -319,6 +325,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 
 | Berkas | Kapan dibaca |
 |---|---|
+| **`RINGKASAN_KERJA_2026-10-04.md`** | **Pintu masuk kerja 4 Okt: keadaan cabang, buku besar 30 temuan, 3 query yang harus dijalankan di mini PC, antrean keputusan** |
 | `01_project_overview.md` · `02_architecture.md` | Orientasi awal |
 | `03_database_schema.md` | Sebelum menyentuh skema |
 | `05_coding_style.md` · `04_api_rules.md` | Sebelum menulis kode/route baru |

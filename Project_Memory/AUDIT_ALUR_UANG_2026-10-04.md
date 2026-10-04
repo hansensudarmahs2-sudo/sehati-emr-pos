@@ -170,7 +170,13 @@ Jangan dipakai di mesin lain.
 
 ---
 
-## TEMUAN 3 — 🔴 `force_past_day_void` TIDAK membatalkan komisi
+## TEMUAN 3 — ✅ KODE DIPERBAIKI, ⚠ DATA BELUM — `force_past_day_void` TIDAK membatalkan komisi
+
+> **Status 2026-10-04.** Cacat KODE-nya tertutup oleh perbaikan Temuan 5: jalur kedua
+> sekarang memanggil `void_komisi_transaksi` (diverifikasi di `kasir_service.py`).
+> **Yang BELUM: baris yang terlanjur rusak sebelum perbaikan.** Temuan 11 membuktikan
+> baris semacam itu IKUT TERBAYAR, jadi ini bukan sekadar kerapian data. Query
+> deteksinya ada di Temuan 5, dan harus dijalankan di mini PC.
 
 **Terbukti dengan menjalankannya.**
 
@@ -1948,7 +1954,7 @@ alur.
 
 ---
 
-## TEMUAN 30 — 🔴 `DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong", padahal bisa terpasang tanpa satu lot pun keluar
+## TEMUAN 30 — ✅ DIPERBAIKI — dulu: `DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong", padahal bisa terpasang tanpa satu lot pun keluar
 
 **Putaran 18 — obat tertunda.** Dibuktikan dengan menjalankan layanannya, bukan membacanya.
 
