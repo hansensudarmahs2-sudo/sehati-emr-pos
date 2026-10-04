@@ -19,6 +19,8 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.db.models import (
     Kunjungan,
+    KunjunganResep,
+    StatusItemResepEnum,
     MasterStaf,
     Pasien,
     TransaksiKasir,
@@ -165,10 +167,21 @@ def test_void_reverse_stok(db):
     kunjungan = db.query(Kunjungan).first()
     if kunjungan is None:
         pytest.skip("Tidak ada kunjungan di DB.")
-    # P0-1: reverse stok hanya jalan kalau obat sudah diserah (kunjungan COMPLETED).
+    # Task #54 (2026-09-22) — BUKTI PENYERAHAN PER ITEM.
+    # Dulu cukup menyetel COMPLETED, mengikuti tebakan "COMPLETED = sudah diserah".
+    # Tebakan itu DICABUT #54: kunjungan bisa COMPLETED sementara itemnya belum
+    # diserahkan, dan memakainya akan mengembalikan stok yang tidak pernah keluar.
+    # _mode_per_item kini menuntut jejak nyata (resep DISERAHKAN); tanpa itu
+    # _reverse_stok_per_item menjawab 0 — jawaban yang BENAR.
     kunjungan.status_antrian = "COMPLETED"
     db.flush()
     base_stok = float(produk.stok_terkini or 0)
+    db.add(KunjunganResep(
+        id_kunjungan=kunjungan.id_kunjungan, id_produk=produk.id_produk, qty=2,
+        aturan_pakai="-", status_item=StatusItemResepEnum.DISERAHKAN,
+        id_staf_input=staf.id_staf,
+    ))
+    db.flush()
 
     trx = _mk_trx(db, staf.id_staf, 50000, status="BAYAR", id_kunjungan=kunjungan.id_kunjungan)
     detail = TransaksiDetailProduk(

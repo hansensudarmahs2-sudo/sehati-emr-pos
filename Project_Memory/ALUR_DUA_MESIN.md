@@ -231,8 +231,32 @@ alembic stamp head                  # -> 20260930_0200
 
 ⚠ **`create_all` bukan pengganti migrasi.** Ia membuat skema menurut model *hari ini*,
 tanpa melewati riwayat migrasi. Kolom yang pernah ditambahkan lewat SQL mentah dan tidak
-pernah masuk model **tidak akan ada**. Untuk DB smoke-test laptop itu cukup; untuk
-produksi **tidak boleh**.
+pernah masuk model **tidak akan ada**. Untuk produksi **tidak boleh**.
+
+⚠⚠ **DIKOREKSI 2026-10-04 — "cukup untuk laptop" itu MEREMEHKAN.** Perbandingan nyata:
+migrasi membuat **29 indeks**, dan **26 di antaranya HILANG** di DB hasil `create_all`.
+Mayoritas indeks performa, tapi **dua UNIQUE** — dan UNIQUE adalah aturan bisnis:
+
+| Indeks | Menjaga |
+|---|---|
+| `ux_pasien_no_member` | nomor member tidak ganda |
+| `ux_dismiss_pasangan` | pasangan duplikat tidak di-dismiss dua kali |
+| `uq_transaksi_kasir_idempotency_key` | **pembayaran ganda** |
+
+Yang ketiga membuat `test_repro_P0_2_double_payment` gagal di laptop selama berhari-hari
+dan sempat saya laporkan sebagai bug produksi. **Laptop MENERIMA data yang produksi
+TOLAK** — setiap smoke test di sini berjalan di atas aturan yang lebih longgar.
+
+Sesudah klon baru dengan `create_all`, pasang ketiganya:
+
+```sql
+CREATE UNIQUE INDEX uq_transaksi_kasir_idempotency_key ON transaksi_kasir (idempotency_key);
+CREATE UNIQUE INDEX ux_pasien_no_member ON pasien (no_member);
+CREATE UNIQUE INDEX ux_dismiss_pasangan ON pasien_duplikat_dismiss (id_pasien_a, id_pasien_b);
+```
+
+Cara memeriksa ulang kapan saja — bandingkan nama indeks di migrasi dengan
+`information_schema.statistics`. Rinciannya di `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 18.
 
 **Belum diputuskan (butuh dr. Hansen):** apakah `deploy/schema_only.sql` sebaiknya
 di-commit (berhenti gitignore) supaya repo bisa membangun dari nol. Isinya skema saja,

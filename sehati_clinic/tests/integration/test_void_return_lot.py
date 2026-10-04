@@ -13,6 +13,7 @@ from app.db.models import (
     StokLot, MasterProduk, MasterStaf, TransaksiKasir, TransaksiDetailProduk, Kunjungan,
 )
 from app.db.models._enums import TipeProdukEnum
+from app.db.models import KunjunganResep, StatusItemResepEnum
 from app.services.kasir_service import KasirService
 
 
@@ -50,6 +51,21 @@ def _setup(db, lot_status="HABIS", lot_qty=0):
                   batch_no="BATCH-X", tgl_ed=date(2027, 1, 1), qty_masuk=3, qty_sisa=lot_qty,
                   status=lot_status, tgl_masuk=date(2026, 1, 1))
     db.add(lot); db.flush()
+    # Task #54 (2026-09-22) — BUKTI PENYERAHAN PER ITEM.
+    # Fixture ini dulu hanya menyetel kunjungan COMPLETED, mengikuti tebakan lama
+    # "COMPLETED = obat sudah diserah". Tebakan itu DICABUT oleh #54 karena sejak
+    # serah-per-item sebuah kunjungan bisa COMPLETED sementara itemnya belum
+    # diserahkan sama sekali — dan memakainya akan "mengembalikan stok yang tidak
+    # pernah keluar" (lihat docstring _produk_stok_sudah_dipotong).
+    # Penilaiannya kini lewat _mode_per_item, yang menuntut jejak nyata: resep
+    # berstatus DISERAHKAN. Tanpa baris di bawah, _reverse_stok_per_item menjawab 0
+    # — dan itu JAWABAN YANG BENAR, karena memang tidak ada yang pernah diserahkan.
+    db.add(KunjunganResep(
+        id_kunjungan=kunjungan.id_kunjungan, id_produk=p.id_produk, qty=3,
+        aturan_pakai="-", status_item=StatusItemResepEnum.DISERAHKAN,
+        id_staf_input=staf.id_staf,
+    ))
+    db.flush()
     return staf, p, trx, detail, lot
 
 

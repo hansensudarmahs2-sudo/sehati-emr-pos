@@ -29,6 +29,7 @@ from app.db.models import (
     Kunjungan, MasterProduk, MasterStaf, TransaksiKasir, TransaksiDetailProduk,
 )
 from app.db.models._enums import TipeProdukEnum
+from app.db.models import KunjunganResep, StatusItemResepEnum
 from app.services.kasir_service import KasirService
 
 
@@ -75,6 +76,24 @@ def _setup(db, status_kunjungan, stok_terkini, qty_beli=3):
         qty=qty_beli, harga_satuan=10000, subtotal=qty_beli * 10000,
     )
     db.add(detail); db.flush()
+    # Task #54 (2026-09-22) — BUKTI PENYERAHAN PER ITEM.
+    # Fixture ini lahir di dunia pra-#54, saat "kunjungan COMPLETED" dianggap bukti
+    # obat sudah diserah. #54 MENCABUT tebakan itu: sejak serah-per-item, kunjungan
+    # bisa COMPLETED sementara itemnya belum diserahkan sama sekali, dan memakainya
+    # akan "mengembalikan stok yang tidak pernah keluar". Penilaiannya kini lewat
+    # _mode_per_item, yang menuntut jejak nyata: resep berstatus DISERAHKAN.
+    # BERSYARAT — memetakan tebakan lama ke bukti baru TANPA mengubah maksud test:
+    #   status COMPLETED  (dulu = "sudah diserah") -> tulis resep DISERAHKAN
+    #   status ANTRI_OBAT (dulu = "belum diserah") -> JANGAN tulis apa pun
+    # Menulisnya untuk kedua kasus akan membuat test "belum diserah tidak menambah
+    # stok" ikut lulus padahal tidak lagi menguji apa pun.
+    if status_kunjungan == "COMPLETED":
+        db.add(KunjunganResep(
+            id_kunjungan=kunjungan.id_kunjungan, id_produk=produk.id_produk, qty=qty_beli,
+            aturan_pakai="-", status_item=StatusItemResepEnum.DISERAHKAN,
+            id_staf_input=staf.id_staf,
+        ))
+        db.flush()
     return staf, produk, trx, detail
 
 

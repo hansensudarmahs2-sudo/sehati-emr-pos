@@ -906,7 +906,113 @@ yang hilang tanpa jejak.
 
 ---
 
-## TEMUAN 17 — 🔴 ENAM test integrasi GAGAL di `main`, tiga di antaranya penjaga bug uang
+## TEMUAN 17 — ✅ SELESAI (putaran 10) — enam test merah, kini **96 lulus / 0 gagal**
+
+> **Hasil triase:** lima dari enam adalah **fixture usang**, bukan kode rusak. Yang
+> keenam adalah **artefak skema laptop saya sendiri** — bukan cacat produksi.
+>
+> ```
+> sebelum : 6 failed, 48 passed
+> sesudah : 96 passed, 32 skipped, 0 failed
+> ```
+
+### ⚠ KOREKSI atas klaim saya di putaran 9
+
+Saya menulis bahwa kegagalan ini **"bukan pula kondisi data laptop"**, dengan alasan
+test menyiapkan datanya sendiri. Itu **salah untuk satu test**: saya memeriksa *data*
+dan lupa memeriksa **skema**.
+
+DB laptop dibangun lewat `Base.metadata.create_all()` dari **model**, bukan dari
+migrasi. `test_repro_P0_2_double_payment` menguji bahwa kunci idempotensi ganda ditolak
+`UNIQUE` — dan indeks itu **hanya dibuat oleh migrasi**
+(`20260710_2100_transaksi_idempotency_key.py`). Model-nya bahkan berkomentar
+*"UNIQUE via index uq_transaksi_kasir_idempotency_key"* tapi mendeklarasikan kolomnya
+**tanpa** `unique=True`.
+
+Dibuktikan: setelah indeks itu dipasang manual, test **langsung lulus**.
+
+### Lima lainnya: fixture dari dunia PRA-#54
+
+Semua lima gejalanya sama — pengembalian stok/lot menghasilkan nol. Sebabnya satu:
+
+Fixture-nya menyetel `kunjungan.status_antrian = "COMPLETED"` dan mengandalkan tebakan
+lama *"COMPLETED = obat sudah diserah"*. **Task #54 (2026-09-22) mencabut tebakan itu**,
+dan `_produk_stok_sudah_dipotong` menjelaskan kenapa di docstring-nya sendiri: sejak
+serah-per-item, kunjungan bisa COMPLETED sementara itemnya belum diserahkan sama
+sekali — *"memakainya akan mengembalikan stok yang tidak pernah keluar"*.
+
+Penilaiannya kini lewat `_mode_per_item`, yang menuntut **jejak nyata**: resep atau
+racikan berstatus `DISERAHKAN`.
+
+**Dibuktikan dengan menjalankan skenario yang sama dua kali:**
+
+```
+A. tanpa resep DISERAHKAN (seperti fixture lama):
+   dikembalikan=0  lot.qty_sisa=0.0     <- test mengharapkan 3
+B. dengan resep DISERAHKAN qty=3 (pasca-#54):
+   dikembalikan=1  lot.qty_sisa=3.0  lot.status=AKTIF
+```
+
+Jadi **kodenya benar**; jawaban 0 pada kasus A justru yang betul, karena memang tidak
+ada yang pernah diserahkan. Fixture-nya yang tidak pernah ikut diperbarui saat #54.
+
+**Perbaikannya:** tambahkan bukti penyerahan ke fixture, dengan komentar yang
+menjelaskan kenapa — supaya tidak dikembalikan ke bentuk lama.
+
+⚠ **Suite menangkap kesalahan saya sendiri.** Versi pertama menambahkan bukti ke
+`_setup` P0-1 tanpa syarat, sehingga test pasangannya — *"obat BELUM diserah tidak
+menambah stok"* — ikut lulus padahal tidak lagi menguji apa pun. Buktinya dibuat
+**bersyarat** pada `status_kunjungan`, memetakan tebakan lama ke bukti baru tanpa
+mengubah maksud kedua test. Itu persis tugas penjaga, dan ia bekerja.
+
+### Opsi A ternyata TIDAK berpengaruh
+
+Kekhawatiran saya di putaran 9 — bahwa Opsi A mengubah premis `P0_1` — **tidak
+terbukti**. Keempat berkas memanggil `_reverse_stok_per_item` **langsung**, bukan lewat
+`void_transaksi`. Jadi pagar Opsi A tidak pernah terlewati, dan tidak ada test yang
+perlu diputuskan ulang.
+
+---
+
+## TEMUAN 18 — 🔴 Skema laptop KEHILANGAN 26 indeks yang dibuat migrasi
+
+Terungkap saat menelusuri Temuan 17, dan dampaknya melampaui test.
+
+`Base.metadata.create_all()` membuat **tabel dan kolom** dari model, tapi tidak
+membuat apa pun yang hanya ada di migrasi. Perbandingan indeks:
+
+```
+indeks yang dibuat migrasi : 29
+hilang di DB laptop        : 26
+```
+
+Mayoritas indeks performa (`ix_lot_*`, `ix_komisi_*`) — tidak mengubah perilaku. Tapi
+**dua di antaranya UNIQUE**, dan UNIQUE adalah aturan bisnis:
+
+| Indeks | Menjaga |
+|---|---|
+| `ux_pasien_no_member` | nomor member tidak ganda |
+| `ux_dismiss_pasangan` | pasangan duplikat pasien tidak di-dismiss dua kali |
+
+Ditambah `uq_transaksi_kasir_idempotency_key` (pembayaran ganda) yang memicu Temuan 17.
+
+**Artinya laptop MENERIMA data yang produksi TOLAK.** Setiap smoke test di sini
+berjalan di atas aturan yang lebih longgar daripada klinik.
+
+⚠ Satu yang terlihat hilang ternyata **tidak**: `ux_pasien_nomor_ktp` tidak ada
+**namanya**, tapi `nomor_ktp` sudah unik lewat `unique=True` di model. Beda nama, bukan
+beda perilaku — diperiksa, bukan diasumsikan.
+
+**Ditangani:** ketiga indeks unik dipasang manual di DB laptop; suite kembali 96 lulus.
+Sisanya indeks performa, dibiarkan.
+
+**Ini mengoreksi `ALUR_DUA_MESIN.md` §7**, yang menyebut `create_all` "cukup untuk DB
+smoke-test laptop". Itu meremehkan: ia cukup untuk **bentuk** data, tidak untuk
+**aturannya**.
+
+---
+
+## TEMUAN 17 (uraian awal, sebelum triase)
 
 Ditemukan saat menjalankan suite penuh untuk memverifikasi perbaikan Temuan 15.
 Sebelumnya saya hanya menjalankan satu berkas test dan melihat satu kegagalan.
