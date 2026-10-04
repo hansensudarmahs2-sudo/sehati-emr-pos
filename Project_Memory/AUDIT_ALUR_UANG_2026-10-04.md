@@ -164,10 +164,120 @@ Jangan dipakai di mesin lain.
 
 ---
 
+---
+
+# PUTARAN 2 — refund, komisi, kuota, Decimal/float
+
+---
+
+## TEMUAN 3 — 🔴 `force_past_day_void` TIDAK membatalkan komisi
+
+**Terbukti dengan menjalankannya.**
+
+Jalur void ada **dua**. Hanya satu yang membalik komisi:
+
+| Jalur | Dipakai siapa | Transaksi | Komisi |
+|---|---|---|---|
+| `void_transaksi` (hari sama) | Kasir | `VOID` | **`VOID`** ✓ |
+| `force_past_day_void` (s/d 7 hari) | Admin / Superadmin / Owner | `VOID` | **tetap `AKTIF`** ✗ |
+
+Bukti di laptop, komisi produk Rp 5.000:
+
+```
+force_past_day_void:  trx BAYAR -> VOID  |  komisi AKTIF -> AKTIF   (tidak berubah)
+void_transaksi     :  trx BAYAR -> VOID  |  komisi AKTIF -> VOID
+```
+
+Akibatnya staf tetap menerima komisi atas transaksi yang sudah dibatalkan dan sudah
+dikeluarkan dari omzet.
+
+### Kelupaan, atau disengaja?
+
+**Petunjuk kuat bahwa ini kelupaan:** `force_past_day_void` mengerjakan *semua* langkah
+pembersihan lain — pagar, status VOID, balik stok, cascade resep/racikan,
+`_revert_kuota_per_tindakan`. **Kuota diingat di kedua jalur; komisi hanya di satu.**
+Dan tidak ada satu pun komentar yang menjelaskan ketiadaannya, di kodebase yang
+biasanya menjelaskan setiap keputusan.
+
+**Petunjuk bahwa mungkin disengaja:** backlog **F2** mencatat *"detail clawback VOID
+(kalau periode payroll sudah ditutup)"* sebagai Fase 2 yang DITUNDA. `force_past_day_void`
+justru jalur yang menyentuh hari-hari lampau — persis tempat periode payroll bisa sudah
+ditutup. Mungkin komisi sengaja tidak ditarik supaya payroll yang sudah dibayar tidak
+berubah surut.
+
+Kalau benar begitu, **itu keputusan yang tidak pernah ditulis** — dan keputusan yang
+tidak ditulis tidak bisa dibedakan dari kelupaan.
+
+### Butuh keputusan dr. Hansen
+
+| Opsi | Konsekuensi |
+|---|---|
+| **A. Panggil `void_komisi_transaksi` juga di `force_past_day_void`** | Konsisten dengan jalur harian. Tapi kalau payroll periode itu sudah dibayar, komisi ditarik surut — uang yang sudah di tangan staf |
+| **B. Biarkan, tapi TULIS alasannya** | Payroll aman. Konsekuensinya: komisi atas transaksi VOID tetap terbayar, dan laporan komisi tidak cocok dengan omzet |
+| **C. Tarik komisi hanya kalau periode payroll belum ditutup** | Paling benar, tapi butuh konsep "periode payroll ditutup" yang **belum ada** (itu isi F2) |
+
+Saya tidak memperbaikinya sendiri: ini mengubah uang yang terutang ke staf.
+
+---
+
+## TEMUAN 4 — 🟡 Perhitungan komisi memakai float, bukan Decimal
+
+`hitung_komisi_treatment` (`master_treatment_service.py:68`) bekerja dengan `float`
+dari ujung ke ujung — harga, BHP, pajak, persentase — lalu hasilnya disimpan ke kolom
+`DECIMAL`. A9 sudah memperbaiki kelas masalah yang sama di 3 loop laporan; mesin komisi
+belum tersentuh.
+
+**Diukur, bukan diasumsikan.** 300.000 kombinasi harga/BHP/persen acak dalam rentang
+wajar klinik:
+
+```
+selisih float vs Decimal : 7.288 dari 300.000  (2,43%)
+contoh: harga=4.361.767,80  bhp=741.500,53  50%
+        float   = 1.810.133,63
+        Decimal = 1.810.133,64
+```
+
+**Besarnya satu sen per baris yang terkena.** Dalam rupiah itu tidak berarti apa-apa
+secara operasional. Yang membuatnya layak dicatat bukan nominalnya, melainkan bahwa
+proyek ini **sudah memutuskan** uang tidak dihitung dengan float (A9) — dan mesin yang
+menentukan bayaran staf justru masih memakainya.
+
+⚠ **Catatan metode yang penting:** percobaan pertama saya memakai **5 kasus pilihan
+tangan** dan menemukan **nol selisih**. Kalau berhenti di situ, saya akan melaporkan
+"float aman di sini" — dan itu salah. Contoh pilihan tangan tidak membuktikan apa pun
+tentang floating point; yang membuktikan adalah pencarian paksa.
+
+Prioritas rendah, perbaikan murah. Layak digabung kalau F2 (komisi Fase 2) dikerjakan.
+
+---
+
+## Yang DIPERIKSA di putaran 2 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Refund vs omzet** | **BERSIH.** Dugaan awal saya salah. `proses_refund_item` langkah 6 **mengurangi `trx.total_tagihan`** dengan alasan tertulis: *"header yang dikurangi, supaya 12 titik agregasi uang otomatis benar tanpa satu pun query disentuh"*. Omzet otomatis benar |
+| **Refund vs tutup kasir** | **BERSIH, tidak ada pengurangan ganda.** Tutup kasir memakai `transaksi_pembayaran` (TIDAK tersentuh refund) dikurangi refund per metode; omzet memakai `total_tagihan` yang sudah dikurangi. Dua basis berbeda, keduanya benar |
+| **Revert kuota membership** | **BERSIH.** `_revert_kuota_per_tindakan` dipanggil di **kedua** jalur void |
+| `float()` di service lain | Mayoritas di **batas keluaran** (cetak nota, dict tampilan) — sah menurut A9 |
+
+---
+
+## Catatan yang sudah terdokumentasi di kode (bukan temuan baru)
+
+`void_komisi_item` punya peringatan di docstring-nya sendiri: untuk `sumber='PRODUK'`,
+`id_ref` diisi `id_resep` dengan **fallback** ke `id_produk`. Pada baris LAMA yang
+tersimpan lewat jalur fallback, pembatalan komisi saat refund **bisa tidak kena**.
+Sudah ditulis di sana; dicatat di sini supaya tidak hilang.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
-1. Refund per item & `transaksi_refund` — apakah ikut dikecualikan dari omzet?
-2. `komisi_ledger` — apakah komisi ikut ditarik saat void, dan apa yang terjadi kalau
-   periode payroll sudah ditutup (F2 menyebut clawback belum ada)
-3. Kuota membership — `_revert_kuota_per_tindakan` saat void
-4. Decimal vs float di jalur uang (A9 menyelesaikan 3 loop; sisanya belum disapu)
+~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
+~~4. Decimal vs float~~ — **semua selesai di putaran 2.**
+
+Putaran 3 (usulan):
+1. Membership: aktivasi, upgrade, perpanjang — jalur uang terpisah (`jenis=MEMBERSHIP`)
+2. Retur produk ke distributor & nota retur — uang keluar
+3. Tutup kasir: selisih laci, modal awal, dan slip cetak
+4. Ekspor Finance: apakah 15 berkasnya konsisten dengan laporan layar
