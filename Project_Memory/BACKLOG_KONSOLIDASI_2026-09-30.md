@@ -45,8 +45,8 @@ Saat ini: **masih uji coba internal, belum ada database pasien asli.**
 |---|---|---|
 | ~~**D2**~~ | ~~Higiene folder E:~~ | **SELESAI 2026-09-30 — lihat §11 di bawah.** Temuan tak terduga: monolit legacy memuat **sandi DB yang masih aktif**, ter-commit sejak commit pertama |
 | ~~**A7**~~ | ~~Berkas duplikat usang~~ | **SUDAH BERES** — diperiksa 2026-10-04 di klon bersih: tak satu pun dari `master.py.bak_restored`, `kunjungan.py.new`, `1`, `exit`, `debug_kunjungan.py`, `fix_timezone_tindakan.py` ada di disk maupun di `git ls-files`. ❓ dicoret |
-| **F7** | Dead-code sweep ~13 fungsi | Report-only; periksa niat + test per fungsi, jangan hapus buta |
-| **F5** | `_create_pending_membership_history_if_needed` tak tersambung | Diputuskan: buang atau sambungkan |
+| ~~**F7**~~ | ~~Dead-code sweep ~13 fungsi~~ | **SELESAI (report-only) 2026-10-04** — `DEAD_CODE_SWEEP_2026-10-04.md`. 637 fungsi non-handler → **14 tanpa pemakai di kode**, cocok dengan perkiraan "~13" di A11. 3 sudah ber-KEEP (A11), 1 kandidat hapus jelas (`create_kunjungan_billing`), 10 sisanya method repository yang kemungkinan "belum dipakai", bukan mati. **Nol dihapus** sesuai aturan |
+| ~~**F5**~~ | ~~`_create_pending_membership_history_if_needed` tak tersambung~~ | **SUDAH TERJAWAB — DIBUANG.** Fungsinya ada di commit pertama (`dfd74ce`, `pasien_service.py`) dan dihapus di `a5d7fb6` ("drop #362D"). ⚠ **Tapi dikerjakan separuh**: fitur yang di-drop meninggalkan DUA yatim, dan `create_kunjungan_billing` (`membership_service.py:793`) masih ada — route-nya sudah no-op yang disengaja. Lihat `DEAD_CODE_SWEEP_2026-10-04.md` §3 |
 | **D1** | Panduan deploy lama usang | Guide systemd+nginx+Certbot sudah digantikan Docker+Tailscale. Tandai obsolete, rapikan runbook upgrade/rollback di README-DOCKER-MINIPC |
 | — | `datetime.utcnow()` deprecated | **❓ terjawab 2026-10-04: BELUM rusak di 3.14.** Diuji di Python 3.14.4 — masih jalan, hanya `DeprecationWarning` ("scheduled for removal in a future version"). 9 pemakaian di `sehati_clinic/`. Produksi `python:3.11-slim`, jadi tidak mendesak — tapi jadi mendesak kalau image dinaikkan. Ganti ke `datetime.now(datetime.UTC)` |
 

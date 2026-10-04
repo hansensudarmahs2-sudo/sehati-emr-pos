@@ -287,6 +287,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 | `ALUR_DUA_MESIN.md` | **Kerja di laptop**, sinkron desktop⇄laptop, aturan deploy |
 | `S1_CSP_HSTS.md` | Sebelum menyentuh header keamanan atau CSP |
 | `DESAIN_CLINICAL_PACK_TAHAP_B.md` | Sebelum menyentuh ekspor paket klinis |
+| `DEAD_CODE_SWEEP_2026-10-04.md` | Sebelum menghapus fungsi yang "kelihatan tidak dipakai" |
 
 ⚠ `00_README.md` dan `10_ai_collaboration_guide.md` ditulis Juni 2026 untuk skema
 multi-AI review yang sudah tidak dipakai. Masih berguna sebagai indeks, tapi
