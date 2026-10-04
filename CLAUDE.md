@@ -142,21 +142,37 @@ sampai didaftarkan di `safelist` pada `tailwind.config.js`. **Kalau menambah war
 di `dashboard_service.py`, daftarkan juga di safelist**, atau kartunya kehilangan
 warna tanpa error apa pun.
 
-### 4.3 `.env` tidak masuk `os.environ`
+### 4.3 Audit ditulis di SESI YANG SAMA dengan bisnis
+
+`AuditService.log()` menelan semua exception — docstring-nya berkata *"audit failure
+tidak boleh block business"*. **Itu tidak berlaku.** Ia memakai sesi yang sama, jadi
+`flush()` yang gagal menandai sesi perlu rollback dan `commit()` milik caller gagal
+dengan `PendingRollbackError` — pesan yang tidak menyebut audit sama sekali.
+
+Terbukti 2026-10-04: **User-Agent 314 karakter** (kolom `varchar(255)`, tanpa
+pemotongan) membuat pembuatan produk GAGAL. `@@sql_mode` memuat `STRICT_TRANS_TABLES`
+dan mini PC memakai image MySQL yang sama — MySQL **menolak**, bukan memotong.
+
+Jadi sebelum menambah field ke audit: **potong ke lebar kolomnya**. Dan kalau menulis
+helper yang menelan exception di sesi bersama, ingat bahwa menelan tidak membuat
+kegagalannya hilang — ia hanya memindahkan kemunculannya ke tempat yang membingungkan.
+`AUDIT_ALUR_UANG_2026-10-04.md` Temuan 23–24.
+
+### 4.4 `.env` tidak masuk `os.environ`
 
 `pydantic-settings` membaca `.env` hanya untuk field yang dideklarasikan di
 `Settings`. `os.getenv("APA_PUN")` **kosong di dev** padahal berhasil di mini PC
 (Docker `env_file` mengisi environ container). Pakai pola `envval()` di
 `clinical_export_batch.py` kalau butuh setelan di luar `Settings`.
 
-### 4.4 Nama anggota enum ≠ nilai kolom
+### 4.5 Nama anggota enum ≠ nilai kolom
 
 `GenderEnum.LAKI_LAKI = "L"`. Menulis `'PRIA'` ditolak MySQL dengan
 `Data truncated` — pesan yang tidak menyebut sebabnya sama sekali.
 Kolom VARCHAR lebih buruk: nilai ngawur **diterima diam-diam** dan baru bikin
 laporan aneh berbulan-bulan kemudian (`status_transaksi` hanya `BAYAR`/`VOID`).
 
-### 4.5 HTMX
+### 4.6 HTMX
 
 Panel dinamis = **render ulang dari server**, bukan akumulasi di klien. CSS dikirim
 di dalam fragmen. Fragmen "tambah kartu" wajib `Cache-Control: no-store`. Identitas

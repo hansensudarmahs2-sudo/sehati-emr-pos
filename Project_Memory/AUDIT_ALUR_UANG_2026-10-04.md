@@ -1531,6 +1531,112 @@ nilainya jauh lebih besar daripada kebanyakan temuan di dokumen ini.
 
 ---
 
+---
+
+# PUTARAN 13 — integritas jejak audit
+
+Jejak audit adalah tulang punggung bukti di dokumen ini — beberapa temuan bersandar pada
+hitungan `audit_log` ("audit 2 = disetujui dua kali"). Kalau jejaknya rapuh, buktinya
+ikut rapuh.
+
+---
+
+## TEMUAN 23 — 🔴 "Audit gagal tidak memblokir bisnis" — DIBUKTIKAN TIDAK BERLAKU
+
+`AuditService.log()` menelan semua exception, dengan alasan yang ditulis di
+docstring-nya sendiri:
+
+> *"Tidak commit — caller yang manage transaction. Kalau gagal, log error tapi tidak
+> raise (audit failure tidak boleh block business)."*
+
+**Niatnya benar. Hasilnya kebalikannya.**
+
+```
+1. produk dibuat (belum commit)
+2. audit.log() -> None            (gagal, ditelan sesuai desain)
+3. commit bisnis -> GAGAL: PendingRollbackError
+   produk tersimpan di DB: 0
+```
+
+Sebabnya: `log()` memakai **sesi yang sama** dengan aksi bisnis. Saat `flush()`-nya
+gagal, SQLAlchemy menandai sesi itu perlu rollback. Menelan exception lalu lanjut
+membuat `commit()` milik caller gagal dengan `PendingRollbackError`.
+
+**Menelannya justru MEMPERSULIT diagnosis, bukan mengamankan.** Tanpa `try/except`,
+error aslinya (`Data too long for column 'user_agent'`) akan muncul langsung dan
+menunjuk penyebabnya. Dengan `try/except`, yang muncul adalah pesan tentang **sesi** —
+yang tidak menyebut audit sama sekali.
+
+Posisi sekarang adalah yang terburuk dari dua pilihan: ia **tidak** melindungi bisnis,
+**dan** menyembunyikan sebabnya.
+
+---
+
+## TEMUAN 24 — 🔴 `user_agent` disimpan mentah ke `varchar(255)` — satu header bisa melumpuhkan pengguna
+
+`audit_service.py:58`:
+
+```python
+user_agent = request.headers.get("user-agent")    # tanpa pemotongan
+```
+
+Kolomnya `varchar(255)`. **Tidak ada pemotongan di mana pun** — `aksi` (varchar 50) dan
+`endpoint` (varchar 255) juga tidak.
+
+Diuji dengan User-Agent 314 karakter:
+
+```
+User-Agent panjang: 314 karakter (kolom = varchar 255)
+  1. produk dibuat (belum commit)
+  2. audit.log() -> None
+  3. commit -> GAGAL: PendingRollbackError
+  produk tersimpan: 0
+```
+
+**Akibatnya: pengguna yang browsernya mengirim UA > 255 karakter akan mendapati SETIAP
+aksi ber-audit GAGAL** — dan pesan errornya tidak menyebut User-Agent sama sekali.
+
+UA sepanjang itu bukan hal eksotis: perangkat lunak keamanan korporat yang menyuntikkan
+token, sebagian browser bawaan OEM Android, dan alat bantu aksesibilitas semuanya
+pernah menghasilkannya.
+
+⚠ **Berlaku di produksi, bukan artefak laptop.** `@@sql_mode` memuat
+`STRICT_TRANS_TABLES`, dan mini PC memakai image `mysql:8.0` yang sama — jadi MySQL
+**menolak**, bukan memotong diam-diam. (Diperiksa karena Temuan 18 mengajarkan untuk
+tidak menganggap skema laptop setara produksi.)
+
+### Perbaikan yang disarankan — dua bagian, dan keduanya perlu
+
+1. **Potong setiap masukan ke lebar kolomnya** (`[:255]`, `[:50]`). Menutup kelas
+   masalahnya, bukan satu kasusnya.
+2. **Putuskan posisi soal kegagalan audit**, karena yang sekarang di tengah dan
+   merugikan di kedua sisi:
+   - *Audit benar-benar tidak boleh memblokir bisnis* → tulis audit di **sesi
+     terpisah**, sehingga kegagalannya tidak pernah menyentuh transaksi bisnis; atau
+   - *Audit itu wajib* → **jangan ditelan**, biarkan error aslinya muncul.
+
+   Yang tidak boleh adalah yang berlaku sekarang: ditelan, tapi tetap merusak.
+
+**Tidak saya kerjakan** — pilihan antara (a) dan (b) adalah keputusan tentang apa arti
+jejak audit bagi klinik, bukan keputusan teknis. Untuk rekam medis, "boleh ada aksi
+tanpa jejak" dan "aksi berhenti kalau jejaknya gagal" adalah dua kebijakan yang sangat
+berbeda.
+
+---
+
+## Yang DIPERIKSA di putaran 13 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **`audit_log` append-only di aplikasi** | **BERSIH.** Tidak ada satu pun kode yang `UPDATE` atau `DELETE` `audit_log`. Pencarian menyeluruh di `app/` |
+| **Kegagalan audit terlihat?** | Tercatat ke logger aplikasi pada level `ERROR` dengan `exc_info`. Jadi jejaknya ada — **di log aplikasi**, bukan di layar klinik |
+
+⚠ Catatan: S3 di backlog meminta `GRANT` yang membuat `audit_log` hanya bisa
+`INSERT`/`SELECT` di tingkat **database**. Putaran ini hanya memeriksa tingkat
+**aplikasi**; GRANT-nya belum dipasang dan masih terbuka.
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
