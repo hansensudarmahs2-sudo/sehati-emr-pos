@@ -471,3 +471,102 @@ titik ini menumpuk di satu tanggal, jadi grafiknya terlihat **datar**.
 |---|---|
 | Suite | **139 lulus / 0 gagal / 1 dilewati** — hijau penuh untuk pertama kalinya |
 | `cek_smoke_web` | 1273 halaman · 1272 OK · 1 bermasalah (`/web/kasir/tagihan/None`, temuan terpisah §6 yang belum diminta diperbaiki) |
+
+---
+
+# ✅ Perbaikan tautan `/web/kasir/tagihan/None` — 2026-10-04
+
+Atas permintaan dr. Hansen. Menyapu **semua** titik yang merakit URL halaman tagihan
+lebih dulu, bukan hanya yang ditemukan smoke — dan sapuan itu menemukan sesuatu yang
+jauh lebih serius daripada tautan 422.
+
+## 🔴 Temuan saat memperbaiki: rekam tagihan PASIEN LAIN terbuka
+
+`pasien_membership.html:364` memasukkan **`id_transaksi`** ke URL yang parameternya
+**`id_kunjungan`**:
+
+```html
+<a href="/web/kasir/tagihan/{{ h.id_transaksi_aktivasi }}">#{{ h.id_transaksi_aktivasi }}</a>
+```
+
+Itu bukan masalah `None` — itu **penomoran yang salah sama sekali**. Dua urutan id yang
+berbeda, dan nomornya bertabrakan:
+
+| `id_transaksi_aktivasi` | membership milik | kunjungan bernomor sama | pemilik kunjungan itu |
+|---|---|---|---|
+| 1 | pasien **2** | kunjungan 1 | pasien **1** |
+| 50 | pasien **2** | kunjungan 50 | pasien **41** |
+
+Dibuktikan ujung ke ujung lewat UI sungguhan dengan login nyata — dari halaman
+membership **A-T902**:
+
+```
+klik /web/kasir/tagihan/1  -> 200 · halaman menampilkan A-T901
+klik /web/kasir/tagihan/50 -> 200 · halaman menampilkan BKT-1791088098-591
+```
+
+Keduanya **status 200**, halaman tagihan yang tampak normal, untuk orang yang salah.
+Tanpa error, tanpa peringatan. Satu klik biasa dari halaman pasien membuka rekam
+keuangan pasien lain — ini wilayah §6, bukan sekadar tautan rusak.
+
+⚠ **Smoke saya melewatkannya** karena ia hanya memeriksa kode status, dan `200` bisa
+berarti SALAH. Itu kelemahan pemeriksa saya, bukan kebetulan.
+
+### Kenapa diperbaiki jadi teks biasa, bukan tautan yang benar
+
+Tujuan yang benar ber-kunci transaksi **ada**: `/web/kasir/nota/{id_transaksi}/cetak`.
+Tapi ia menuntut `require_kasir_role`, sedangkan halaman membership sengaja boleh
+dilihat **semua peran** (FO, kasir, dokter, owner). Menautkannya berarti dokter dan
+perawat menabrak 403 — itu keputusan hak akses, bukan perbaikan bug, jadi bukan porsi
+saya. Nomor transaksinya tetap tampil (`#50`, `#1`), hanya tidak bisa diklik.
+
+**Pilihan untuk dr. Hansen:** tautkan ke nota dan tampilkan tautannya hanya untuk peran
+Kasir/Admin/Owner. Sekitar 4 baris. Sampai itu diputuskan, nomor saja sudah cukup untuk
+rujukan silang dan tidak membocorkan apa pun.
+
+## Tiga titik `None` yang diperbaiki
+
+| Tempat | Dulu | Sekarang |
+|---|---|---|
+| `reports_void.html:117` | nomor transaksi selalu jadi tautan | tautan hanya kalau ada `id_kunjungan`; kalau tidak, teks kelabu + tooltip |
+| `kasir_cari_transaksi.html:101` | tombol **Detail** selalu muncul | tombol hanya kalau ada kunjungan; kalau tidak, `—` |
+| `kasir_cari_transaksi.html:106` | tombol **⚡ Force Void** | ikut dipagari |
+| `web/routes/kasir.py` | `can_force_void` tidak memeriksa `id_kunjungan` | ikut disyaratkan |
+
+Yang terakhir diperbaiki **di sumbernya**, bukan hanya di template: flag itu dulu
+mengaku "boleh force void" untuk transaksi yang jalur UI-nya tidak ada. Hari ini
+tombolnya belum muncul karena `days_past = 0`; **besok akan muncul**. Jadi ia bug laten,
+bukan bug yang sudah terlihat.
+
+⚠ Catatan jujur: kemampuan force-void-nya sendiri **ADA** di server —
+`POST /kasir/transaksi/{id_transaksi}/void` dan `.../force-void`, ber-kunci transaksi.
+Yang belum ada hanya halaman UI untuk memanggilnya. Jadi transaksi membership **belum
+bisa di-void dari layar** sampai halaman itu ada. Dicatat, bukan dikerjakan.
+
+## Pemeriksa diperkuat — dan ini pelajarannya
+
+`cek_smoke_web.py` sekarang mencari segmen URL kosong (`None`/`undefined`/`null`)
+**langsung di HTML**, bukan dengan mengikuti tautannya. Bedanya penting: ia tetap
+melaporkan walau tautannya membalas 200, dan ia **menyebut halaman mana yang
+merendernya** — informasi yang justru dibutuhkan untuk memperbaiki, dan yang versi
+kode-status tidak pernah berikan.
+
+Diuji dua arah:
+
+| | Hasil |
+|---|---|
+| Dengan perbaikan | 1291 halaman · **0 bermasalah · 0 segmen kosong** |
+| Perbaikan dilepas (`git stash`) | **1 bermasalah + 1 segmen kosong**, berikut asalnya: `dirender di: /web/kasir/cari-transaksi` |
+
+⚠ Yang **tidak** bisa ditangkap crawler mana pun: id yang salah JENIS tapi benar
+bentuknya — persis kasus membership di atas. Itu hanya tertangkap dengan membaca
+template. **Jangan percaya "0 bermasalah" sebagai bukti bahwa semua tautan menunjuk ke
+rekam yang BENAR.** Peringatan itu kini ada di docstring pemeriksanya.
+
+## Hasil uji
+
+| | |
+|---|---|
+| Suite | **139 lulus / 0 gagal / 1 dilewati** |
+| `cek_smoke_web` | **1291 halaman · 1291 OK · 0 bermasalah** — bersih sepenuhnya, pertama kali |
+| `cek_kelas_tailwind` | 3 template yang disunting: 0 kelas hilang (§4.2) |

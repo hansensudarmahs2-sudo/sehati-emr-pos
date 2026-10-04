@@ -28,10 +28,34 @@ from app.main import app
 
 TAUTAN = re.compile(r'href="(/web[^"#?]*)"')
 
+# Segmen URL yang jelas hasil variabel KOSONG. Dicari langsung di HTML, bukan dengan
+# mengikuti tautannya, karena kode status tidak selalu membongkarnya: tautan rusak
+# bisa saja membalas 200 sambil menampilkan rekam YANG SALAH. Lihat catatan di bawah.
+SEGMEN_KOSONG = re.compile(r'href="(/web/[^"]*/(?:None|none|undefined|null|nan)(?:[/#?][^"]*)?)"')
+
 
 def tautan_di(html: str) -> set[str]:
     return {h for h in TAUTAN.findall(html)
             if "{" not in h and not h.endswith("/logout")}
+
+
+def segmen_kosong_di(html: str) -> set[str]:
+    """Tautan yang memuat `None`/`undefined` sebagai segmen path.
+
+    ⚠ KENAPA DICARI DI HTML, BUKAN DARI KODE STATUS. Versi pertama pemeriksa ini hanya
+    melaporkan halaman yang membalas >=400. Itu menemukan `/web/kasir/tagihan/None`
+    (422) — tapi MELEWATKAN bug yang jauh lebih serius di halaman membership: di sana
+    `id_transaksi` dimasukkan ke URL ber-parameter `id_kunjungan`, dan karena nomornya
+    kebetulan bertabrakan, halaman membership satu pasien membuka tagihan PASIEN LAIN
+    dengan status **200**. Kode status tidak akan pernah membongkar itu.
+
+    Pemeriksaan ini menangkap kelas yang pertama (variabel kosong) langsung dari HTML,
+    jadi ia tetap melaporkan walau tautannya membalas 200. Kelas kedua — id yang salah
+    JENIS tapi valid bentuknya — tidak bisa ditangkap crawler mana pun; itu hanya
+    tertangkap dengan membaca template. Jangan percaya "0 bermasalah" sebagai bukti
+    bahwa semua tautan menunjuk ke rekam yang BENAR.
+    """
+    return set(SEGMEN_KOSONG.findall(html))
 
 
 def main() -> None:
@@ -54,7 +78,10 @@ def main() -> None:
 
     dikunjungi: set[str] = set()
     rusak: list[tuple[str, int, str]] = []
+    kosong: dict[str, str] = {}      # tautan ber-segmen kosong -> halaman asalnya
     antre = tautan_di(dash.text)
+    for t in segmen_kosong_di(dash.text):
+        kosong.setdefault(t, "/web/dashboard")
 
     # Dua lapis: tautan di dashboard, lalu tautan di halaman-halaman itu.
     for lapis in range(2):
@@ -68,7 +95,9 @@ def main() -> None:
                 continue
             if resp.status_code >= 400:
                 rusak.append((p, resp.status_code, resp.text[:160]))
-            elif lapis == 0:
+            for t in segmen_kosong_di(resp.text):
+                kosong.setdefault(t, p)
+            if lapis == 0:
                 berikut |= tautan_di(resp.text)
         antre = berikut
 
@@ -78,7 +107,16 @@ def main() -> None:
     for p, kode, pesan in rusak:
         print(f"\n  ✗ {kode or 'EXC'}  {p}")
         print(f"       {pesan.strip()[:160]}")
-    print(f"\nHASIL: {len(rusak)} halaman bermasalah dari {len(dikunjungi)}")
+
+    if kosong:
+        print(f"\n  ✗ {len(kosong)} tautan memuat segmen KOSONG "
+              f"(dilaporkan walau balasannya 200):")
+        for t, asal in sorted(kosong.items()):
+            print(f"       {t}")
+            print(f"         dirender di: {asal}")
+
+    print(f"\nHASIL: {len(rusak)} halaman bermasalah, "
+          f"{len(kosong)} tautan ber-segmen kosong, dari {len(dikunjungi)} halaman")
 
 
 if __name__ == "__main__":

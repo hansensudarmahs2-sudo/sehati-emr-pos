@@ -114,8 +114,17 @@
                 {% for it in data["items"] %}
                 <tr class="hover:bg-slate-50">
                     <td class="py-2 px-3">
+                        {# Transaksi MEMBERSHIP tidak terikat kunjungan (id_kunjungan NULL),
+                           jadi halaman tagihannya tidak ada. Dulu tautannya tetap dirender
+                           dan menghasilkan /web/kasir/tagihan/None -> 422, tepat di laporan
+                           tempat orang mencari uang yang di-VOID. #}
+                        {% if it.id_kunjungan %}
                         <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}"
                            class="font-mono text-xs text-blue-600 hover:underline">#{{ it.id_transaksi }}</a>
+                        {% else %}
+                        <span class="font-mono text-xs text-slate-500"
+                              title="Transaksi ini tidak terikat kunjungan (mis. membership), jadi tidak punya halaman tagihan.">#{{ it.id_transaksi }}</span>
+                        {% endif %}
                     </td>
                     <td class="py-2 px-3 text-xs text-slate-700 whitespace-nowrap">{{ it.void_at }}</td>
                     <td class="py-2 px-3">

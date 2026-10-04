@@ -360,9 +360,17 @@
                     </td>
                     <td class="py-2 px-3 text-right font-mono text-xs">Rp {{ "{:,.0f}".format(h.harga_bayar).replace(",", ".") }}</td>
                     <td class="py-2 px-3 font-mono text-xs">
-                        {% if h.id_transaksi_aktivasi %}
-                        <a href="/web/kasir/tagihan/{{ h.id_transaksi_aktivasi }}" class="text-blue-600 hover:underline">#{{ h.id_transaksi_aktivasi }}</a>
-                        {% else %}—{% endif %}
+                        {# ⚠ JANGAN dijadikan tautan ke /web/kasir/tagihan/<n>.
+                           Halaman itu ber-parameter id_KUNJUNGAN, sementara yang ada di sini
+                           id_TRANSAKSI — dua penomoran berbeda. Dulu baris ini menautkannya,
+                           dan karena nomornya kebetulan bertabrakan, halaman membership
+                           A-T902 membuka tagihan A-T901 dan BKT-1791088098-591: rekam
+                           tagihan PASIEN LAIN, status 200, tanpa error. Terbukti 2026-10-04.
+                           Tujuan yang benar ber-kunci transaksi adalah
+                           /web/kasir/nota/<id_transaksi>/cetak, tapi itu menuntut peran Kasir
+                           sedangkan halaman ini boleh dilihat semua peran — perlu keputusan
+                           dr. Hansen dulu. Sampai itu diputuskan: nomor saja, tanpa tautan. #}
+                        {% if h.id_transaksi_aktivasi %}#{{ h.id_transaksi_aktivasi }}{% else %}—{% endif %}
                     </td>
                     <td class="py-2 px-3 text-center">
                         {% if h.status_label == 'ACTIVE' %}

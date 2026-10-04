@@ -857,7 +857,13 @@ def kasir_cari_transaksi_page(
         if trx.waktu_bayar:
             days_past = KasirService._days_past(trx.waktu_bayar, now_check)
         if trx.status_transaksi == "BAYAR" and max_days > 0:
-            can_force = 0 < days_past <= max_days
+            # `id_kunjungan` ikut disyaratkan: satu-satunya jalur UI force-void
+            # adalah modal di halaman /web/kasir/tagihan/<id_kunjungan>. Transaksi
+            # MEMBERSHIP tidak punya kunjungan, jadi tanpa syarat ini tombolnya
+            # muncul dan mengarah ke .../tagihan/None -> 422.
+            # ⚠ Kemampuannya sendiri ADA di server (POST /kasir/transaksi/<id>/
+            # force-void, ber-kunci transaksi) — yang belum ada halaman UI-nya.
+            can_force = (0 < days_past <= max_days) and trx.id_kunjungan is not None
         items.append({
             "id_transaksi": trx.id_transaksi,
             "id_kunjungan": trx.id_kunjungan,
