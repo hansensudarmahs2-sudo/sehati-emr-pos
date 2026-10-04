@@ -180,6 +180,17 @@ class MembershipService:
             days_to_expire = (hist_row.tgl_expired - today).days
 
         # #362B-D - Cek existing kunjungan ANTRI_BAYAR membership-only untuk hide button
+        #
+        # ⚠ PEMBACA TANPA PENULIS — DISENGAJA, JANGAN DIHAPUS SEBAGAI "KODE MATI".
+        # Sejak M2 tidak ada lagi yang MEMBUAT kunjungan MEMBERSHIP_ONLY (penulisnya,
+        # `create_kunjungan_billing`, sudah tidak terpakai — lihat catatan di sana).
+        # Pencarian ini tetap ada untuk baris yang terlanjur dibuat SEBELUM M2: tanpa
+        # ini, tombol billing muncul lagi untuk pasien yang sudah punya kunjungan
+        # billing menggantung, dan kasir menerima dua tagihan membership.
+        #
+        # Boleh dibuang KALAU sudah dipastikan nol baris di mesin produksi:
+        #   SELECT COUNT(*) FROM kunjungan WHERE sumber_pendaftaran='MEMBERSHIP_ONLY';
+        # Di laptop dev per 2026-10-04 hasilnya 0; mini PC BELUM diperiksa.
         from app.db.models import Kunjungan as _K
         existing_billing = self.db.execute(
             select(_K)
@@ -798,8 +809,31 @@ class MembershipService:
     ) -> int:
         """Buat kunjungan minimal status ANTRI_BAYAR untuk pasien dengan pending membership.
 
-        Use case: pasien existing yang upgrade/renew membership langsung,
-        tanpa flow konsul. Bayar via kasir langsung.
+        ⚠⚠ TIDAK TERPAKAI SEJAK M2 — JANGAN DISAMBUNGKAN KEMBALI TANPA MENINJAU M2.
+
+        Ini bagian SERVICE dari alur #362D yang sudah DICABUT. Satu-satunya
+        pemanggilnya, route `pasien_membership_create_billing`
+        (`web/routes/pasien.py`), kini NO-OP yang disengaja: M2 memutuskan membership
+        PENDING muncul langsung di Antrian Kasir (seksi "Membership — Menunggu
+        Pembayaran") TANPA membuat kunjungan kosong lebih dulu. Saudara fungsi ini,
+        `_create_pending_membership_history_if_needed`, sudah dihapus di commit
+        a5d7fb6 ("drop #362D"); yang ini tertinggal.
+
+        KENAPA TIDAK DIHAPUS SAJA (keputusan dr. Hansen 2026-10-04): isinya logika
+        bisnis yang lahir dari perbaikan bug nyata (FIX-362E-B pending check,
+        FIX-362E-D pagar duplikat billing). Kalau keputusan M2 suatu saat ditinjau
+        ulang, ini titik awal yang sudah bekerja.
+
+        BAHAYANYA justru karena ia TAMPAK SIAP PAKAI. Siapa pun yang menemukannya
+        tanpa catatan ini akan wajar menyimpulkan ia tinggal dipanggil — dan
+        kunjungan kosong yang SENGAJA dihilangkan M2 akan muncul lagi di antrian.
+
+        Pasangan bacanya masih hidup: lihat pencarian `MEMBERSHIP_ONLY` di
+        `get_membership_page_data` (± baris 185). Rinciannya di
+        `Project_Memory/DEAD_CODE_SWEEP_2026-10-04.md` §3.
+
+        Use case ASLI (historis): pasien existing yang upgrade/renew membership
+        langsung, tanpa flow konsul. Bayar via kasir langsung.
 
         Returns: id_kunjungan baru.
         """

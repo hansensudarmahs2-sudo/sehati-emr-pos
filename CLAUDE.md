@@ -107,6 +107,7 @@ dengan asumsi apa?*
 | Draf SOAP apoteker vs SOAP dokter di tabel yang sama | Halaman basi menghapus data yang lebih baru |
 | `_produk_stok_sudah_dipotong`, `id_resep_asal` | Sama polanya |
 | `REPORTS_ROLES` dipakai ulang untuk laporan klinis | Laporan tanpa uang ikut terkunci oleh aturan yang dibuat untuk data uang |
+| Void diterima walau racikan/resep sudah DISERAHKAN | Transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. Terbukti 2026-10-04, lihat `AUDIT_ALUR_UANG_2026-10-04.md` |
 
 **Sebelum memakai ulang fungsi simpan mana pun: periksa siapa yang commit.**
 **Sebelum memakai ulang himpunan role: periksa apakah artinya sama.**
@@ -288,6 +289,7 @@ Per 1 Oktober 2026 belum ada tanggal untuk itu — tanyakan kalau mendekat.
 | `S1_CSP_HSTS.md` | Sebelum menyentuh header keamanan atau CSP |
 | `DESAIN_CLINICAL_PACK_TAHAP_B.md` | Sebelum menyentuh ekspor paket klinis |
 | `DEAD_CODE_SWEEP_2026-10-04.md` | Sebelum menghapus fungsi yang "kelihatan tidak dipakai" |
+| `AUDIT_ALUR_UANG_2026-10-04.md` | **Sebelum menyentuh void/laporan apotek** — ada temuan terbuka |
 
 ⚠ `00_README.md` dan `10_ai_collaboration_guide.md` ditulis Juni 2026 untuk skema
 multi-AI review yang sudah tidak dipakai. Masih berguna sebagai indeks, tapi
