@@ -1875,6 +1875,79 @@ klinik, bukan keputusan teknis.
 
 ---
 
+---
+
+# PUTARAN 17 — FEFO & stok kedaluwarsa
+
+---
+
+## TEMUAN 29 — 🔴 FEFO memilih lot KEDALUWARSA lebih dulu
+
+Query FEFO (`inventory_lot_service.py:28–43`) menyaring hanya `qty_sisa > 0`, lokasi,
+tipe item, dan produk/bahan. **Tidak ada penyaring tanggal kedaluwarsa, dan tidak ada
+penyaring status.**
+
+Karena urutannya "ED terdekat keluar dulu", lot yang **sudah lewat** ED justru berada di
+urutan paling atas — ED-nya paling awal.
+
+Dibuktikan dengan dua lot:
+
+```
+tersedia:
+   KEDALUWARSA  ED 2026-08-05  (lewat 60 hari)
+   MASIH-BAIK   ED 2027-10-04
+
+FEFO memilih: KEDALUWARSA, 10 unit
+```
+
+### ⚠ Pengamanannya ADA, tapi semuanya bertumpu pada manusia
+
+Saya periksa hulunya sebelum menyebut ini bahaya, dan gambarannya tidak sesederhana
+"sistem menyerahkan obat kedaluwarsa":
+
+| Lapis | Ada? | Sifat |
+|---|---|---|
+| FEFO mengecualikan yang kedaluwarsa | ❌ | — |
+| **Apoteker melihat batch + ED di layar sebelum serah** | ✅ | `apotek_detail_resep.html` menampilkan *"Batch (FEFO): 10× BATCH-X · ED 01/01/27"* |
+| Laporan ED memuat yang sudah lewat | ✅ | Tanpa batas bawah, diurut ED menaik — yang kedaluwarsa muncul **paling atas** |
+| Write-off ber-alasan `EXPIRED` | ✅ | Manual |
+| **Peringatan/badge aktif** | ❌ | Tidak ada di dashboard maupun menu — apoteker harus **ingat membuka** laporannya |
+
+Jadi yang berdiri antara stok kedaluwarsa dan pasien adalah **seorang apoteker yang
+membaca tanggal di layar**. Itu kendali yang nyata — apoteker memang terlatih memeriksa
+ED. Tapi ia juga **satu-satunya kendali yang otomatis**, dan otomasinya justru
+**bekerja melawannya**: sistem menyodorkan lot kedaluwarsa lebih dulu, setiap kali.
+
+Nuansa kecil yang memperberat: layarnya menampilkan ED sebagai tanggal biasa
+(`05/08/26`), **tanpa menandainya sudah lewat**. Yang diminta dari apoteker adalah
+menghitung tanggal, bukan membaca peringatan.
+
+### Perbaikan yang disarankan
+
+Tambahkan `StokLot.tgl_ed >= today` (atau `tgl_ed IS NULL`) ke `conds` FEFO, sehingga
+lot kedaluwarsa tidak pernah disodorkan otomatis.
+
+⚠ **Konsekuensinya perlu diputuskan:** kalau satu-satunya stok yang ada sudah
+kedaluwarsa, pengecualian itu menghasilkan **shortfall** — penyerahan terhenti. Secara
+klinis itu jawaban yang benar, tapi ia memblokir apotek di depan pasien, jadi keputusan
+dr. Hansen.
+
+Perbaikan paling murah yang tidak memblokir siapa pun: **tandai merah di layar** kalau
+`tgl_ed < today`. Mengubah "membaca tanggal" jadi "membaca peringatan", tanpa menyentuh
+alur.
+
+---
+
+## Yang DIPERIKSA di putaran 17 dan ternyata BERSIH
+
+| Area | Hasil |
+|---|---|
+| **Urutan FEFO** | **BERSIH dan persis sesuai CLAUDE.md.** `tgl_ed.is_(None)` sebagai kunci PERTAMA membuat lot tanpa ED jatuh **terakhir** — bukan pertama seperti perilaku bawaan MySQL untuk NULL. Lalu `tgl_ed ASC → tgl_masuk ASC → id_lot ASC`. Dugaan awal saya bahwa "NULL last" tidak terimplementasi **salah** |
+| **Jejak lot yang keluar** | `batch_terpakai` merekam batch + ED yang dipotong saat serah (P-L5), dan ikut ditulis ke keterangan audit |
+| **`kedaluwarsa` di apotek_service** | Diperiksa: itu tentang **umur RESEP** (`MAX_UMUR_RESEP_HARI`), bukan ED lot. Dua hal berbeda dengan nama mirip — tidak tertukar |
+
+---
+
 ## Putaran berikutnya (belum dikerjakan)
 
 ~~1. Refund per item~~ · ~~2. komisi saat void~~ · ~~3. revert kuota~~ ·
