@@ -307,13 +307,34 @@ class KunjunganRepository:
         self,
         id_pasien: int,
         limit: int = 50,
-    ) -> list[KunjunganAntropometri]:
-        """Timeline antropometri untuk 1 pasien — sorted desc by created_at."""
+    ) -> list[tuple[KunjunganAntropometri, Kunjungan]]:
+        """Timeline antropometri untuk 1 pasien — urut tanggal KUNJUNGAN turun.
+
+        ⚠ DIPERBAIKI 2026-10-04. Dulu urut `created_at` turun dan hanya mengembalikan
+        barisnya, sehingga pemanggil tidak punya pilihan selain memakai `created_at`
+        sebagai `tgl_ukur`. Untuk grafik tracking berat badan itu merusak dua kali:
+
+        1. Pengukuran yang diisi MENYUSUL menumpuk di satu titik pada sumbu waktu —
+           tiga pengukuran September yang diinput 4 Oktober tampil di tanggal yang sama,
+           grafiknya terlihat datar padahal pasiennya turun 1,5 kg.
+        2. Urutannya jadi kronologi PENULISAN, bukan kronologi klinis; keduanya berbeda
+           setiap kali ada input menyusul.
+
+        `Kunjungan` ikut dikembalikan supaya pemanggil bisa memakai `tgl_kunjungan`.
+
+        Catatan: `get_antropometri_terakhir` di atas SENGAJA tetap memakai
+        `updated_at`/`created_at` (keputusan dr. Hansen, smoke test Week 4) — di sana
+        pertanyaannya "nilai mana yang terakhir dikoreksi", bukan "kapan diukur".
+        Jangan ikut diubah.
+        """
         stmt = (
-            select(KunjunganAntropometri)
+            select(KunjunganAntropometri, Kunjungan)
             .join(Kunjungan, Kunjungan.id_kunjungan == KunjunganAntropometri.id_kunjungan)
             .where(Kunjungan.id_pasien == id_pasien)
-            .order_by(KunjunganAntropometri.created_at.desc())
+            .order_by(
+                Kunjungan.tgl_kunjungan.desc(),
+                KunjunganAntropometri.created_at.desc(),
+            )
             .limit(limit)
         )
-        return list(self.db.execute(stmt).scalars().all())
+        return [(row[0], row[1]) for row in self.db.execute(stmt).all()]

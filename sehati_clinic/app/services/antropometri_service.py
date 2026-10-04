@@ -244,7 +244,7 @@ class AntropometriService:
         # CLAUDE.md §4.1. Jadi yang dibutuhkan satu nama, bukan metode baru.
         rows = self.kunjungan_repo.list_antropometri_timeline(id_pasien, limit=limit)
         items = []
-        for antro in rows:
+        for antro, kunjungan in rows:
             bmi = hitung_bmi(antro.berat_badan, antro.tinggi_badan)
             sum_sf = sum_skinfold(
                 antro.skinfold_titik_1,
@@ -255,7 +255,9 @@ class AntropometriService:
             items.append(AntropometriTimelineItem(
                 id_antropometri=antro.id_antropometri,
                 id_kunjungan=antro.id_kunjungan,
-                tgl_ukur=antro.created_at,
+                # Tanggal KUNJUNGAN, bukan `created_at`. Pengukuran yang diisi
+                # menyusul dulu menumpuk di satu titik di grafik tracking.
+                tgl_ukur=kunjungan.tgl_kunjungan,
                 berat_badan=antro.berat_badan,
                 tinggi_badan=antro.tinggi_badan,
                 tekanan_darah=antro.tekanan_darah,

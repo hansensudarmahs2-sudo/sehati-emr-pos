@@ -399,3 +399,75 @@ dilihat dokter di layar**, bukan menambal error. Tiga tempat terlibat:
 
 Catatan jujur: `created_at` tetap berguna dan jangan dibuang — "kapan ditulis" adalah
 informasi audit yang sah. Yang salah adalah memakainya **sebagai tanggal klinis**.
+
+---
+
+# ✅ Perbaikan `created_at` sebagai tanggal klinis — 2026-10-04
+
+Atas permintaan dr. Hansen. **Lima berkas**, karena repositori yang diperbaiki punya
+empat pemanggil — tiga di antaranya **route UI web**, jadi cacatnya memang memengaruhi
+layar klinik, bukan hanya API. Itu lebih berat daripada yang saya laporkan semula.
+
+## Yang diubah
+
+| Berkas | Perubahan |
+|---|---|
+| `pemeriksaan_repo.get_riwayat_soap` | dedupe per **`id_kunjungan`** (dulu per tanggal `created_at`); urut `tgl_kunjungan DESC, created_at DESC`; mengembalikan **tiga** nilai |
+| `pemeriksaan_service.get_summary_pasien` | `tanggal=kj.tgl_kunjungan` |
+| `web/routes/dokter.py:304` | arity saja — layar itu mengambil tanggalnya dari sumber lain |
+| `web/routes/pasien.py` ×2 | arity + `"tanggal"` dari `kj.tgl_kunjungan` |
+| `kunjungan_repo.list_antropometri_timeline` | urut `tgl_kunjungan DESC`; mengembalikan `(antro, kunjungan)` |
+| `antropometri_service.get_timeline` | `tgl_ukur=kunjungan.tgl_kunjungan` |
+
+Urutan `tgl_kunjungan DESC, created_at DESC` dipilih supaya baris **pertama** tiap
+kunjungan adalah SOAP terbaru untuk kunjungan itu — persis yang dimaksud dedupe. Dan
+urutan luarnya kini kronologi **klinis**, bukan kronologi penulisan.
+
+`id_kunjungan` NOT NULL di `pemeriksaan_klinis` (diperiksa di DB), jadi kunci dedupe tidak
+pernah `None` dan tidak ada risiko semua baris luruh ke satu kunci.
+
+## Yang SENGAJA tidak disentuh
+
+`get_antropometri_terakhir` tetap memakai `updated_at`/`created_at` — **keputusan
+dr. Hansen di smoke test Week 4**: yang terakhir di-EDIT yang menang, supaya koreksi row
+lama muncul di header. Di sana pertanyaannya "nilai mana yang terakhir dikoreksi", bukan
+"kapan diukur". Docstring-nya kini menyebut eksplisit jangan ikut diubah.
+
+`created_at` juga tetap ada di mana-mana sebagai jejak audit. Yang salah bukan kolomnya —
+yang salah memakainya sebagai tanggal klinis.
+
+## Dibuktikan TIGA ARAH
+
+| Arah | Hasil |
+|---|---|
+| Tiga kunjungan (13/20/27 Sep) yang SOAP-nya ditulis 4 Okt | **3 baris** (sebelum: 1) |
+| Dedupe masih bekerja: 2 SOAP tambahan untuk SATU kunjungan | tetap **1 baris per kunjungan**, dan yang terpilih **"Ubah Konsul ke-2"** = TERBARU |
+| `tgl_ukur` antropometri lewat endpoint | tiga tanggal September **berbeda**, bukan 2026-10-04 |
+
+Arah kedua yang terpenting: ia membuktikan perbaikan ini **tidak membuang** fitur yang
+memang diinginkan. Tanpa arah itu, saya hanya membuktikan dedupe-nya mati.
+
+### Nilai praktisnya terlihat di arah ketiga
+
+```
+tgl_ukur=2026-09-27  BB=63.5  BMI=24.8
+tgl_ukur=2026-09-20  BB=64.2  BMI=25.1
+tgl_ukur=2026-09-13  BB=65.0  BMI=25.4
+```
+
+Tren **65,0 → 64,2 → 63,5 kg** — turun 1,5 kg dalam dua minggu. Sebelum perbaikan ketiga
+titik ini menumpuk di satu tanggal, jadi grafiknya terlihat **datar**.
+
+### Diverifikasi juga di layar sungguhnya
+
+| Halaman | Tanggal September tampil | Tanggal 4 Oktober tampil |
+|---|---|---|
+| `/web/pasien/{id}` | 13, 20, 27 September | **tidak ada** |
+| `/web/pasien/{id}/riwayat` | 13, 20, 27 September | **tidak ada** |
+
+## Hasil uji
+
+| | |
+|---|---|
+| Suite | **139 lulus / 0 gagal / 1 dilewati** — hijau penuh untuk pertama kalinya |
+| `cek_smoke_web` | 1273 halaman · 1272 OK · 1 bermasalah (`/web/kasir/tagihan/None`, temuan terpisah §6 yang belum diminta diperbaiki) |

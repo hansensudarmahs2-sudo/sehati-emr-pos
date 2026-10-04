@@ -459,14 +459,16 @@ class PemeriksaanService:
             cardbox_kiri_atas_soap=[
                 SoapRingkasItem(
                     id_pemeriksaan=soap.id_pemeriksaan,
-                    tanggal=soap.created_at,
+                    # Temuan `created_at`: tanggal KLINIS = kapan pasien datang,
+                    # bukan kapan catatannya ditulis (bisa diisi menyusul).
+                    tanggal=kj.tgl_kunjungan,
                     nama_dokter=(dokter.nama_staf if dokter else None),
                     ringkasan_anamnesa=_ringkas_teks(soap.anamnesa),
                     ringkasan_diagnosa=_ringkas_teks(soap.diagnosa),
                     full_anamnesa=soap.anamnesa,
                     full_diagnosa=soap.diagnosa,
                 )
-                for soap, dokter in soap_rows
+                for soap, dokter, kj in soap_rows
             ],
             cardbox_kiri_bawah_produk=[
                 ProdukDibeliRingkas(

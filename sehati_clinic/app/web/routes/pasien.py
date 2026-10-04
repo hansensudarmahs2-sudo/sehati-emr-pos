@@ -219,10 +219,12 @@ def pasien_detail_page(
     soap_riwayat = []
     try:
         rows = PemeriksaanRepository(db).get_riwayat_soap(id_pasien, limit=5)
-        for soap, dokter in rows:
+        for soap, dokter, kj in rows:
             soap_riwayat.append({
                 "id_pemeriksaan": soap.id_pemeriksaan,
-                "tanggal": soap.created_at.strftime("%Y-%m-%d %H:%M") if soap.created_at else None,
+                # Tanggal KUNJUNGAN, bukan `created_at` — catatan bisa diisi
+                # menyusul, dan dulu layar ini menampilkan tanggal penulisan.
+                "tanggal": kj.tgl_kunjungan.strftime("%Y-%m-%d %H:%M") if kj.tgl_kunjungan else None,
                 "nama_dokter": dokter.nama_staf if dokter else None,
                 "anamnesa": soap.anamnesa,
                 "pemeriksaan_fisik": soap.pemeriksaan_fisik,
@@ -382,11 +384,13 @@ def pasien_riwayat_page(
     soap_riwayat = []
     try:
         rows = PemeriksaanRepository(db).get_riwayat_soap(id_pasien, limit=10)
-        for soap, dokter in rows:
+        for soap, dokter, kj in rows:
             soap_riwayat.append({
                 "id_pemeriksaan": soap.id_pemeriksaan,
                 "id_kunjungan": soap.id_kunjungan,
-                "tanggal": soap.created_at.strftime("%Y-%m-%d %H:%M") if soap.created_at else None,
+                # Tanggal KUNJUNGAN, bukan `created_at` — catatan bisa diisi
+                # menyusul, dan dulu layar ini menampilkan tanggal penulisan.
+                "tanggal": kj.tgl_kunjungan.strftime("%Y-%m-%d %H:%M") if kj.tgl_kunjungan else None,
                 "nama_dokter": dokter.nama_staf if dokter else None,
                 "anamnesa": soap.anamnesa,
                 "pemeriksaan_fisik": soap.pemeriksaan_fisik,

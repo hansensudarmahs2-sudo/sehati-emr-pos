@@ -187,41 +187,65 @@ class PemeriksaanRepository:
         self,
         id_pasien: int,
         limit: int = 10,
-    ) -> list[tuple[PemeriksaanKlinis, Optional[MasterStaf]]]:
+    ) -> list[tuple[PemeriksaanKlinis, Optional[MasterStaf], Kunjungan]]:
         """
-        Riwayat SOAP pasien, sorted DESC by created_at, LEFT JOIN ke dokter.
+        Riwayat SOAP pasien, urut tanggal KUNJUNGAN turun, LEFT JOIN ke dokter.
 
-        DEDUPE per tanggal: kalau ada multiple SOAP di hari yang sama
-        (mis. dokter Ubah Konsul beberapa kali), hanya ambil yang TERBARU.
-        Database tetap simpan semua (audit trail), tapi view hanya tampil 1 per hari.
-        Implementasi: ambil lebih banyak (3x limit) di SQL, dedup di Python by date.
+        DEDUPE per KUNJUNGAN: kalau satu kunjungan punya beberapa SOAP (dokter "Ubah
+        Konsul" berkali-kali), hanya yang TERBARU yang tampil. DB tetap menyimpan
+        semuanya sebagai jejak audit.
+
+        ⚠ DIPERBAIKI 2026-10-04. Dedupe-nya dulu memakai tanggal **`created_at`** —
+        kapan catatannya DITULIS — bukan kunjungan mana yang dicatat. Niatnya benar,
+        kuncinya salah, dan itu membuat dua hal yang sangat berbeda diperlakukan sama:
+
+        | Yang dimaksud | Yang juga kena |
+        |---|---|
+        | 3x Ubah Konsul untuk SATU kunjungan -> tampil 1 (benar) | SOAP TIGA kunjungan berbeda yang ditulis di hari yang sama -> tampil 1 (**salah**) |
+
+        Yang kedua terjadi setiap kali dokter menyusul menulis catatan beberapa
+        kunjungan dalam satu sesi duduk: riwayat pasien kehilangan kunjungan dari
+        pandangan, tanpa error dan tanpa penanda. Terbukti dengan data nyata — tiga
+        kunjungan (13, 20, 27 September) yang SOAP-nya ditulis 4 Oktober hanya
+        memunculkan satu baris.
+
+        `id_kunjungan` NOT NULL di tabel ini, jadi kuncinya tidak pernah None dan tidak
+        ada risiko semua baris luruh ke satu kunci.
+
+        Urutannya `tgl_kunjungan DESC, created_at DESC`: baris PERTAMA tiap kunjungan
+        jadi SOAP terbaru untuk kunjungan itu — persis yang dimaksud dedupe. Urutan
+        luarnya pun kini kronologi KLINIS, bukan kronologi penulisan; keduanya berbeda
+        setiap kali catatan diisi menyusul.
+
+        Mengembalikan TIGA nilai — `Kunjungan` ikut supaya pemanggil bisa menampilkan
+        tanggal kunjungan, bukan `created_at`. Pemanggil: `pemeriksaan_service`,
+        `web/routes/dokter.py`, dan dua tempat di `web/routes/pasien.py`.
         """
-        # Ambil over-fetch karena perlu dedup di Python
+        # Over-fetch karena dedupe dikerjakan di Python.
         over_fetch = limit * 3 if limit < 50 else limit
         stmt = (
-            select(PemeriksaanKlinis, MasterStaf)
+            select(PemeriksaanKlinis, MasterStaf, Kunjungan)
+            .join(Kunjungan, PemeriksaanKlinis.id_kunjungan == Kunjungan.id_kunjungan)
             .outerjoin(MasterStaf, PemeriksaanKlinis.id_staf_dokter == MasterStaf.id_staf)
             .where(PemeriksaanKlinis.id_pasien == id_pasien,
                    # Riwayat pasien hanya memuat catatan yang SUDAH disetujui dokter.
                    PemeriksaanKlinis.status_soap == "FINAL")
-            .order_by(PemeriksaanKlinis.created_at.desc())
+            .order_by(
+                Kunjungan.tgl_kunjungan.desc(),
+                PemeriksaanKlinis.created_at.desc(),
+            )
             .limit(over_fetch)
         )
         rows = self.db.execute(stmt).all()
 
-        # Dedup by date (ambil yang pertama per date karena sudah ORDER BY DESC)
-        seen_dates = set()
+        seen_kunjungan: set[int] = set()
         deduped: list[tuple] = []
         for row in rows:
-            soap = row[0]
-            if soap.created_at is None:
-                # Edge case — kalau ada SOAP tanpa created_at, tetap masukkan
-                deduped.append((row[0], row[1]))
-            else:
-                date_key = soap.created_at.date()
-                if date_key not in seen_dates:
-                    seen_dates.add(date_key)
-                    deduped.append((row[0], row[1]))
+            kunci = row[0].id_kunjungan
+            if kunci in seen_kunjungan:
+                continue
+            seen_kunjungan.add(kunci)
+            deduped.append((row[0], row[1], row[2]))
             if len(deduped) >= limit:
                 break
         return deduped

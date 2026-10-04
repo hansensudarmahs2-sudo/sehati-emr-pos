@@ -301,7 +301,10 @@ def _build_soap_ctx(db, user, id_kunjungan: int, form_data: dict, error=None):
     try:
         _riw = PasienService(db).get_riwayat(id_pasien, limit_kunjungan=30).model_dump()
         _dx = {}
-        for _s, _d in pemeriksaan_repo.get_riwayat_soap(id_pasien, limit=60):
+        # `_kj` tidak dipakai di sini — layar ini mengambil tanggalnya dari
+        # `riwayat_tindakan_diresepkan`. Ikut dibongkar karena repo kini
+        # mengembalikan tiga nilai.
+        for _s, _d, _kj in pemeriksaan_repo.get_riwayat_soap(id_pasien, limit=60):
             _dx.setdefault(_s.id_kunjungan, {
                 "diagnosa": (_s.diagnosa or _s.anamnesa or ""),
                 "dokter": (_d.nama_staf if _d else None),
