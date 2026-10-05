@@ -178,10 +178,13 @@ def test_tidak_kembali_rugi_dari_harga_terima_lot(db):
 
 def test_void_transaksi_asal_sesudah_retur_ditolak(db):
     d = _setup(db)
-    _retur(db, d)
+    h = _retur(db, d)
     with pytest.raises(HTTPException) as e:
         KasirService(db)._pagari_void_sudah_refund(d["trx"])
-    assert "refund" in e.value.detail.lower()
+    # Pesan menyebut NOMOR retur yang menghalangi (dr. Hansen 2026-10-05) — petugas
+    # perlu tahu mana yang harus ditelusuri di halaman tagihan.
+    assert "pengembalian" in e.value.detail
+    assert h["nomor_retur"] in e.value.detail
 
 
 # ============================================================================

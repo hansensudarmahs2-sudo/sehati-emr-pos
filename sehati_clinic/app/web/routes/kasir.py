@@ -25,6 +25,8 @@ from app.schemas.kasir import (
     VoidItemRequest,
 )
 from app.services.kasir_service import KasirService
+from app.services.kasir_service import daftar_pengembalian as _daftar_pengembalian
+from app.services.kasir_service import pengembalian_kunjungan as _pengembalian_kunjungan
 from app.services.membership_service import MembershipService
 from app.services.klinik_config_service import KlinikConfigService
 from app.services.print_service import PrintService
@@ -116,6 +118,10 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         current_path="/web/kasir",
         page_subtitle=f"Tagihan - {tagihan_dict.get('nama_pasien', '-')}",
         tagihan=tagihan_dict,
+        # Refund & retur atas transaksi kunjungan ini (asal + TUKAR). Total transaksi
+        # TIDAK dikurangi refund sejak T32 — tanpa kotak ini halaman ini diam soal
+        # uang yang sudah dikembalikan (dr. Hansen 2026-10-05, saat mencoba void #270).
+        pengembalian=_pengembalian_kunjungan(db, id_kunjungan),
         idempotency_key=_secrets.token_urlsafe(24),
         flash=request.query_params.get("ok"),
         error=request.query_params.get("err"),
@@ -849,6 +855,10 @@ def kasir_cari_transaksi_page(
     # Build display list dengan info eligibility force-void per row
     from app.services.kasir_service import KasirService
     max_days = KasirService._MAX_PAST_DAYS_BY_ROLE.get(user.role, 0)
+    # Refund & retur per transaksi (satu query untuk seluruh daftar). Total transaksi
+    # TIDAK dikurangi refund sejak T32 — tanpa ini baris "Rp 50.000 · BAYAR" tampil utuh
+    # walau seluruhnya sudah dikembalikan/ditukar (dr. Hansen 2026-10-05).
+    _ref = _daftar_pengembalian(db, [t.id_transaksi for t, _p in rows])
     items = []
     now_check = KasirService._now_utc7()
     for trx, pasien in rows:
@@ -876,6 +886,9 @@ def kasir_cari_transaksi_page(
             "void_at": trx.void_at,
             "days_past": days_past,
             "can_force_void": can_force,
+            "total_kembali": float(sum((r["nilai"] for r in _ref.get(trx.id_transaksi, [])), 0)),
+            "n_kembali": len(_ref.get(trx.id_transaksi, [])),
+            "ada_tukar": any(r["metode"] == "TUKAR" for r in _ref.get(trx.id_transaksi, [])),
         })
 
     ctx = build_shell_context(

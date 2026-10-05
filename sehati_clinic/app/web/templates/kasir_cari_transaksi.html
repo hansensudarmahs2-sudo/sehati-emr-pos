@@ -87,7 +87,17 @@
                         <div class="font-medium text-slate-800">{{ it.nama_pasien }}</div>
                         <div class="text-xs text-slate-500 font-mono">{{ it.no_rm }}</div>
                     </td>
-                    <td class="py-2 px-3 text-right font-mono">Rp {{ "{:,.0f}".format(it.total_tagihan).replace(",", ".") }}</td>
+                    <td class="py-2 px-3 text-right font-mono">Rp {{ "{:,.0f}".format(it.total_tagihan).replace(",", ".") }}
+                        {# Total transaksi TIDAK dikurangi refund (T32) — penanda ini yang
+                           memberi tahu bahwa sebagian/seluruhnya sudah dikembalikan. #}
+                        {% if it.n_kembali %}
+                        {% set _bersih = it.total_tagihan - it.total_kembali %}
+                        <div class="text-[10px] text-red-600 font-sans">
+                            ↩ {% if _bersih <= 0 %}seluruhnya diretur{% else %}Rp {{ "{:,.0f}".format(it.total_kembali).replace(",", ".") }} dikembalikan{% endif %}{% if it.ada_tukar %} (termasuk tukar){% endif %}
+                        </div>
+                        {% if _bersih > 0 %}<div class="text-[10px] text-slate-500 font-sans">bersih Rp {{ "{:,.0f}".format(_bersih).replace(",", ".") }}</div>{% endif %}
+                        {% endif %}
+                    </td>
                     <td class="py-2 px-3 text-center">
                         {% if it.status_transaksi == "VOID" %}
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 font-medium">VOID</span>
@@ -114,7 +124,8 @@
                             ↩ Retur
                         </a>
                         {% endif %}
-                        {% if it.can_force_void %}
+                        {# Sudah ada pengembalian → void pasti ditolak; jangan sodorkan tombolnya. #}
+                        {% if it.can_force_void and not it.n_kembali %}
                         <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}#force-void-modal"
                            class="inline-flex items-center px-2 py-1 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100 ml-1">
                             ⚡ Force Void

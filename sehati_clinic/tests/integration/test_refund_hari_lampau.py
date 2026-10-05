@@ -192,7 +192,8 @@ def test_void_setelah_refund_ditolak(db):
     with pytest.raises(HTTPException) as e:
         KasirService(db)._pagari_void_sudah_refund(d["trx"])
     assert e.value.status_code == 400
-    assert "refund" in e.value.detail.lower()
+    # Refund obat tertunda tidak punya nomor retur → disebut "refund #<id>".
+    assert "pengembalian" in e.value.detail and "refund #" in e.value.detail
 
 
 def test_void_tanpa_refund_tidak_dihalangi_pagar_ini(db):

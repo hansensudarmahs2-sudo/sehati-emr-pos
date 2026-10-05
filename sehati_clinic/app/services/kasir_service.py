@@ -80,6 +80,57 @@ _ROLES_PENYETUJU_REFUND = {
 }
 
 
+def daftar_pengembalian(db: Session, id_transaksi_list) -> dict:
+    """{id_transaksi: [refund...]} — semua uang/nilai yang SUDAH dikembalikan atas transaksi.
+
+    Kenapa ada (dr. Hansen 2026-10-05, saat mencoba void #270): sejak T32 total transaksi
+    asal TIDAK dikurangi refund, jadi layar transaksi yang hanya membaca `total_tagihan`
+    menampilkan "Rp 650.000 · BAYAR" walau Rp 150.000 sudah kembali ke pasien. Satu sumber
+    untuk Cari Transaksi, halaman tagihan, dan pesan void — jangan menulis query refund
+    sendiri di layar (CLAUDE.md §4.1).
+    Baris memuat nomor & id retur bila refund berasal dari retur dari pasien.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import aliased
+    from app.db.models import MasterStaf, ReturPasien, TransaksiRefund
+    ids = [i for i in (id_transaksi_list or []) if i]
+    if not ids:
+        return {}
+    pemroses, penyetuju = aliased(MasterStaf), aliased(MasterStaf)
+    rows = db.execute(
+        select(TransaksiRefund, ReturPasien.id_retur, ReturPasien.nomor_retur,
+               ReturPasien.jenis, pemroses.nama_staf, penyetuju.nama_staf)
+        .outerjoin(ReturPasien, ReturPasien.id_refund == TransaksiRefund.id_refund)
+        .outerjoin(pemroses, pemroses.id_staf == TransaksiRefund.id_staf_refund)
+        .outerjoin(penyetuju, penyetuju.id_staf == TransaksiRefund.id_staf_otorisasi)
+        .where(TransaksiRefund.id_transaksi.in_(ids))
+        .order_by(TransaksiRefund.id_refund)
+    ).all()
+    out: dict = {}
+    for ref, id_retur, nomor, jenis, nama_p, nama_s in rows:
+        out.setdefault(ref.id_transaksi, []).append({
+            "id_refund": ref.id_refund, "tgl": ref.tgl_refund,
+            "nilai": Decimal(str(ref.nilai_refund or 0)),
+            "metode": (ref.metode_refund or "TUNAI").upper(),
+            "id_retur": id_retur, "nomor_retur": nomor,
+            "jenis": (jenis.value if hasattr(jenis, "value") else jenis) if jenis else None,
+            "pemroses": nama_p or "-", "penyetuju": nama_s, "alasan": ref.alasan or "",
+        })
+    return out
+
+
+def pengembalian_kunjungan(db: Session, id_kunjungan: int) -> list:
+    """Semua pengembalian atas SEMUA transaksi kunjungan ini (asal + TUKAR), datar,
+    urut waktu — untuk kotak "Pengembalian & retur" di halaman tagihan. Satu kunjungan
+    bisa punya transaksi TUKAR sejak retur dari pasien, jadi tidak cukup satu transaksi."""
+    from sqlalchemy import select
+    ids = db.execute(select(TransaksiKasir.id_transaksi)
+                     .where(TransaksiKasir.id_kunjungan == id_kunjungan)).scalars().all()
+    per = daftar_pengembalian(db, ids)
+    flat = [dict(r, id_transaksi=t) for t, rows in per.items() for r in rows]
+    return sorted(flat, key=lambda r: (r["tgl"] is None, r["tgl"] or 0, r["id_refund"]))
+
+
 def daftar_penyetuju_refund(db: Session, kecuali_id_staf: Optional[int]) -> list:
     """Staf yang BISA dipilih sebagai penyetuju PIN refund/retur: aktif, ber-PIN, berperan
     `_ROLES_PENYETUJU_REFUND`, dan BUKAN orang yang sedang memproses (empat mata).
@@ -2355,23 +2406,28 @@ class KasirService:
         bukan lagi "belum selesai", jadi aturan void (CLAUDE.md §7) tidak berlaku.
         Dipanggil di KEDUA jalur void (`void_transaksi` & `force_past_day_void`).
         """
-        from sqlalchemy import func, select
-        from app.db.models import TransaksiRefund
-        n, total = self.db.execute(
-            select(func.count(TransaksiRefund.id_refund),
-                   func.coalesce(func.sum(TransaksiRefund.nilai_refund), 0))
-            .where(TransaksiRefund.id_transaksi == trx.id_transaksi)
-        ).one()
-        if not n:
+        rows = daftar_pengembalian(self.db, [trx.id_transaksi]).get(trx.id_transaksi, [])
+        if not rows:
             return
+        total = sum((r["nilai"] for r in rows), Decimal("0"))
+        # Sebut NOMOR-nya (dr. Hansen 2026-10-05): petugas yang ditolak perlu tahu retur/
+        # refund mana yang menghalangi, supaya bisa menelusurinya di halaman tagihan.
+        # Format ribuan per ANGKA — `.replace(",", ".")` atas seluruh pesan ikut mengubah
+        # koma pemisah daftar jadi titik.
+        def rp(x):
+            return f"Rp {x:,.0f}".replace(",", ".")
+        rincian = ", ".join(
+            f"{r['nomor_retur'] or 'refund #' + str(r['id_refund'])} "
+            f"{rp(r['nilai'])} {r['metode']}" for r in rows[:4]
+        ) + (f", +{len(rows) - 4} lainnya" if len(rows) > 4 else "")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Transaksi ini tidak bisa di-void: sudah ada {n} refund "
-                f"(Rp {Decimal(str(total)):,.0f}) yang uangnya sudah dikembalikan ke "
-                "pasien. Void akan menghitung uang itu keluar dua kali. Untuk item lain "
-                "yang belum diserahkan, pakai refund per item."
-            ).replace(",", "."),
+                f"Transaksi ini tidak bisa di-void: sudah ada {len(rows)} pengembalian "
+                f"(total {rp(total)}) — {rincian}. Uangnya sudah dikembalikan/ditukar; "
+                "void akan menghitungnya keluar dua kali. Lihat kotak 'Pengembalian & "
+                "retur' di halaman tagihan."
+            ),
         )
 
     def _pagari_void_tindakan_selesai(self, trx, reason_enum) -> None:

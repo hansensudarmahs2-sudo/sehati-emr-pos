@@ -101,8 +101,51 @@
     </div>
     {% endif %}
 
+    {# Pengembalian & retur (dr. Hansen 2026-10-05). Total transaksi TIDAK dikurangi refund
+       sejak T32, jadi tanpa kotak ini halaman tagihan diam soal uang yang sudah kembali ke
+       pasien. Memuat SEMUA transaksi kunjungan ini (asal + TUKAR). #}
+    {% if pengembalian %}
+    {% set _tot = pengembalian | sum(attribute="nilai") %}
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4 text-sm">
+        <div class="font-semibold text-amber-800 mb-2">
+            ↩ Pengembalian &amp; retur — total Rp {{ "{:,.0f}".format(_tot|float).replace(",", ".") }}
+        </div>
+        <table class="w-full text-xs">
+            <thead class="text-slate-500"><tr>
+                <th class="text-left py-1">Tanggal</th><th class="text-left py-1">Trx</th>
+                <th class="text-left py-1">Retur</th><th class="text-right py-1">Nilai</th>
+                <th class="text-left py-1 px-2">Metode</th><th class="text-left py-1">Petugas</th>
+                <th class="text-left py-1">Penyetuju</th>
+            </tr></thead>
+            <tbody class="divide-y divide-slate-100">
+            {% for r in pengembalian %}
+            <tr>
+                <td class="py-1">{{ r.tgl.strftime('%d/%m/%Y %H:%M') if r.tgl else '—' }}</td>
+                <td class="py-1 font-mono">#{{ r.id_transaksi }}</td>
+                <td class="py-1">
+                    {% if r.id_retur %}<a href="/web/kasir/retur/nota/{{ r.id_retur }}" target="_blank"
+                       class="text-blue-600 hover:underline font-mono">{{ r.nomor_retur }}</a>
+                    <span class="text-slate-500">{{ "tukar" if r.jenis == "TUKAR" else "uang kembali" }}</span>
+                    {% else %}<span class="text-slate-500">refund obat tertunda</span>{% endif %}
+                </td>
+                <td class="py-1 text-right font-mono">Rp {{ "{:,.0f}".format(r.nilai|float).replace(",", ".") }}</td>
+                <td class="py-1 px-2">{{ r.metode }}</td>
+                <td class="py-1">{{ r.pemroses }}</td>
+                <td class="py-1">{{ r.penyetuju or '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="text-xs text-amber-800 mt-2">
+            Metode <b>TUKAR</b> = diganti produk (tidak ada uang keluar laci). Transaksi yang sudah punya
+            pengembalian tidak bisa di-void.
+        </div>
+    </div>
+    {% endif %}
+
     {# Force Past-Day Void Card — Admin/Superadmin/Owner only kalau transaksi belum di-void #}
-    {% if tagihan.can_force_void_past_day %}
+    {# Disembunyikan bila sudah ada pengembalian: void pasti ditolak (_pagari_void_sudah_refund). #}
+    {% if tagihan.can_force_void_past_day and not pengembalian %}
     <div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-4">
         <div class="flex items-start gap-3">
             <div class="text-2xl">⚡</div>
