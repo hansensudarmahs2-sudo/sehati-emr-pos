@@ -1294,8 +1294,11 @@ class KasirService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"{_label} sudah DISERAHKAN ke pasien — tidak bisa direfund. "
-                    "Obat yang sudah keluar ditangani lewat retur, bukan refund."
+                    # 2026-10-05: kalimat lama menunjuk "lewat retur" — jalur itu belum
+                    # ada untuk retur DARI PASIEN (DESAIN_RETUR_DARI_PASIEN.md).
+                    f"{_label} sudah DISERAHKAN ke pasien — tidak bisa direfund dari "
+                    "sini (refund hanya untuk obat yang belum diserahkan). Pengembalian "
+                    "obat dari pasien BELUM ADA di sistem — hubungi Owner."
                 ),
             )
         if _st != "DIBAYAR":
@@ -2258,11 +2261,15 @@ class KasirService:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
+                # 2026-10-05: kalimat lama menyuruh "pakai jalur retur/refund" — jalur
+                # itu TIDAK ADA untuk obat yang sudah diserahkan (refund hanya untuk
+                # item belum diserahkan; retur Pengadaan = ke distributor). Ganti lagi
+                # begitu modul retur dari pasien jadi (DESAIN_RETUR_DARI_PASIEN.md).
                 f"Transaksi ini tidak bisa di-void: {len(diserahkan)} item SUDAH "
-                f"DISERAHKAN ke pasien ({nama}). Barangnya sudah keluar dari stok "
-                "dan tidak bisa ditarik kembali — void akan membuat laporan omzet "
-                "dan laporan apotek berbeda angka. Untuk obat yang dikembalikan "
-                "pasien, pakai jalur retur/refund, bukan void."
+                f"DISERAHKAN ke pasien ({nama}). Void hanya untuk yang belum selesai, "
+                "dan void di sini membuat laporan omzet dan laporan apotek berbeda "
+                "angka. Pengembalian obat dari pasien BELUM ADA di sistem — hubungi "
+                "Owner. Jangan kembalikan uang dari laci tanpa catatan."
             ),
         )
 

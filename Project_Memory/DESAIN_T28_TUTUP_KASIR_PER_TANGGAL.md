@@ -23,7 +23,7 @@ Jadi hitungan tutup kasir **per ORANG** dan **sejak jam buka**. Dua celah:
 | Celah | Akibat |
 |---|---|
 | **Jam** (Temuan 28) | Bayar sebelum `buka_kasir` ditekan, atau sesudah tutup → tidak masuk sesi mana pun. Uangnya ada di laci → muncul sebagai selisih lebih yang tak bisa dijelaskan |
-| **Orang** (baru terlihat 2026-10-05) | Pembayaran yang diproses staf yang **tidak membuka sesi sendiri** tidak masuk hitungan siapa pun. Di DB dev pembayaran diproses oleh **3 orang**: dr. Hansen (21), petugas FO (4), kasir (3) — dan belum ada satu sesi tutup kasir pun |
+| **Orang** (baru terlihat 2026-10-05) | Pembayaran yang diproses staf yang **tidak membuka sesi sendiri** tidak masuk hitungan siapa pun. Yang berhak membayar: Kasir, **Admin, Owner, Superadmin** (`KASIR_ROLES`). Di DB dev 21 transaksi diproses `hansen` (Superadmin). ⚠ **KOREKSI:** rancangan awal menyebut "petugas FO (4)" — keliru. Keempat transaksi itu ditulis langsung oleh skrip seed/test (`id_staf_kasir = FO`), melewati pagar peran; FO **tidak** berhak membayar lewat UI. Celahnya tetap nyata lewat Admin/Owner/Superadmin |
 
 `proses_bayar` tidak menuntut sesi terbuka (by design: jangan blokir antrian).
 

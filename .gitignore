@@ -111,3 +111,6 @@ clinical_pack/
 
 # Konfigurasi lokal Claude Code (launch.json server dev, dll.) — per mesin, bukan bagian aplikasi
 .claude/
+
+# Laporan jejak uji UI (scripts/jejak_uji_ui.py) — berisi data DB, walau dev
+uji_ui_log/

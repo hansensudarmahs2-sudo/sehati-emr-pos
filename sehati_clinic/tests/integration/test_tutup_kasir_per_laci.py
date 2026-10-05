@@ -11,7 +11,7 @@ Kenapa tiap test ada:
 - sebelum_buka   : dulu `waktu_bayar >= shift_mulai` membuang uang yang masuk sebelum
                    "Buka Kasir" ditekan — uangnya ada di laci, hitungannya tidak.
 - petugas_lain   : dulu hanya pembayaran oleh pembuka sesi yang dihitung — bayar oleh
-                   FO/Owner tidak masuk hitungan SIAPA PUN.
+                   Admin/Owner/Superadmin tidak masuk hitungan SIAPA PUN.
 - refund         : refund hari ini atas transaksi kemarin mengurangi laci HARI INI.
 - satu_sesi      : satu laci = satu sesi terbuka, satu sesi per tanggal.
 - sesi_kemarin   : menutup sesi kemarin tidak boleh terhalang antrian HARI INI.
@@ -96,8 +96,10 @@ def test_bayar_sebelum_buka_tetap_dihitung_dan_diperingatkan(db):
 
 
 def test_bayar_oleh_petugas_lain_dihitung(db):
+    # Admin/Owner/Superadmin berhak membayar tanpa membuka sesi sendiri (KASIR_ROLES).
+    # BUKAN FO: FO tidak berhak membayar lewat UI (koreksi 2026-10-05).
     kasir = _staf(db, StafRoleEnum.KASIR)
-    fo = _staf(db, StafRoleEnum.FO)
+    fo = _staf(db, StafRoleEnum.ADMIN)
     svc = KasirClosingService(db)
     sesi = _sesi(db, kasir, datetime.now() - timedelta(minutes=5))
     base = _tunai(svc, sesi)
