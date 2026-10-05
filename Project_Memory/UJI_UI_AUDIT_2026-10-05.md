@@ -121,7 +121,7 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | U37 | Ulangi dengan penyetuju `admin` + PIN | Berhasil; nota bertanda "(sebagian)" | 3 | |
 | U38 | **Tukar** dengan produk LEBIH MAHAL | Nota "PENUKARAN PRODUK" + "Selisih dibayar pasien"; laci (Tutup Kasir) hanya bertambah selisih | 2, 5 | |
 | U39 | **Tukar** dengan produk LEBIH MURAH | "Sisa nilai tidak dikembalikan"; laci & omzet TIDAK bergerak | 5 | |
-| U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | ⏳ belum terbukti — penolakan tanpa keparahan tidak tercatat di jejak; uji pada retur alergi berikutnya |
+| U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | ✅ 05/10 — dikonfirmasi dr. Hansen di layar: setujui tanpa keparahan → pesan "Pilih tingkat keparahan alergi dulu"; tidak ada yang tersimpan (jejak: tak ada SOAP_DRAF_DISETUJUI sebelum 12:52:33) |
 | U41 | Setujui lagi dengan keparahan dipilih | "Alergi dicatat di data pasien"; data pasien memuat alergen itu; KPI "Total Kunjungan" TIDAK bertambah | — | ✅ 05/10 — dokter menyetujui 12:52:33; SOAP_DRAF_DISETUJUI + ALERGI_DARI_RETUR di detik yang sama; alergi #44 'Clobetasol Propionat 0,05%' dari kandungan |
 | U42 | Coba **void** transaksi asal yang sudah diretur | Ditolak (sudah ada refund) | 1 | |
 | U43 | Retur obat yang diserahkan > 7 hari lalu | Tidak ada form; "lewat batas 7 hari" | — | |
@@ -143,4 +143,4 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 |---|---|---|---|---|
 | 2026-10-05 | dr. Hansen | U01–U03, U12 ✅ | jejak_20261005_100402 | Laci dibuka `kasir`, bayar oleh `hansen` masuk expected; tutup 1.150.000 selisih 0. U02 semula salah petunjuk (FO) — dikoreksi. Tutup kasir sempat terblokir 12 kunjungan sisa test booking (dibereskan) |
 | 2026-10-05 | dr. Hansen | U16 ✅ | — | Void ditolak karena obat sudah diserahkan → memunculkan modul retur |
-| 2026-10-05 | dr. Hansen | U34, U35, U41 ✅ · U40 ⏳ | jejak_20261005_125333 | Retur alergi Cream CP → draf → disetujui `dokter` → alergi tercatat |
+| 2026-10-05 | dr. Hansen | U34, U35, U40, U41 ✅ | jejak_20261005_125333 | Retur alergi Cream CP → draf → disetujui `dokter` → alergi tercatat |
