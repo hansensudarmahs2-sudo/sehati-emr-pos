@@ -607,12 +607,18 @@ class PrintService:
         trx = self.db.get(TransaksiKasir, id_transaksi)
         if trx is None or trx.id_kunjungan is None:
             return None
-        ada_tindakan = self.db.execute(
-            select(KunjunganTindakan.id_kunjungan_tindakan)
-            .where(KunjunganTindakan.id_kunjungan == trx.id_kunjungan,
-                   KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI)
-            .limit(1)
-        ).first()
+        # Transaksi TUKAR (retur dari pasien, 2026-10-05) menempel ke kunjungan ASAL. Kalau
+        # kunjungan itu pra-F3, kriteria di bawah akan memilih jalur lama — dan nota tukar
+        # akan mencetak SEMUA tindakan & obat kunjungan asal. Isinya selalu snapshot sendiri.
+        if (trx.jenis_transaksi or "") == "TUKAR":
+            ada_tindakan = None
+        else:
+            ada_tindakan = self.db.execute(
+                select(KunjunganTindakan.id_kunjungan_tindakan)
+                .where(KunjunganTindakan.id_kunjungan == trx.id_kunjungan,
+                       KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI)
+                .limit(1)
+            ).first()
         ada_snapshot = self.db.execute(
             select(TransaksiDetailTindakan.id_detail_tindakan)
             .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)

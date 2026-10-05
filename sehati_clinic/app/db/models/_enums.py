@@ -163,6 +163,25 @@ class JenisMutasiEnum(str, enum.Enum):
     EXPIRED = "EXPIRED"
     RUSAK = "RUSAK"
     PENYESUAIAN = "PENYESUAIAN"
+    # Barang yang dikembalikan PASIEN ke lot asalnya (migrasi 20261006_0100). Dibedakan
+    # dari RESTOCK (distributor) supaya laporan susut/retur bisa disusun — Temuan 13.
+    RETUR_PASIEN = "RETUR_PASIEN"
+
+
+class JenisReturPasienEnum(str, enum.Enum):
+    """retur_pasien.jenis — DESAIN_RETUR_DARI_PASIEN.md."""
+    REFUND = "REFUND"   # uang dikembalikan
+    TUKAR = "TUKAR"     # diganti produk lain; uang hanya selisih
+
+
+class AlasanReturPasienEnum(str, enum.Enum):
+    """retur_pasien.alasan_kode. ALERGI memicu kunjungan RETUR_PASIEN + draf SOAP."""
+    TIDAK_PUAS = "TIDAK_PUAS"
+    ALERGI = "ALERGI"
+    EFEK_SAMPING = "EFEK_SAMPING"
+    SALAH_PRODUK = "SALAH_PRODUK"
+    RUSAK = "RUSAK"
+    LAINNYA = "LAINNYA"
 
 
 class KategoriKomponenTreatmentEnum(str, enum.Enum):

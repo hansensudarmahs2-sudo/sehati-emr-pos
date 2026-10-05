@@ -19,6 +19,7 @@ from app.core.csv_writer import dict_list_to_csv_bytes
 from app.core.json_writer import dict_list_to_json_bytes
 from app.core.zip_packer import ZipPacker
 from app.services._export_columns import COLUMNS_METADATA
+from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
 from app.services.audit_service import AuditService
 
 
@@ -220,6 +221,8 @@ class ExportService:
             select(func.date(Kunjungan.tgl_kunjungan), func.count(Kunjungan.id_kunjungan))
             .where(Kunjungan.tgl_kunjungan >= start_dt)
             .where(Kunjungan.tgl_kunjungan <= end_dt)
+            # Kunjungan retur (RETUR_PASIEN) bukan kunjungan klinis (keputusan 11.2).
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
             .group_by(func.date(Kunjungan.tgl_kunjungan))
         ).all())
         pas = dict(self.db.execute(
@@ -303,6 +306,7 @@ class ExportService:
                 Pasien.no_rm, Pasien.nama, Kunjungan.status_antrian,
                 Kunjungan.sumber_pendaftaran, Kunjungan.keluhan_utama,
                 Kunjungan.id_staf_fo, MasterStaf.nama_staf, Kunjungan.created_at,
+                Kunjungan.jenis_kunjungan,
             )
             .join(Pasien, Pasien.id_pasien == Kunjungan.id_pasien)
             .outerjoin(MasterStaf, MasterStaf.id_staf == Kunjungan.id_staf_fo)
@@ -323,6 +327,8 @@ class ExportService:
                 "id_staf_fo": int(r[8]) if r[8] else None,
                 "nama_fo": r[9],
                 "created_at": _iso(r[10]),
+                # Tanpa ini kunjungan retur (RETUR_PASIEN) tak bisa dibedakan dari klinis.
+                "jenis_kunjungan": r[11],
             }
             for r in self.db.execute(stmt).all()
         ]
@@ -637,7 +643,7 @@ class ExportService:
     def export_refunds_raw(
         self, tgl_dari: date, tgl_sampai: date, mask_pii: bool = False,
     ) -> list[dict]:
-        from app.db.models import TransaksiRefund, TransaksiKasir, MasterStaf
+        from app.db.models import ReturPasien, TransaksiRefund, TransaksiKasir, MasterStaf
         self._validate_range(tgl_dari, tgl_sampai)
         start_dt = datetime.combine(tgl_dari, time.min)
         end_dt = datetime.combine(tgl_sampai, time.max)
@@ -661,8 +667,12 @@ class ExportService:
                 TransaksiRefund.id_kunjungan_racikan,
                 # T32: penyetuju PIN untuk refund atas transaksi hari lampau.
                 TransaksiRefund.id_staf_otorisasi,
+                # Retur dari pasien (2026-10-05): satu retur = satu baris refund.
+                ReturPasien.nomor_retur, ReturPasien.jenis, ReturPasien.nilai_retur,
+                ReturPasien.selisih_dibayar, ReturPasien.nilai_hangus,
             )
             .outerjoin(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiRefund.id_transaksi)
+            .outerjoin(ReturPasien, ReturPasien.id_refund == TransaksiRefund.id_refund)
             .outerjoin(MasterStaf, MasterStaf.id_staf == TransaksiRefund.id_staf_refund)
             .where(TransaksiRefund.tgl_refund >= start_dt)
             .where(TransaksiRefund.tgl_refund <= end_dt)
@@ -684,6 +694,11 @@ class ExportService:
                 "id_resep": int(r[11]) if r[11] else None,
                 "id_kunjungan_racikan": int(r[12]) if r[12] else None,
                 "id_staf_otorisasi": int(r[13]) if r[13] else None,
+                "nomor_retur": r[14],
+                "jenis_retur": (r[15].value if hasattr(r[15], "value") else r[15]) if r[15] else None,
+                "nilai_retur": float(r[16]) if r[16] is not None else None,
+                "selisih_dibayar": float(r[17]) if r[17] is not None else None,
+                "nilai_hangus": float(r[18]) if r[18] is not None else None,
                 "kode_entitas": "KLN",
             }
             for r in self.db.execute(stmt).all()

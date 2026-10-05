@@ -44,6 +44,7 @@ TABEL_ID = {
     "stok_lot": "id_lot",
     "kunjungan_lot_terpakai": "id_terpakai",
     "pasien_membership_history": "id_history",
+    "retur_pasien": "id_retur",
 }
 
 
@@ -175,6 +176,38 @@ def jejak(db, titik) -> Laporan:
         WHERE id_log > :i AND aksi='REFUND_DITOLAK_PIN' AND keterangan REGEXP 'pin_otorisasi='"""),
         {"i": ids["audit_log"]}).scalar()
     L.cek(bocor == 0, "T32 · PIN tidak pernah tertulis di audit")
+
+    # --------------------------------------------------- 3b. retur dari pasien
+    L.h("3b. Retur dari pasien")
+    rr = db.execute(text("""
+        SELECT r.nomor_retur, r.jenis, r.alasan_kode, r.qty, r.is_sebagian, r.nilai_retur,
+               r.stok_kembali, r.selisih_dibayar, r.nilai_hangus, r.id_kunjungan_retur,
+               r.id_alergi, s.username, o.username, r.waktu_serah_asal, r.created_at,
+               r.id_transaksi_pengganti
+          FROM retur_pasien r
+          LEFT JOIN master_staf s ON s.id_staf = r.id_staf
+          LEFT JOIN master_staf o ON o.id_staf = r.id_staf_otorisasi
+         WHERE r.id_retur > :i ORDER BY r.id_retur"""), {"i": ids.get("retur_pasien", 0)}).all()
+    if not rr:
+        L.info("Tidak ada retur baru")
+    for r in rr:
+        L.t(f"- {r[0]} {r[1]} ({r[2]}) qty {float(r[3]):g}{' SEBAGIAN' if r[4] else ''} "
+            f"nilai {_rp(r[5])} · stok kembali={bool(r[6])} · selisih {_rp(r[7])} · hangus {_rp(r[8])}"
+            f" · oleh {r[11]} · penyetuju {r[12] or '—'}")
+        if r[4]:
+            L.cek(r[12] is not None and r[12] != r[11], f"{r[0]} sebagian disetujui orang LAIN")
+        L.cek((r[14] - r[13]).days <= 7 if r[13] and r[14] else True, f"{r[0]} dalam batas 7 hari")
+        if r[2] == "ALERGI":
+            L.cek(r[9] is not None, f"{r[0]} alergi → kunjungan retur dibuat")
+            if r[10] is None:
+                L.info(f"{r[0]}: draf alergi belum disetujui dokter (alergi belum tercatat)")
+        if r[1] == "TUKAR" and r[15]:
+            pemb = db.execute(text("""SELECT COALESCE(SUM(nominal),0) FROM transaksi_pembayaran
+                WHERE id_transaksi=:t"""), {"t": r[15]}).scalar()
+            tot = db.execute(text("SELECT total_tagihan FROM transaksi_kasir WHERE id_transaksi=:t"),
+                             {"t": r[15]}).scalar()
+            L.cek(Decimal(str(pemb)) == Decimal(str(tot)), f"{r[0]} transaksi pengganti lunas",
+                  f"dibayar {_rp(pemb)} vs {_rp(tot)}")
 
     # ------------------------------------------------------- 4. tutup kasir
     L.h("4. Sesi kasir (T28)")

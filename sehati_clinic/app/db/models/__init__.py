@@ -16,6 +16,8 @@ from app.db.models._enums import (
     GenderEnum,
     JenisFollowupEnum,
     JenisMutasiEnum,
+    JenisReturPasienEnum,
+    AlasanReturPasienEnum,
     KategoriFotoEnum,
     KategoriKomponenTreatmentEnum,
     LokasiOpnameEnum,
@@ -113,6 +115,8 @@ from app.db.models.lokasi_pengiriman import LokasiPengiriman
 from app.db.models.faktur import FakturPenerimaan
 from app.db.models.retur import ReturProduk, ReturProdukItem
 from app.db.models.stok_lot import StokLot, KunjunganLotTerpakai
+# Retur dari pasien (obat SUDAH diserahkan) — DESAIN_RETUR_DARI_PASIEN.md
+from app.db.models.retur_pasien import ReturPasien, ReturPasienLot
 
 # Models — diagnosa (ICD-10 + estetik internal, modul #24–#27)
 from app.db.models.diagnosa import (
@@ -137,6 +141,8 @@ __all__ = [
     "GenderEnum",
     "JenisFollowupEnum",
     "JenisMutasiEnum",
+    "JenisReturPasienEnum",
+    "AlasanReturPasienEnum",
     "KategoriFotoEnum",
     "KategoriKomponenTreatmentEnum",
     "LokasiOpnameEnum",
@@ -221,6 +227,8 @@ __all__ = [
     # ----- Inventory Lot -----
     "StokLot",
     "KunjunganLotTerpakai",
+    "ReturPasien",
+    "ReturPasienLot",
     # ----- Diagnosa (ICD-10 + estetik, modul #24–#27) -----
     "RefDiagnosa",
     "DiagnosaPaketItem",

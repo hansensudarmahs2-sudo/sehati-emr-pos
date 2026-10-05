@@ -106,6 +106,14 @@
                            class="inline-flex items-center px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100">
                             Detail
                         </a>
+                        {# Retur obat yang SUDAH diserahkan (DESAIN_RETUR_DARI_PASIEN.md) — halaman
+                           ber-parameter id_TRANSAKSI; daftar itemnya disaring server. #}
+                        {% if it.status_transaksi == "BAYAR" %}
+                        <a href="/web/kasir/retur/{{ it.id_transaksi }}"
+                           class="inline-flex items-center px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 ml-1">
+                            ↩ Retur
+                        </a>
+                        {% endif %}
                         {% if it.can_force_void %}
                         <a href="/web/kasir/tagihan/{{ it.id_kunjungan }}#force-void-modal"
                            class="inline-flex items-center px-2 py-1 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100 ml-1">

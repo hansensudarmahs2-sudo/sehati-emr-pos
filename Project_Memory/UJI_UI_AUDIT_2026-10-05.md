@@ -109,6 +109,23 @@ di mini PC. Jangan dibersihkan sebelum diputuskan (menyentuh uang staf).
 | U32 | **Finance Export** hari ini → `daily_operational_summary` | Kolom **`total_refund`**; `total_omzet` = laporan omzet | |
 | U33 | **Clinical Export** (Tahap B) | 5 berkas baru ikut; paket terenkripsi (butuh `BACKUP_RECIPIENT` di desktop) | |
 
+## G. Retur dari pasien (modul baru, dibangun 2026-10-05)
+
+Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SEED-003, Cream CP).
+
+| ID | Langkah di UI | Yang harus terlihat | Jejak § | Hasil |
+|---|---|---|---|---|
+| U34 | **Kasir → Cari Transaksi** → tombol **↩ Retur** pada transaksi BAYAR | Halaman retur memuat obat yang sudah diserahkan, batas tanggal 7 hari, saran pengganti golongan sama | — | |
+| U35 | Retur **penuh**, Kembalikan uang, Tunai, centang "kembali ke stok" | Nota retur "PENGEMBALIAN DANA"; omzet HARI INI turun; stok obat naik kembali | 1, 3, 5, 7 | |
+| U36 | Retur **sebagian** (qty kurang dari sisa) TANPA PIN | **Ditolak** "Retur SEBAGIAN … butuh persetujuan PIN" | 1 | |
+| U37 | Ulangi dengan penyetuju `admin` + PIN | Berhasil; nota bertanda "(sebagian)" | 3 | |
+| U38 | **Tukar** dengan produk LEBIH MAHAL | Nota "PENUKARAN PRODUK" + "Selisih dibayar pasien"; laci (Tutup Kasir) hanya bertambah selisih | 2, 5 | |
+| U39 | **Tukar** dengan produk LEBIH MURAH | "Sisa nilai tidak dikembalikan"; laci & omzet TIDAK bergerak | 5 | |
+| U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | |
+| U41 | Setujui lagi dengan keparahan dipilih | "Alergi dicatat di data pasien"; data pasien memuat alergen itu; KPI "Total Kunjungan" TIDAK bertambah | — | |
+| U42 | Coba **void** transaksi asal yang sudah diretur | Ditolak (sudah ada refund) | 1 | |
+| U43 | Retur obat yang diserahkan > 7 hari lalu | Tidak ada form; "lewat batas 7 hari" | — | |
+
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 
 | ID | Temuan | Yang akan terlihat |

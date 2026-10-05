@@ -31,7 +31,7 @@ COLUMNS_METADATA: dict[str, dict] = {
         "mask_pii_affects": [],
         "columns": [
             {"name": "tanggal", "type": "date", "description": "Hari yang di-rekap (ISO YYYY-MM-DD). Include hari kosong dengan nilai 0 untuk distribusi lengkap."},
-            {"name": "jumlah_kunjungan", "type": "int", "description": "Count kunjungan dengan tgl_kunjungan di tanggal ini."},
+            {"name": "jumlah_kunjungan", "type": "int", "description": "Count kunjungan dengan tgl_kunjungan di tanggal ini. TIDAK termasuk kunjungan RETUR_PASIEN (retur obat karena alergi, sejak 2026-10-05) - itu bukan kunjungan klinis."},
             {"name": "jumlah_pasien_baru", "type": "int", "description": "Count pasien baru di-create di tanggal ini (filter pasien.created_at)."},
             {"name": "jumlah_konsul_dokter", "type": "int", "description": "Count pemeriksaan_klinis (SOAP) di kunjungan tanggal ini."},
             {"name": "jumlah_tindakan_selesai", "type": "int", "description": "Count kunjungan_tindakan status=SELESAI dengan waktu_selesai di tanggal ini."},
@@ -60,6 +60,7 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "id_staf_fo", "type": "int | null", "description": "FK FO yang daftar."},
             {"name": "nama_fo", "type": "str | null", "description": "Nama staff FO (nullable kalau staf hilang)."},
             {"name": "created_at", "type": "datetime", "description": "Timestamp record di-insert."},
+            {"name": "jenis_kunjungan", "type": "str", "description": "KLINIS / RESEP_LUAR / RESEP_ONLINE / TEBUS_LANJUT / RETUR_PASIEN. RETUR_PASIEN = wadah draf SOAP untuk retur obat karena alergi (sejak 2026-10-05) - BUKAN kunjungan klinis; keluarkan dari hitungan kunjungan, sama seperti daily_operational_summary.jumlah_kunjungan."},
         ],
     },
 
@@ -194,6 +195,11 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "id_resep", "type": "int | null", "description": "Baris kunjungan_resep yang direfund (jenis_refund=ITEM)."},
             {"name": "id_kunjungan_racikan", "type": "int | null", "description": "Racikan yang direfund (jenis_refund=ITEM). Racikan all-or-nothing."},
             {"name": "id_staf_otorisasi", "type": "int | null", "description": "Penyetuju (Admin/Superadmin/Owner, via PIN) untuk refund atas transaksi HARI LAMPAU; selalu orang yang berbeda dari id_staf_refund. NULL = refund di hari yang sama dengan transaksi, atau baris sebelum 2026-10-05."},
+            {"name": "nomor_retur", "type": "str | null", "description": "RPS-YYYY-MM-###### bila refund ini berasal dari RETUR DARI PASIEN (obat yang sudah diserahkan; jenis_refund='RETUR'). NULL = refund obat tertunda / refund biasa."},
+            {"name": "jenis_retur", "type": "str | null", "description": "REFUND = uang dikembalikan sebesar nilai_refund. TUKAR = diganti produk lain: metode_refund='TUKAR', nilai_refund = KREDIT tukar (tidak ada uang keluar laci); produk pengganti ada di transactions_raw sebagai transaksi jenis_transaksi='TUKAR' yang dibayar 'TUKAR' sebesar kredit + selisih. Pasangan 'TUKAR' masuk/keluar saling meniadakan."},
+            {"name": "nilai_retur", "type": "float | null", "description": "Nilai BERSIH yang dulu dibayar pasien untuk barang yang dikembalikan (Rp)."},
+            {"name": "selisih_dibayar", "type": "float | null", "description": "TUKAR dengan produk lebih mahal: selisih yang dibayar pasien (Rp) — masuk laci & omzet hari tukar."},
+            {"name": "nilai_hangus", "type": "float | null", "description": "TUKAR dengan produk lebih murah: sisa nilai yang TIDAK dikembalikan dan TIDAK jadi saldo (keputusan dr. Hansen 2026-10-05). Tetap pendapatan penjualan asal; TIDAK ada baris uang untuk nilai ini. Disajikan supaya Finance bisa memutuskan reklasifikasi sendiri — Sehati tidak menjurnal ulang."},
             {"name": "kode_entitas", "type": "str", "description": "Penanda PT. Konstan 'KLN'."},
         ],
         "catatan": (

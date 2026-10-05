@@ -23,6 +23,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.services import _refund_bukuan as _rb
+# Kunjungan retur (RETUR_PASIEN) bukan kunjungan klinis — tidak dihitung (keputusan
+# dr. Hansen 2026-10-05, DESAIN_RETUR_DARI_PASIEN.md §12).
+from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
 from app.db.models import (
     Kunjungan,
     KunjunganTindakan,
@@ -55,11 +58,13 @@ class RekapHarianService:
             select(func.count(func.distinct(Kunjungan.id_pasien)))
             .where(Kunjungan.tgl_kunjungan >= start)
             .where(Kunjungan.tgl_kunjungan <= end)
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0
         total_kunjungan = db.execute(
             select(func.count(Kunjungan.id_kunjungan))
             .where(Kunjungan.tgl_kunjungan >= start)
             .where(Kunjungan.tgl_kunjungan <= end)
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0
 
         # ---- 2. Transaksi & omzet ----

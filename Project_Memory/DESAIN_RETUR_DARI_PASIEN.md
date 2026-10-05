@@ -1,6 +1,6 @@
 # DESAIN — Retur dari pasien (obat/produk yang SUDAH diserahkan)
 
-Status: **RANCANGAN LENGKAP — semua keputusan dijawab 2026-10-05 (§10–§12)**. Berikutnya: rancangan migrasi `retur_pasien` untuk disetujui (CLAUDE.md §1.3), baru dibangun · desktop
+Status: **DIBANGUN 2026-10-05** (desktop, 5 tahap; migrasi `20261006_0100` hanya di DB dev; `tests/integration/test_retur_pasien.py` 19 test). Keputusan §10–§12, migrasi §13. Uji UI: `UJI_UI_AUDIT_2026-10-05.md` kelompok G.
 Modul baru + butuh migrasi → wajib persetujuan (CLAUDE.md §1.3).
 
 ## 1. Kenapa perlu
@@ -219,3 +219,109 @@ Layar persetujuan draf untuk kasus ini menampilkan, di samping kolom SOAP biasa:
 - Kenapa dokter tetap menyetujui dulu, bukan otomatis saat retur: keluhan pasien belum tentu
   alergi (bisa efek samping biasa, atau salah pakai). Catatan alergi ikut menghalangi resep
   berikutnya — yang menulisnya harus dokter, bukan kasir.
+
+---
+
+## 13. RANCANGAN MIGRASI — menunggu persetujuan dr. Hansen (CLAUDE.md §1.3)
+
+Satu revisi alembic, `20261006_0100_retur_pasien`. **Jinak:** dua tabel BARU + satu nilai
+ENUM baru di akhir daftar. Tidak mengubah satu baris data pun; tidak mengubah kolom lama.
+
+### 13a. Tabel `retur_pasien` — satu baris per kejadian retur
+
+| Kolom | Tipe | Isi / alasan |
+|---|---|---|
+| `id_retur` | INT PK auto | |
+| `nomor_retur` | VARCHAR(30) **UNIQUE**, NOT NULL | `RPS-YYYY-MM-` + LPAD(id_retur,6) — diturunkan dari PK saat INSERT (pelajaran T33: nomor dokumen yang dibuat tapi tak pernah diisi; dan T34: jangan dari COUNT/MAX) |
+| `id_transaksi_asal` | INT FK transaksi_kasir, NOT NULL | transaksi tempat obat dibeli |
+| `id_resep` | INT FK kunjungan_resep, NULL | tepat SATU dari dua kolom ini terisi — dijaga **CHECK** di DB, bukan hanya di kode |
+| `id_kunjungan_racikan` | INT FK kunjungan_racikan, NULL | racikan: seluruh item saja (racikan all-or-nothing) |
+| `qty` | DECIMAL(10,2) NOT NULL, CHECK > 0 | jumlah yang dikembalikan |
+| `is_sebagian` | BOOL NOT NULL | qty < qty diserahkan → butuh PIN (keputusan 1) |
+| `waktu_serah_asal` | DATETIME NOT NULL | snapshot `waktu_serah` — bukti aturan 7 hari saat retur dibuat |
+| `jenis` | **ENUM**('REFUND','TUKAR') NOT NULL | ENUM, bukan VARCHAR: VARCHAR menerima nilai ngawur diam-diam (§4.5) |
+| `alasan_kode` | **ENUM**('TIDAK_PUAS','ALERGI','EFEK_SAMPING','SALAH_PRODUK','RUSAK','LAINNYA') NOT NULL | `ALERGI` memicu kunjungan retur + draf SOAP |
+| `alasan_teks` | TEXT NOT NULL | keluhan pasien (jadi isi draf SOAP & `gejala` alergi) |
+| `nilai_retur` | DECIMAL(12,2) NOT NULL | nilai BERSIH yang dibayar (proporsional qty) |
+| `stok_kembali` | BOOL NOT NULL | keputusan per retur (§5) |
+| `nilai_kerugian` | DECIMAL(12,2) NOT NULL DEFAULT 0 | HPP lot bila TIDAK kembali stok — dasar laporan susut |
+| `id_refund` | INT FK transaksi_refund, NULL | REFUND: refund penuh · TUKAR: refund ber-metode TUKAR |
+| `id_transaksi_pengganti` | INT FK transaksi_kasir, NULL | hanya TUKAR |
+| `nilai_pengganti` | DECIMAL(12,2) NULL | harga produk pengganti |
+| `selisih_dibayar` | DECIMAL(12,2) NOT NULL DEFAULT 0 | pengganti lebih mahal → dibayar pasien |
+| `nilai_hangus` | DECIMAL(12,2) NOT NULL DEFAULT 0 | pengganti lebih murah → sisa tak dikembalikan (keputusan 4) — **ikut ekspor Finance** |
+| `id_kunjungan_retur` | INT FK kunjungan, NULL | hanya ALERGI (kunjungan `RETUR_PASIEN`) |
+| `id_alergi` | INT FK pasien_alergi, NULL | diisi saat dokter menyetujui draf (§12a) |
+| `id_staf` | INT FK master_staf, NOT NULL | pemroses |
+| `id_staf_otorisasi` | INT FK master_staf, NULL | penyetuju PIN (sebagian / hari lampau); ≠ `id_staf` dijaga di kode |
+| `created_at` | TIMESTAMP default now | |
+
+Indeks: `id_transaksi_asal`, `id_resep`, `id_kunjungan_racikan`, `created_at`.
+
+⚠ **SENGAJA tanpa kolom `id_pasien`.** `cek_gabung_pasien` GAGAL kalau ada tabel ber-`id_pasien`
+yang tak terdaftar di penggabungan pasien (13 tabel), dan setiap tabel baru di daftar itu
+menambah satu tempat yang bisa terlupa (§4.1 — `transaksi_kasir.id_pasien` adalah contohnya).
+Pasien selalu bisa ditelusuri lewat `id_transaksi_asal`.
+
+### 13b. Tabel `retur_pasien_lot` — lot tempat barang dikembalikan
+
+| Kolom | Tipe | |
+|---|---|---|
+| `id` | INT PK | |
+| `id_retur` | INT FK retur_pasien NOT NULL | |
+| `id_lot` | INT FK stok_lot NOT NULL | lot ASAL dari `kunjungan_lot_terpakai` (ED terjaga) |
+| `qty` | DECIMAL(10,2) NOT NULL, CHECK > 0 | |
+
+Hanya terisi bila `stok_kembali = 1`. Kenapa tabel anak: satu item bisa diserahkan dari
+**dua lot** (FEFO memotong lot hampir habis lalu lot berikutnya); retur sebagian harus tahu
+lot mana yang menerima berapa. Kolom tunggal `id_lot` di induk tidak bisa menyatakannya.
+
+### 13c. ENUM `inventory_history.jenis_mutasi` + `'RETUR_PASIEN'`
+
+Sekarang: `TINDAKAN, PENJUALAN, RESTOCK, EXPIRED, RUSAK, PENYESUAIAN`. Ditambah di AKHIR
+(ALTER yang hanya menambah nilai di akhir tidak menyentuh data). Supaya barang yang kembali
+dari pasien bisa dibedakan dari restock distributor di riwayat stok — pelajaran Temuan 13
+(mutasi yang tak bisa dibedakan = laporan susut yang tak bisa disusun).
+
+### 13d. Yang TIDAK butuh migrasi (VARCHAR yang sudah ada — dicatat supaya diperiksa)
+
+| Kolom | Nilai baru | Pembaca yang wajib diperiksa saat membangun (§4.1) |
+|---|---|---|
+| `transaksi_refund.jenis_refund` | `RETUR` | ekspor refunds_raw + kamus data |
+| `transaksi_refund.metode_refund` / `transaksi_pembayaran.metode_bayar` | `TUKAR` | tutup kasir (hanya `METODE_KANONIK` → TUKAR tak masuk laci, diinginkan), laporan omzet per metode, rekap owner, ekspor, `_refund_bukuan.refund_per_metode` |
+| `transaksi_kasir.jenis_transaksi` | `TUKAR` | laporan yang memfilter/menghitung jenis transaksi, nota |
+| `kunjungan.jenis_kunjungan` | `RETUR_PASIEN` | rekap "pasien berkunjung", laporan kunjungan, visits_raw, paket klinis, antrian (kunjungan langsung COMPLETED) — keputusan 11.2: TIDAK dihitung |
+
+### 13e. Downgrade
+
+DROP `retur_pasien_lot`, DROP `retur_pasien`, kembalikan ENUM — **ditolak** kalau sudah ada
+baris `inventory_history` ber-jenis `RETUR_PASIEN` atau baris `retur_pasien` (downgrade tidak
+boleh menghapus jejak uang diam-diam; pola penolakan seperti `20260930_0200`).
+
+### 13f. Uji migrasi (sebelum dipakai)
+
+upgrade → `cek_gabung_pasien` tetap lulus (tidak ada tabel ber-id_pasien baru) → CHECK
+menolak baris dengan id_resep DAN id_kunjungan_racikan terisi / qty ≤ 0 → downgrade bersih
+pada DB tanpa retur → upgrade ulang.
+
+## 14. Catatan pembangunan (2026-10-05)
+
+- **Rumus nilai bersih** dipindah ke `KasirService.trx_dan_nilai_bersih` — dipakai refund obat
+  tertunda DAN retur. Satu rumus uang.
+- **Pencarian transaksi asal diperbaiki**: dulu "transaksi BAYAR terbaru di kunjungan"; sesudah
+  ada transaksi TUKAR di kunjungan yang sama itu salah transaksi. Kini: transaksi yang MEMUAT
+  produk itu, dibayar sesudah resep ditulis, paling awal (fallback tanpa syarat waktu).
+- **Nota transaksi TUKAR** selalu dari snapshot sendiri — tanpa itu, kunjungan asal pra-F3
+  membuat nota pengganti mencetak seluruh tindakan & obat kunjungan asal.
+- **Kunjungan RETUR_PASIEN** disaring lewat `app/services/_jenis_kunjungan.py` di KPI
+  dashboard (3), rekap owner (2), ekspor ringkasan; `visits_raw` kini memuat `jenis_kunjungan`.
+- **Komisi retur sebagian** = baris koreksi NEGATIF bertanggal hari retur (baris asli tak diubah).
+- **Daftar penyetuju PIN** satu fungsi: `kasir_service.daftar_penyetuju_refund`.
+
+### Belum dikerjakan (dicatat jujur)
+- **Laporan apotek** (obat diserahkan, racikan) masih menghitung item yang SUDAH diretur —
+  statusnya tetap `DISERAHKAN`. Perlu keputusan arti laporan: "yang pernah keluar" atau
+  "yang terjual bersih". Pola sama dengan Temuan 1.
+- **Laporan susut / kerugian retur** (`nilai_kerugian`) belum punya layar; datanya tersimpan.
+- Satu produk pengganti per retur di layar (layanan menerima beberapa).
+- Uji otomatis route persetujuan draf dokter (menulis DB sungguhan) → diuji manual U40–U41.

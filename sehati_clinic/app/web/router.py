@@ -27,6 +27,7 @@ from app.web.routes import (
     finance_export,
     followup,
     obat_tertunda,
+    retur_pasien,
     membership_aktivasi,
     kasir,
     kasir_closing,
@@ -75,6 +76,7 @@ router.include_router(finance_export.router)
 router.include_router(clinical_export.router)
 router.include_router(followup.router)
 router.include_router(obat_tertunda.router)
+router.include_router(retur_pasien.router)   # retur dari pasien (DESAIN_RETUR_DARI_PASIEN.md)
 router.include_router(membership_aktivasi.router)
 router.include_router(audit_pasien.router)
 router.include_router(settings.router)

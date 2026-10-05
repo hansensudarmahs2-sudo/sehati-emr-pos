@@ -1,0 +1,146 @@
+{% extends "_app.html" %}
+{% block title %}Retur dari pasien{% endblock %}
+{% block page_title %}↩ Retur dari pasien{% endblock %}
+
+{% block page_content %}
+{# DESAIN_RETUR_DARI_PASIEN.md. Satu form per item. Server yang memutuskan semua aturan
+   (7 hari, sisa qty, PIN, stok) — layar ini hanya menyiapkan pilihan dan menjelaskannya. #}
+<div class="max-w-5xl">
+
+  {% if ok %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>{% endif %}
+  {% if err %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>{% endif %}
+
+  <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-sm">
+    <div>Transaksi <b class="font-mono">#{{ trx.id_transaksi }}</b> ·
+      {{ trx.waktu_bayar.strftime('%d/%m/%Y %H:%M') if trx.waktu_bayar else '—' }} ·
+      {{ pasien.nama if pasien else '—' }} <span class="font-mono text-slate-500">({{ pasien.no_rm if pasien else '—' }})</span></div>
+    <div class="text-xs text-slate-500 mt-1">
+      Hanya obat yang <b>sudah diserahkan</b>, paling lambat <b>{{ batas_hari }} hari</b> sejak diserahkan.
+      PIN Admin/Owner wajib untuk retur <b>sebagian</b>{% if hari_lampau %} dan karena transaksi ini dari <b>hari lampau</b>{% endif %}.
+    </div>
+  </div>
+
+  {% if not items %}
+  <div class="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
+    Tidak ada obat yang sudah diserahkan di transaksi ini.
+  </div>
+  {% endif %}
+
+  {% for it in items %}
+  <div class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="font-semibold text-slate-800">{{ it.nama }}</div>
+        <div class="text-xs text-slate-500">
+          diserahkan {{ it.waktu_serah.strftime('%d/%m/%Y') if it.waktu_serah else '—' }}
+          · batas retur {{ it.batas.strftime('%d/%m/%Y') if it.batas else '—' }}
+          · qty {{ "%g"|format(it.qty) }}{% if it.sudah %} (sudah diretur {{ "%g"|format(it.sudah) }}){% endif %}
+          · nilai dibayar Rp {{ "{:,.0f}".format(it.nilai_total).replace(",", ".") }}
+        </div>
+      </div>
+      {% if it.habis %}<span class="text-xs text-slate-500">sudah diretur seluruhnya</span>
+      {% elif it.lewat_batas %}<span class="text-xs text-red-600 font-semibold">lewat batas {{ batas_hari }} hari</span>{% endif %}
+    </div>
+
+    {% if not it.habis and not it.lewat_batas %}
+    <form method="POST" action="/web/kasir/retur/{{ trx.id_transaksi }}" class="mt-3 text-sm"
+          data-confirm="Proses retur {{ it.nama|e }}? Tindakan ini tidak bisa dibatalkan.">
+      {{ csrf_input(request) }}
+      <input type="hidden" name="jenis_item" value="{{ it.jenis_item }}">
+      <input type="hidden" name="id_item" value="{{ it.id_item }}">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Jumlah dikembalikan</label>
+          {% if it.jenis_item == "RACIKAN" %}
+          <div class="text-xs text-slate-500">Racikan selalu utuh.</div>
+          {% else %}
+          <input type="number" name="qty" step="any" min="0" max="{{ it.sisa }}" value="{{ '%g'|format(it.sisa) }}"
+                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+          {% endif %}
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Alasan</label>
+          <select name="alasan_kode" required class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            {% for kode, nama in alasan_list %}<option value="{{ kode }}">{{ nama }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="mt-2">
+        <label class="block text-xs font-medium text-slate-600 mb-1">Keluhan pasien (wajib)</label>
+        <input type="text" name="alasan_teks" required maxlength="500"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </div>
+      <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Penyelesaian</label>
+          <select name="jenis" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <option value="REFUND">Kembalikan uang</option>
+            <option value="TUKAR">Tukar dengan produk lain</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Metode uang (refund / bayar selisih)</label>
+          <select name="metode" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <option value="TUNAI">Tunai</option><option value="TRANSFER">Transfer</option>
+            <option value="QRIS">QRIS</option><option value="DEBIT">Debit</option>
+          </select>
+        </div>
+      </div>
+      <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Produk pengganti (hanya untuk Tukar)</label>
+          <select name="pengganti_id_produk" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <option value="">—</option>
+            {% if it.golongan %}
+            <optgroup label="Golongan sama: {{ it.golongan }}">
+              {% for p in produk_aktif if p.golongan == it.golongan %}
+              <option value="{{ p.id }}">{{ p.nama }} — Rp {{ "{:,.0f}".format(p.harga).replace(",", ".") }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            <optgroup label="Semua produk">
+              {% for p in produk_aktif %}
+              <option value="{{ p.id }}">{{ p.nama }} — Rp {{ "{:,.0f}".format(p.harga).replace(",", ".") }}</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Qty pengganti</label>
+          <input type="number" name="pengganti_qty" step="any" min="0" value="1"
+                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+        </div>
+      </div>
+      <div class="mt-2 flex flex-wrap items-center gap-3">
+        {% if it.bisa_stok %}
+        <label class="text-xs text-slate-700">
+          <input type="checkbox" name="stok_kembali" value="1">
+          Kembali ke stok (kemasan tersegel, layak jual)
+        </label>
+        {% else %}
+        <span class="text-xs text-slate-500">Racikan tidak kembali ke stok.</span>
+        {% endif %}
+      </div>
+      <div class="mt-2 bg-amber-50 border border-amber-300 rounded-xl p-3">
+        <div class="text-xs text-amber-800 mb-1">Persetujuan — wajib untuk retur sebagian atau transaksi hari lampau</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <select name="id_staf_otorisasi" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            <option value="">— penyetuju —</option>
+            {% for s in penyetuju %}<option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>{% endfor %}
+          </select>
+          <input type="password" name="pin_otorisasi" inputmode="numeric" autocomplete="off" placeholder="PIN"
+                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+        </div>
+      </div>
+      <div class="mt-3">
+        <button type="submit" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold">
+          ↩ Proses retur
+        </button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+</div>
+{% endblock %}

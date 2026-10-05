@@ -1,0 +1,81 @@
+{% extends "print/_print_base.html" %}
+{% block doc_title %}Retur {{ r.nomor_retur }}{% endblock %}
+{% block paper_class %}paper-a5{% endblock %}
+
+{% block doc_content %}
+{# Nota retur dari pasien — DESAIN_RETUR_DARI_PASIEN.md. Untuk pasien (tanda terima) dan
+   arsip klinik. Angka = yang tercatat di retur_pasien, bukan dihitung ulang di sini. #}
+<div style="text-align:center;">
+    <div class="klinik-name" style="font-size:1.4em;">{{ klinik.nama_klinik }}</div>
+    <div class="font-bold" style="margin-top:3px; letter-spacing:0.5px;">
+        NOTA RETUR — {{ "PENGEMBALIAN DANA" if r.jenis.value == "REFUND" else "PENUKARAN PRODUK" }}
+    </div>
+</div>
+<div class="divider-solid"></div>
+
+<table>
+    <tr><td class="muted" style="width:32%;">No. retur</td><td class="mono">{{ r.nomor_retur }}</td></tr>
+    <tr><td class="muted">Tanggal</td><td>{{ r.created_at.strftime('%d/%m/%Y %H:%M') if r.created_at else tgl_cetak }}</td></tr>
+    <tr><td class="muted">Pasien</td><td>{{ pasien.nama if pasien else "—" }} <span class="mono muted">({{ pasien.no_rm if pasien else "—" }})</span></td></tr>
+    <tr><td class="muted">Transaksi asal</td><td class="mono">#{{ r.id_transaksi_asal }}</td></tr>
+    <tr><td class="muted">Diserahkan</td><td>{{ r.waktu_serah_asal.strftime('%d/%m/%Y') }}</td></tr>
+</table>
+<div class="divider"></div>
+
+<table>
+    <tr><td class="font-bold">Dikembalikan pasien</td><td></td></tr>
+    <tr>
+        <td>{{ nama_item }} — {{ "%g"|format(r.qty|float) }}{% if r.is_sebagian %} (sebagian){% endif %}</td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(r.nilai_retur|float).replace(",", ".") }}</td>
+    </tr>
+    <tr><td class="muted" colspan="2" style="font-size:0.85em;">
+        Alasan: {{ r.alasan_kode.value.replace("_", " ").title() }} — {{ r.alasan_teks }}
+    </td></tr>
+</table>
+<div class="divider"></div>
+
+{% if r.jenis.value == "REFUND" %}
+<table>
+    <tr>
+        <td class="font-bold" style="font-size:1.1em;">DIKEMBALIKAN KE PASIEN ({{ metode_refund }})</td>
+        <td class="text-right mono font-bold" style="font-size:1.1em;">Rp {{ "{:,.0f}".format(r.nilai_retur|float).replace(",", ".") }}</td>
+    </tr>
+</table>
+{% else %}
+<table>
+    <tr><td class="font-bold">Diganti dengan</td><td></td></tr>
+    {% for p in pengganti %}
+    <tr>
+        <td>{{ p.nama }} — {{ "%g"|format(p.qty) }}</td>
+        <td class="text-right mono">Rp {{ "{:,.0f}".format(p.nilai).replace(",", ".") }}</td>
+    </tr>
+    {% endfor %}
+    {% if r.selisih_dibayar|float > 0 %}
+    <tr><td class="font-bold">Selisih dibayar pasien</td>
+        <td class="text-right mono font-bold">Rp {{ "{:,.0f}".format(r.selisih_dibayar|float).replace(",", ".") }}</td></tr>
+    {% elif r.nilai_hangus|float > 0 %}
+    <tr><td class="font-bold">Sisa nilai tidak dikembalikan</td>
+        <td class="text-right mono font-bold">Rp {{ "{:,.0f}".format(r.nilai_hangus|float).replace(",", ".") }}</td></tr>
+    {% else %}
+    <tr><td class="muted" colspan="2">Nilai setara — tanpa selisih.</td></tr>
+    {% endif %}
+</table>
+{% endif %}
+
+{% if r.id_kunjungan_retur %}
+<div class="muted" style="font-size:0.85em; margin-top:6px;">
+    Catatan dugaan alergi diteruskan ke dokter untuk ditinjau.
+</div>
+{% endif %}
+
+<div class="divider"></div>
+<table style="font-size:0.85em;">
+    <tr><td class="muted">Petugas</td><td>{{ petugas }}</td></tr>
+    {% if penyetuju %}<tr><td class="muted">Disetujui</td><td>{{ penyetuju }}</td></tr>{% endif %}
+</table>
+
+<div style="display:flex; justify-content:space-between; margin-top:28px; font-size:0.85em;">
+    <div style="text-align:center; width:45%;">Pasien<br><br><br>( ................................ )</div>
+    <div style="text-align:center; width:45%;">Petugas<br><br><br>( {{ petugas }} )</div>
+</div>
+{% endblock %}

@@ -125,6 +125,11 @@ def test_refund_hari_ini_atas_transaksi_kemarin_mengurangi_laci_hari_ini(db):
 
 
 def test_satu_laci_satu_sesi(db):
+    # Test ini MEMBUKA laci hari ini — kalau hari ini sudah pernah ada sesi (mis. uji UI
+    # di DB dev), pagar "satu sesi per hari" benar menolaknya sebelum test sempat menguji.
+    if db.execute(select(KasirClosing).where(
+            KasirClosing.shift_mulai >= datetime.combine(datetime.now().date(), datetime.min.time()))).first():
+        pytest.skip("Hari ini sudah ada sesi kasir di DB dev — test ini butuh hari yang kosong.")
     kasir = _staf(db, StafRoleEnum.KASIR)
     lain = _staf(db, StafRoleEnum.ADMIN)
     svc = KasirClosingService(db)

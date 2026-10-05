@@ -53,8 +53,8 @@ def obat_tertunda_list(request: Request, db: DbSession):
     # memutuskan tetap server (`KasirService._otorisasi_refund_lampau`); kalau penanda
     # ini meleset, server menolak dengan pesan yang meminta PIN.
     from sqlalchemy import func, select
-    from app.db.models import MasterStaf, TransaksiKasir
-    from app.services.kasir_service import _ROLES_PENYETUJU_REFUND
+    from app.db.models import TransaksiKasir
+    from app.services.kasir_service import daftar_penyetuju_refund
     _ids = [i["id_kunjungan"] for i in items]
     _tgl_bayar = dict(db.execute(
         select(TransaksiKasir.id_kunjungan, func.max(TransaksiKasir.waktu_bayar))
@@ -65,15 +65,7 @@ def obat_tertunda_list(request: Request, db: DbSession):
     for i in items:
         _wb = _tgl_bayar.get(i["id_kunjungan"])
         i["butuh_otorisasi"] = _wb is not None and _wb.date() < today
-    penyetuju = [
-        s for s in db.execute(
-            select(MasterStaf).where(MasterStaf.is_active.is_(True))
-            .where(MasterStaf.pin.is_not(None)).where(MasterStaf.pin != "")
-            .order_by(MasterStaf.nama_staf)
-        ).scalars().all()
-        if (s.role.value if hasattr(s.role, "value") else str(s.role)) in _ROLES_PENYETUJU_REFUND
-        and s.id_staf != user.id_staf
-    ]
+    penyetuju = daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
 
     ctx = build_shell_context(
         user, db=db, current_path="/web/obat-tertunda", page_subtitle="Obat Tertunda",

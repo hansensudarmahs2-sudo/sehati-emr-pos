@@ -11,6 +11,10 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional
 
+# Kunjungan retur (RETUR_PASIEN) bukan kunjungan klinis — tidak dihitung di KPI
+# (keputusan dr. Hansen 2026-10-05, DESAIN_RETUR_DARI_PASIEN.md §12).
+from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
+
 from sqlalchemy import and_, func, select, case
 from sqlalchemy.orm import Session
 
@@ -304,6 +308,7 @@ class DashboardService:
             select(func.count(func.distinct(Kunjungan.id_pasien)))
             .where(Kunjungan.tgl_kunjungan >= today_start)
             .where(Kunjungan.tgl_kunjungan <= today_end)
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0
         return {"label": "Pasien Unik Hari Ini", "value": n, "icon": "👥", "color": "blue"}
 
@@ -314,6 +319,7 @@ class DashboardService:
             select(func.count(Kunjungan.id_kunjungan))
             .where(Kunjungan.tgl_kunjungan >= today_start)
             .where(Kunjungan.tgl_kunjungan <= today_end)
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0
         return {"label": "Total Kunjungan", "value": n, "icon": "📋", "color": "purple"}
 
@@ -332,6 +338,7 @@ class DashboardService:
             .where(Kunjungan.tgl_kunjungan >= today_start)
             .where(Kunjungan.tgl_kunjungan <= today_end)
             .where(Kunjungan.status_antrian == status)
+            .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0)
 
     def _count_tindakan_status(self, today: date, status: str) -> int:

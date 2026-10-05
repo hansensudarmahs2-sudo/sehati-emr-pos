@@ -80,6 +80,24 @@ _ROLES_PENYETUJU_REFUND = {
 }
 
 
+def daftar_penyetuju_refund(db: Session, kecuali_id_staf: Optional[int]) -> list:
+    """Staf yang BISA dipilih sebagai penyetuju PIN refund/retur: aktif, ber-PIN, berperan
+    `_ROLES_PENYETUJU_REFUND`, dan BUKAN orang yang sedang memproses (empat mata).
+    Satu sumber untuk layar Obat Tertunda dan layar Retur dari pasien — server tetap
+    memverifikasi ulang (`_otorisasi_refund_lampau`); daftar ini hanya untuk tampilan."""
+    from sqlalchemy import select
+    from app.db.models import MasterStaf
+    return [
+        s for s in db.execute(
+            select(MasterStaf).where(MasterStaf.is_active.is_(True))
+            .where(MasterStaf.pin.is_not(None)).where(MasterStaf.pin != "")
+            .order_by(MasterStaf.nama_staf)
+        ).scalars().all()
+        if (s.role.value if hasattr(s.role, "value") else str(s.role)) in _ROLES_PENYETUJU_REFUND
+        and s.id_staf != kecuali_id_staf
+    ]
+
+
 class KasirService:
     def __init__(self, db: Session):
         self.db = db
@@ -1294,11 +1312,11 @@ class KasirService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    # 2026-10-05: kalimat lama menunjuk "lewat retur" — jalur itu belum
-                    # ada untuk retur DARI PASIEN (DESAIN_RETUR_DARI_PASIEN.md).
+                    # Refund di sini hanya untuk obat yang BELUM diserahkan. Obat yang
+                    # sudah diserahkan → retur dari pasien (DESAIN_RETUR_DARI_PASIEN.md).
                     f"{_label} sudah DISERAHKAN ke pasien — tidak bisa direfund dari "
-                    "sini (refund hanya untuk obat yang belum diserahkan). Pengembalian "
-                    "obat dari pasien BELUM ADA di sistem — hubungi Owner."
+                    "sini (refund hanya untuk obat yang belum diserahkan). Pakai Kasir → "
+                    "Cari Transaksi → ↩ Retur."
                 ),
             )
         if _st != "DIBAYAR":
@@ -1311,60 +1329,12 @@ class KasirService:
             )
 
         # ---- 2. Temukan transaksi + nilai BERSIH item ----------------------
-        if id_resep is not None:
-            # Resep tidak menyimpan id_transaksi; cari lewat detail produk transaksi
-            # BAYAR pada kunjungan yang sama. Kalau satu produk muncul di dua baris
-            # resep, nilainya dibagi rata per unit — itu satu-satunya pembagian yang
-            # bisa dipertanggungjawabkan tanpa id_resep di tabel detail.
-            trx = self.db.execute(
-                select(TransaksiKasir)
-                .where(TransaksiKasir.id_kunjungan == item.id_kunjungan,
-                       TransaksiKasir.status_transaksi == "BAYAR")
-                .order_by(TransaksiKasir.id_transaksi.desc()).limit(1)
-            ).scalars().first()
-            if trx is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Tidak ada transaksi BAYAR untuk {_label}.",
-                )
-            detail = self.db.execute(
-                select(TransaksiDetailProduk).where(
-                    TransaksiDetailProduk.id_transaksi == trx.id_transaksi,
-                    TransaksiDetailProduk.id_produk == item.id_produk,
-                ).limit(1)
-            ).scalars().first()
-            if detail is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"{_label} tidak ditemukan di rincian transaksi "
-                           f"#{trx.id_transaksi}.",
-                )
-            _qty_detail = Decimal(str(detail.qty or 0))
-            _qty_item = Decimal(str(item.qty or 0))
-            _net_detail = (Decimal(str(detail.subtotal or 0))
-                           - Decimal(str(detail.diskon_item or 0)))
-            if _qty_detail > 0 and _qty_item > 0 and _qty_item != _qty_detail:
-                nilai = (_net_detail * _qty_item / _qty_detail).quantize(Decimal("0.01"))
-            else:
-                nilai = _net_detail.quantize(Decimal("0.01"))
-        else:
-            _dr = self.db.execute(
-                select(TransaksiDetailRacikan).where(
-                    TransaksiDetailRacikan.id_kunjungan_racikan == id_kunjungan_racikan
-                ).limit(1)
-            ).scalars().first()
-            if _dr is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"{_label} belum pernah ditagih — tidak ada yang direfund.",
-                )
-            trx = self.db.get(TransaksiKasir, _dr.id_transaksi)
-            if trx is None or trx.status_transaksi != "BAYAR":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Transaksi asal {_label} bukan BAYAR — tidak bisa direfund.",
-                )
-            nilai = Decimal(str(_dr.subtotal or 0)).quantize(Decimal("0.01"))
+        # Rumusnya dipakai bersama dengan retur dari pasien (retur_pasien_service) —
+        # SATU rumus uang, bukan dua salinan (CLAUDE.md §4.1).
+        trx, nilai = self.trx_dan_nilai_bersih(
+            item=item, id_resep=id_resep, id_kunjungan_racikan=id_kunjungan_racikan,
+            label=_label,
+        )
 
         if nilai <= 0:
             raise HTTPException(
@@ -1492,6 +1462,105 @@ class KasirService:
                 detail=f"Gagal refund item: {e!s}",
             )
 
+    def trx_dan_nilai_bersih(
+        self,
+        *,
+        item,
+        id_resep: Optional[int],
+        id_kunjungan_racikan: Optional[int],
+        label: str,
+        qty=None,
+    ) -> tuple:
+        """(transaksi asal BAYAR, nilai BERSIH yang dibayar pasien untuk item ini).
+
+        Bersih = subtotal baris dikurangi porsi diskonnya (`diskon_item`), dari snapshot
+        transaksi — bukan harga master hari ini. `qty` (default qty item) memberi nilai
+        proporsional per unit: dipakai retur SEBAGIAN dari pasien.
+        Dipakai `refund_item_tertunda` DAN retur dari pasien — jangan disalin; dua rumus
+        uang untuk hal yang sama pasti berbeda suatu hari (CLAUDE.md §4.1).
+        Racikan selalu utuh (all-or-nothing) — `qty` diabaikan.
+        """
+        from sqlalchemy import select
+        _label = label
+        if id_resep is not None:
+            # Resep tidak menyimpan id_transaksi; cari lewat detail produk transaksi
+            # BAYAR pada kunjungan yang sama. Kalau satu produk muncul di dua baris
+            # resep, nilainya dibagi rata per unit — itu satu-satunya pembagian yang
+            # bisa dipertanggungjawabkan tanpa id_resep di tabel detail.
+            # Transaksi yang MEMUAT produk ini, dibayar sesudah resepnya ditulis, yang
+            # PALING AWAL. Dulu: "transaksi BAYAR terbaru di kunjungan" — benar selama satu
+            # kunjungan hanya punya satu transaksi. Sejak retur TUKAR (2026-10-05) produk
+            # pengganti ditagih di transaksi BARU di kunjungan yang sama, sehingga "terbaru"
+            # untuk obat ASAL menunjuk transaksi tukar — salah transaksi, salah nilai.
+            # Syarat waktu_input membuat produk pengganti menunjuk transaksi tukarnya
+            # sendiri (resepnya ditulis tepat sebelum transaksi itu).
+            _q = (
+                select(TransaksiKasir)
+                .join(TransaksiDetailProduk,
+                      TransaksiDetailProduk.id_transaksi == TransaksiKasir.id_transaksi)
+                .where(TransaksiKasir.id_kunjungan == item.id_kunjungan,
+                       TransaksiKasir.status_transaksi == "BAYAR",
+                       TransaksiDetailProduk.id_produk == item.id_produk)
+            )
+            trx = None
+            if getattr(item, "waktu_input", None) is not None:
+                # Kedua kolom diisi JAM SERVER MySQL (server_default), jadi sebanding.
+                trx = self.db.execute(
+                    _q.where(TransaksiKasir.waktu_bayar >= item.waktu_input)
+                    .order_by(TransaksiKasir.id_transaksi.asc()).limit(1)
+                ).scalars().first()
+            if trx is None:
+                # Jatuh kembali tanpa syarat waktu (data lama/impor, jam yang pernah
+                # bergeser): transaksi PALING AWAL yang memuat produk ini.
+                trx = self.db.execute(
+                    _q.order_by(TransaksiKasir.id_transaksi.asc()).limit(1)
+                ).scalars().first()
+            if trx is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tidak ada transaksi BAYAR untuk {_label}.",
+                )
+            detail = self.db.execute(
+                select(TransaksiDetailProduk).where(
+                    TransaksiDetailProduk.id_transaksi == trx.id_transaksi,
+                    TransaksiDetailProduk.id_produk == item.id_produk,
+                ).limit(1)
+            ).scalars().first()
+            if detail is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{_label} tidak ditemukan di rincian transaksi "
+                           f"#{trx.id_transaksi}.",
+                )
+            _qty_detail = Decimal(str(detail.qty or 0))
+            _qty_item = Decimal(str(item.qty if qty is None else qty))
+            _net_detail = (Decimal(str(detail.subtotal or 0))
+                           - Decimal(str(detail.diskon_item or 0)))
+            if _qty_detail > 0 and _qty_item > 0 and _qty_item != _qty_detail:
+                nilai = (_net_detail * _qty_item / _qty_detail).quantize(Decimal("0.01"))
+            else:
+                nilai = _net_detail.quantize(Decimal("0.01"))
+        else:
+            _dr = self.db.execute(
+                select(TransaksiDetailRacikan).where(
+                    TransaksiDetailRacikan.id_kunjungan_racikan == id_kunjungan_racikan
+                ).limit(1)
+            ).scalars().first()
+            if _dr is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{_label} belum pernah ditagih — tidak ada yang direfund.",
+                )
+            trx = self.db.get(TransaksiKasir, _dr.id_transaksi)
+            if trx is None or trx.status_transaksi != "BAYAR":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Transaksi asal {_label} bukan BAYAR — tidak bisa direfund.",
+                )
+            nilai = Decimal(str(_dr.subtotal or 0)).quantize(Decimal("0.01"))
+
+        return trx, nilai
+
     def _otorisasi_refund_lampau(
         self,
         *,
@@ -1501,8 +1570,13 @@ class KasirService:
         id_staf_otorisasi: Optional[int],
         pin_otorisasi: Optional[str],
         request: Optional[Request],
+        alasan_perlu: Optional[str] = None,
+        aksi_tolak: str = "REFUND_DITOLAK_PIN",
     ) -> int:
         """Pagar T32: refund atas transaksi hari lampau. Return id penyetuju, atau raise.
+
+        Dipakai juga retur dari pasien (hari lampau ATAU retur sebagian): `alasan_perlu`
+        mengganti kalimat "kenapa butuh PIN", `aksi_tolak` nama aksi audit penolakan.
 
         Meniru otorisasi PIN dokter di `upsell_service` (pola yang sudah berjalan),
         dengan satu tambahan: penyetuju ≠ pemroses (empat mata, keputusan dr. Hansen
@@ -1515,8 +1589,8 @@ class KasirService:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(
-                    f"Transaksi {label} dibayar {tgl_trx} (hari lampau). Refund butuh "
-                    "persetujuan PIN Admin/Superadmin/Owner."
+                    (alasan_perlu or f"Transaksi {label} dibayar {tgl_trx} (hari lampau). Refund")
+                    + " butuh persetujuan PIN Admin/Superadmin/Owner."
                 ),
             )
         if id_staf_otorisasi == actor_id_staf:
@@ -1540,7 +1614,7 @@ class KasirService:
 
         if not pin_valid:
             self.audit.log(
-                aksi="REFUND_DITOLAK_PIN",
+                aksi=aksi_tolak,
                 id_staf=actor_id_staf,
                 tabel_target="transaksi_kasir",
                 id_target=trx.id_transaksi,
@@ -2261,15 +2335,13 @@ class KasirService:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                # 2026-10-05: kalimat lama menyuruh "pakai jalur retur/refund" — jalur
-                # itu TIDAK ADA untuk obat yang sudah diserahkan (refund hanya untuk
-                # item belum diserahkan; retur Pengadaan = ke distributor). Ganti lagi
-                # begitu modul retur dari pasien jadi (DESAIN_RETUR_DARI_PASIEN.md).
+                # 2026-10-05: sempat menyuruh "pakai jalur retur/refund" saat jalur itu
+                # BELUM ADA. Sekarang menunjuk menu retur dari pasien yang sudah dibangun
+                # (DESAIN_RETUR_DARI_PASIEN.md).
                 f"Transaksi ini tidak bisa di-void: {len(diserahkan)} item SUDAH "
-                f"DISERAHKAN ke pasien ({nama}). Void hanya untuk yang belum selesai, "
-                "dan void di sini membuat laporan omzet dan laporan apotek berbeda "
-                "angka. Pengembalian obat dari pasien BELUM ADA di sistem — hubungi "
-                "Owner. Jangan kembalikan uang dari laci tanpa catatan."
+                f"DISERAHKAN ke pasien ({nama}). Void hanya untuk yang belum selesai. "
+                "Kalau pasien mengembalikan obatnya, pakai Kasir → Cari Transaksi → "
+                "↩ Retur (kembalikan uang atau tukar produk, maks. 7 hari sejak diserahkan)."
             ),
         )
 

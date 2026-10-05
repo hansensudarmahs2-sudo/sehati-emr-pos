@@ -58,6 +58,8 @@ def dokter_draf_soap(request: Request, db: DbSession):
     from app.db.models import MasterStaf, StafRoleEnum
 
     repo = PemeriksaanRepository(db)
+    from app.services.retur_pasien_service import ReturPasienService
+    _retur_svc = ReturPasienService(db)
     # Dokter melihat draf yang ditujukan kepadanya. Owner/Admin melihat semuanya —
     # supaya antrian yang menumpuk bisa terpantau, bukan tersembunyi per akun.
     _milik_sendiri = user.role == StafRoleEnum.DOKTER
@@ -77,6 +79,8 @@ def dokter_draf_soap(request: Request, db: DbSession):
             "dituju": dituju.nama_staf if dituju else "—",
             "waktu_konsultasi": soap.waktu_konsultasi,
             "milik_saya": kunj.id_staf_dokter_assigned == user.id_staf,
+            # Retur karena alergi: kartu menampilkan kolom alergi (keparahan WAJIB).
+            "retur_alergi": _retur_svc.info_retur_alergi(kunj.id_kunjungan),
         })
 
     ctx = build_shell_context(
@@ -127,6 +131,18 @@ async def dokter_draf_soap_setujui(id_pemeriksaan: int, request: Request, db: Db
             status_code=status.HTTP_303_SEE_OTHER)
 
     f = await request.form()
+
+    # Retur karena ALERGI (DESAIN_RETUR_DARI_PASIEN.md §12): menyetujui draf ini juga
+    # menambah alergi ke data pasien. Keparahan WAJIB dipilih dokter — dicek SEBELUM SOAP
+    # diubah, supaya penolakan tidak meninggalkan perubahan setengah jadi di sesi.
+    from app.services.retur_pasien_service import ReturPasienService
+    _retur_svc = ReturPasienService(db)
+    _info_alergi = _retur_svc.info_retur_alergi(soap.id_kunjungan)
+    if _info_alergi and not _info_alergi["sudah"] and not (f.get("tingkat_keparahan") or "").strip():
+        return RedirectResponse(
+            url=f"/web/dokter/draf-soap?err={quote('Pilih tingkat keparahan alergi dulu (Ringan/Sedang/Berat).')}",
+            status_code=status.HTTP_303_SEE_OTHER)
+
     soap.anamnesa = (f.get("anamnesa") or soap.anamnesa or "").strip() or None
     soap.pemeriksaan_fisik = (f.get("pemeriksaan_fisik") or "").strip() or None
     soap.diagnosa = (f.get("diagnosa") or "").strip() or None
@@ -145,9 +161,22 @@ async def dokter_draf_soap_setujui(id_pemeriksaan: int, request: Request, db: Db
                     "tercatat."),
         request=request,
     )
+    _pesan_ok = "Draf disetujui dan menjadi SOAP Anda."
+    if _info_alergi:
+        try:
+            _retur_svc.catat_alergi_dari_retur(
+                id_kunjungan=soap.id_kunjungan, id_staf_dokter=user.id_staf,
+                alergen=f.get("alergen") or _info_alergi["alergen"],
+                gejala=f.get("gejala") or _info_alergi["gejala"],
+                tingkat_keparahan=(f.get("tingkat_keparahan") or "").strip(), request=request)
+            _pesan_ok += " Alergi dicatat di data pasien."
+        except HTTPException as e:
+            db.rollback()       # SOAP dan alerginya satu paket — tidak ada yang tersimpan
+            return RedirectResponse(url=f"/web/dokter/draf-soap?err={quote(str(e.detail))}",
+                                    status_code=status.HTTP_303_SEE_OTHER)
     db.commit()
     return RedirectResponse(
-        url=f"/web/dokter/draf-soap?ok={quote('Draf disetujui dan menjadi SOAP Anda.')}",
+        url=f"/web/dokter/draf-soap?ok={quote(_pesan_ok)}",
         status_code=status.HTTP_303_SEE_OTHER)
 
 

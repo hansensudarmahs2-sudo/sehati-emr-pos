@@ -70,6 +70,36 @@
                      class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
             </div>
           </div>
+          {# Retur karena ALERGI (DESAIN_RETUR_DARI_PASIEN.md §12): menyetujui draf ini juga
+             menambah alergi ke data pasien. Keparahan WAJIB dipilih — server menolak tanpa itu. #}
+          {% if d.retur_alergi and not d.retur_alergi.sudah %}
+          <div class="bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm text-amber-800">
+            <div class="font-semibold mb-1">&#9888; Retur {{ d.retur_alergi.nomor_retur }} karena dugaan ALERGI — {{ d.retur_alergi.produk }}</div>
+            <div class="text-xs mb-2">Setuju = alergi berikut <b>ditambahkan ke data pasien</b>. Cek alergennya: kandungan di master produk tidak selalu seragam.</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-medium mb-1">Alergen</label>
+                <input type="text" name="alergen" maxlength="100" value="{{ d.retur_alergi.alergen }}" required
+                       class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">Tingkat keparahan <span class="text-red-600">*wajib</span></label>
+                <select name="tingkat_keparahan" required
+                        class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+                  <option value="">— pilih —</option>
+                  <option value="Ringan">Ringan</option>
+                  <option value="Sedang">Sedang</option>
+                  <option value="Berat">Berat</option>
+                </select>
+              </div>
+            </div>
+            <div class="mt-2">
+              <label class="block text-xs font-medium mb-1">Gejala</label>
+              <input type="text" name="gejala" value="{{ d.retur_alergi.gejala }}"
+                     class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+            </div>
+          </div>
+          {% endif %}
         </div>
         <div class="mt-3 flex items-center gap-3">
           {% if d.milik_saya %}
