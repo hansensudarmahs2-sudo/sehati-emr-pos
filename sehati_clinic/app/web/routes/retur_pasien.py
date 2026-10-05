@@ -78,6 +78,40 @@ async def retur_simpan(id_transaksi: int, request: Request, db: DbSession):
     if jenis == "TUKAR" and _int("pengganti_id_produk"):
         pengganti = [{"id_produk": _int("pengganti_id_produk"),
                       "qty": (f.get("pengganti_qty") or "1").strip()}]
+
+    # TUKAR selalu lewat layar KONFIRMASI (dr. Hansen 2026-10-05: "perlu ada warning
+    # saat tukar produk yang lebih mahal atau lebih murah, terutama yang lebih murah
+    # karena uang pasien akan hilang"). Langkah pertama hanya MENGHITUNG (pratinjau,
+    # tanpa tulis); layar konfirmasi mengirim ulang dengan `konfirmasi=1`, PIN diketik
+    # di sana (tidak pernah dibawa ulang ke HTML), dan `setuju_hangus` yang juga dijaga
+    # di server.
+    umum = dict(
+        id_resep=id_item if jenis_item == "RESEP" else None,
+        id_kunjungan_racikan=id_item if jenis_item == "RACIKAN" else None,
+        qty=(f.get("qty") or "").strip() or None,
+        jenis=jenis, alasan_kode=(f.get("alasan_kode") or "").upper(),
+        alasan_teks=(f.get("alasan_teks") or "").strip(),
+        stok_kembali=(f.get("stok_kembali") == "1"),
+        metode_refund=(f.get("metode") or "TUNAI").upper(),
+        pengganti=pengganti, actor_id_staf=user.id_staf, request=request,
+    )
+    if jenis == "TUKAR" and f.get("konfirmasi") != "1":
+        try:
+            p = ReturPasienService(db).buat_retur(**umum, pratinjau=True)
+        except HTTPException as e:
+            return RedirectResponse(url=f"{kembali}?err={quote(str(e.detail))}",
+                                    status_code=status.HTTP_303_SEE_OTHER)
+        ctx = build_shell_context(
+            user, db=db, current_path="/web/kasir/cari-transaksi",
+            page_subtitle=f"Konfirmasi tukar — transaksi #{id_transaksi}",
+            p=p, id_transaksi=id_transaksi,
+            form={k: (f.get(k) or "") for k in (
+                "jenis_item", "id_item", "qty", "jenis", "alasan_kode", "alasan_teks",
+                "stok_kembali", "metode", "pengganti_id_produk", "pengganti_qty")},
+            penyetuju=daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf),
+        )
+        return templates.TemplateResponse(request, "kasir_retur_konfirmasi.html", ctx)
+
     try:
         hasil = ReturPasienService(db).buat_retur(
             id_resep=id_item if jenis_item == "RESEP" else None,
@@ -88,6 +122,7 @@ async def retur_simpan(id_transaksi: int, request: Request, db: DbSession):
             stok_kembali=(f.get("stok_kembali") == "1"),
             metode_refund=(f.get("metode") or "TUNAI").upper(),
             pengganti=pengganti,
+            setuju_hangus=(f.get("setuju_hangus") == "1"),
             id_staf_otorisasi=_int("id_staf_otorisasi"),
             pin_otorisasi=(f.get("pin_otorisasi") or "").strip() or None,
             actor_id_staf=user.id_staf, request=request,

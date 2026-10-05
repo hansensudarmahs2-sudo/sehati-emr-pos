@@ -451,6 +451,8 @@ class ReturPasienService:
         actor_id_staf: int,
         metode_refund: str = "TUNAI",
         pengganti: Optional[list] = None,
+        pratinjau: bool = False,
+        setuju_hangus: bool = False,
         id_staf_otorisasi: Optional[int] = None,
         pin_otorisasi: Optional[str] = None,
         request: Optional[Request] = None,
@@ -535,6 +537,38 @@ class ReturPasienService:
         if nilai <= 0:
             raise HTTPException(400, f"Nilai retur {label} nol — tidak ada yang dikembalikan.")
 
+        # ---- 3b. TUKAR: hitung selisih SEKARANG (dr. Hansen 2026-10-05) ----------
+        # "Perlu ada warning saat tukar produk yang lebih mahal atau lebih murah,
+        # terutama yang lebih murah karena uang pasien akan hilang." Jadi:
+        #   - `pratinjau=True` → hitung saja, TIDAK menulis apa pun, kembalikan angka
+        #     untuk layar konfirmasi;
+        #   - sisa hangus > 0 tanpa `setuju_hangus` → DITOLAK di server, bukan hanya di
+        #     layar — centang konfirmasi tidak boleh bisa dilewati dengan form buatan.
+        y_rows, nilai_pengganti = [], None
+        selisih = hangus = Decimal("0")
+        if is_tukar:
+            y_rows, nilai_pengganti = self._harga_pengganti(trx, pengganti)
+            selisih = max(Decimal("0"), nilai_pengganti - nilai)
+            hangus = max(Decimal("0"), nilai - nilai_pengganti)
+        if pratinjau:
+            # Belum ada yang ditulis; kunci baris item lepas saat sesi permintaan ditutup.
+            return {
+                "status": "pratinjau", "label": label, "qty": float(q),
+                "is_sebagian": is_sebagian, "nilai_retur": float(nilai),
+                "pengganti": [{"id_produk": p.id_produk, "nama": p.nama_produk,
+                               "qty": float(qq), "nilai": float(sub - disk)}
+                              for p, qq, h, sub, disk in y_rows],
+                "nilai_pengganti": float(nilai_pengganti or 0),
+                "selisih_dibayar": float(selisih), "nilai_hangus": float(hangus),
+                "hari_lampau": trx.waktu_bayar is not None and not KasirService._is_same_calendar_day_utc7(
+                    trx.waktu_bayar, KasirService._now_utc7()),
+            }
+        if hangus > 0 and not setuju_hangus:
+            raise HTTPException(400, (
+                f"Produk pengganti lebih murah: sisa Rp {hangus:,.0f} TIDAK dikembalikan dan "
+                "tidak jadi saldo. Beri tahu pasien dan centang persetujuannya di layar "
+                "konfirmasi — atau pilih pengganti/qty lain.").replace(",", "."))
+
         # ---- 4. Otorisasi PIN ----------------------------------------------------
         hari_lampau = trx.waktu_bayar is not None and not KasirService._is_same_calendar_day_utc7(
             trx.waktu_bayar, KasirService._now_utc7())
@@ -599,14 +633,8 @@ class ReturPasienService:
             # ---- 6. Uang -------------------------------------------------------------
             metode = (metode_refund or "TUNAI").upper()
             id_trx_pengganti = None
-            nilai_pengganti = None
-            selisih = Decimal("0")
-            hangus = Decimal("0")
             if is_tukar:
-                y_rows, nilai_pengganti = self._harga_pengganti(trx, pengganti)
-                kredit = min(nilai, nilai_pengganti)
-                selisih = max(Decimal("0"), nilai_pengganti - nilai)
-                hangus = max(Decimal("0"), nilai - nilai_pengganti)
+                kredit = min(nilai, nilai_pengganti)       # selisih/hangus: langkah 3b
                 id_trx_pengganti = self._serahkan_pengganti(
                     trx=trx, y_rows=y_rows, nilai_pengganti=nilai_pengganti, kredit=kredit,
                     selisih=selisih, metode_selisih=metode, actor_id_staf=actor_id_staf,

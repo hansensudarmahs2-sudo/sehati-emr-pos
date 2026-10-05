@@ -117,14 +117,15 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 |---|---|---|---|---|
 | U34 | **Kasir → Cari Transaksi** → tombol **↩ Retur** pada transaksi BAYAR | Halaman retur memuat obat yang sudah diserahkan, batas tanggal 7 hari, saran pengganti golongan sama | — | ✅ 05/10 — #270, Cream CP tampil, batas 7 hari, saran golongan |
 | U35 | Retur **penuh**, Kembalikan uang, Tunai, centang "kembali ke stok" | Nota retur "PENGEMBALIAN DANA"; omzet HARI INI turun; stok obat naik kembali | 1, 3, 5, 7 | ✅ 05/10 — RPS-2026-10-000416, Rp 150.000 tunai; komisi VOID; cache 100 = lot 100; omzet 4 pembaca sepakat |
-| U36 | Retur **sebagian** (qty kurang dari sisa) TANPA PIN | **Ditolak** "Retur SEBAGIAN … butuh persetujuan PIN" | 1 | |
-| U37 | Ulangi dengan penyetuju `admin` + PIN | Berhasil; nota bertanda "(sebagian)" | 3 | |
-| U38 | **Tukar** dengan produk LEBIH MAHAL | Nota "PENUKARAN PRODUK" + "Selisih dibayar pasien"; laci (Tutup Kasir) hanya bertambah selisih | 2, 5 | |
-| U39 | **Tukar** dengan produk LEBIH MURAH | "Sisa nilai tidak dikembalikan"; laci & omzet TIDAK bergerak | 5 | |
+| U36 | Retur **sebagian** (qty kurang dari sisa) TANPA PIN | **Ditolak** "Retur SEBAGIAN … butuh persetujuan PIN" | 1 | ⏳ belum dikonfirmasi — penolakan tanpa PIN tidak meninggalkan jejak DB |
+| U37 | Ulangi dengan penyetuju `admin` + PIN | Berhasil; nota bertanda "(sebagian)" | 3 | ✅ 05/10 — RPS-…417 & …418 (Azithromycin, sebagian), penyetuju `admin` |
+| U38 | **Tukar** dengan produk LEBIH MAHAL | Nota "PENUKARAN PRODUK" + "Selisih dibayar pasien"; laci (Tutup Kasir) hanya bertambah selisih | 2, 5 | ✅ 05/10 — RPS-…419: pengganti Rp 70.000, selisih Rp 50.000 dibayar; transaksi pengganti #1197 lunas |
+| U39 | **Tukar** dengan produk LEBIH MURAH | "Sisa nilai tidak dikembalikan"; laci & omzet TIDAK bergerak | 5 | ✅ 05/10 — RPS-…420: hangus Rp 50.000. Terjadi TANPA peringatan → dr. Hansen minta peringatan → U44. Retur ini atas produk PENGGANTI (#1197): pencarian transaksi asal terbukti benar di pemakaian nyata |
 | U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | ✅ 05/10 — dikonfirmasi dr. Hansen di layar: setujui tanpa keparahan → pesan "Pilih tingkat keparahan alergi dulu"; tidak ada yang tersimpan (jejak: tak ada SOAP_DRAF_DISETUJUI sebelum 12:52:33) |
 | U41 | Setujui lagi dengan keparahan dipilih | "Alergi dicatat di data pasien"; data pasien memuat alergen itu; KPI "Total Kunjungan" TIDAK bertambah | — | ✅ 05/10 — dokter menyetujui 12:52:33; SOAP_DRAF_DISETUJUI + ALERGI_DARI_RETUR di detik yang sama; alergi #44 'Clobetasol Propionat 0,05%' dari kandungan |
 | U42 | Coba **void** transaksi asal yang sudah diretur | Ditolak (sudah ada refund) | 1 | |
 | U43 | Retur obat yang diserahkan > 7 hari lalu | Tidak ada form; "lewat batas 7 hari" | — | |
+| U44 | **Tukar** dengan pengganti LEBIH MURAH (permintaan dr. Hansen 2026-10-05) | Halaman **konfirmasi**: kotak MERAH "Sisa Rp X TIDAK dikembalikan", centang wajib "Pasien sudah diberi tahu dan setuju"; tanpa centang → ditolak server; lebih mahal → kotak kuning "Terima dari pasien Rp X"; setara → hijau. Belum ada yang tersimpan sebelum "Proses tukar" | 3b | |
 
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 
@@ -144,3 +145,4 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | 2026-10-05 | dr. Hansen | U01–U03, U12 ✅ | jejak_20261005_100402 | Laci dibuka `kasir`, bayar oleh `hansen` masuk expected; tutup 1.150.000 selisih 0. U02 semula salah petunjuk (FO) — dikoreksi. Tutup kasir sempat terblokir 12 kunjungan sisa test booking (dibereskan) |
 | 2026-10-05 | dr. Hansen | U16 ✅ | — | Void ditolak karena obat sudah diserahkan → memunculkan modul retur |
 | 2026-10-05 | dr. Hansen | U34, U35, U40, U41 ✅ | jejak_20261005_125333 | Retur alergi Cream CP → draf → disetujui `dokter` → alergi tercatat |
+| 2026-10-05 | dr. Hansen | U37, U38, U39 ✅ · U36 ⏳ | jejak_20261005_193003 | Azithromycin 5 unit: retur sebagian ×2, tukar lebih mahal, lalu tukar lebih murah atas produk pengganti. Omzet 4 pembaca sepakat (Rp 720.000); stok 9.997 = lot. Memunculkan permintaan peringatan tukar (U44) |

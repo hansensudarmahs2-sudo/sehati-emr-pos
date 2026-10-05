@@ -1,0 +1,80 @@
+{% extends "_app.html" %}
+{% block title %}Konfirmasi tukar{% endblock %}
+{% block page_title %}↩ Konfirmasi tukar produk{% endblock %}
+
+{% block page_content %}
+{# dr. Hansen 2026-10-05: "perlu ada warning saat tukar produk yang lebih mahal atau lebih
+   murah, terutama yang lebih murah karena uang pasien akan hilang". Angka di sini dari
+   pratinjau server (rumus yang sama dengan saat disimpan) — belum ada yang tersimpan.
+   Centang "setuju_hangus" juga DIJAGA DI SERVER; layar ini bukan satu-satunya pagar. #}
+<div class="max-w-3xl">
+  <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4 text-sm">
+    <div class="font-semibold text-slate-800 mb-2">Dikembalikan pasien</div>
+    <div class="flex justify-between">
+      <span>{{ p.label }} — {{ "%g"|format(p.qty) }}{% if p.is_sebagian %} (sebagian){% endif %}</span>
+      <span class="font-mono">Rp {{ "{:,.0f}".format(p.nilai_retur).replace(",", ".") }}</span>
+    </div>
+    <div class="font-semibold text-slate-800 mt-3 mb-2">Diganti dengan</div>
+    {% for g in p.pengganti %}
+    <div class="flex justify-between">
+      <span>{{ g.nama }} — {{ "%g"|format(g.qty) }}</span>
+      <span class="font-mono">Rp {{ "{:,.0f}".format(g.nilai).replace(",", ".") }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if p.nilai_hangus > 0 %}
+  <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">
+    <div class="font-semibold text-base mb-1">&#9888; Pengganti LEBIH MURAH — sisa uang pasien hangus</div>
+    <div>Sisa <b class="font-mono">Rp {{ "{:,.0f}".format(p.nilai_hangus).replace(",", ".") }}</b>
+      <b>TIDAK dikembalikan</b> dan <b>tidak menjadi saldo</b>.</div>
+    <div class="text-xs mt-1">Pertimbangkan menambah qty pengganti atau memilih produk lain supaya nilainya setara.
+      Kalau tetap ditukar, beri tahu pasien lebih dulu.</div>
+  </div>
+  {% elif p.selisih_dibayar > 0 %}
+  <div class="bg-amber-50 border border-amber-300 text-amber-800 rounded-xl p-4 mb-4 text-sm">
+    <div class="font-semibold text-base mb-1">&#9888; Pengganti LEBIH MAHAL — pasien membayar selisih</div>
+    <div>Terima dari pasien <b class="font-mono">Rp {{ "{:,.0f}".format(p.selisih_dibayar).replace(",", ".") }}</b>
+      ({{ form.metode or "TUNAI" }}).</div>
+  </div>
+  {% else %}
+  <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-4 mb-4 text-sm">
+    ✓ Nilai setara — tidak ada uang yang bergerak.
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/web/kasir/retur/{{ id_transaksi }}" class="text-sm">
+    {{ csrf_input(request) }}
+    <input type="hidden" name="konfirmasi" value="1">
+    {% for k, v in form.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+
+    {% if p.nilai_hangus > 0 %}
+    <label class="flex items-start gap-2 mb-3 text-red-700">
+      <input type="checkbox" name="setuju_hangus" value="1" required class="mt-1">
+      <span>Pasien <b>sudah diberi tahu dan setuju</b> sisa Rp {{ "{:,.0f}".format(p.nilai_hangus).replace(",", ".") }} tidak dikembalikan.</span>
+    </label>
+    {% endif %}
+
+    {% if p.is_sebagian or p.hari_lampau %}
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-3 mb-3">
+      <div class="text-xs text-amber-800 mb-1">Persetujuan wajib ({{ "retur sebagian" if p.is_sebagian else "transaksi hari lampau" }}) — ketik PIN di sini</div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <select name="id_staf_otorisasi" required class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+          <option value="">— penyetuju —</option>
+          {% for s in penyetuju %}<option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>{% endfor %}
+        </select>
+        <input type="password" name="pin_otorisasi" required inputmode="numeric" autocomplete="off" placeholder="PIN"
+               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="flex items-center gap-3">
+      <button type="submit" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold">
+        ↩ Proses tukar
+      </button>
+      <a href="/web/kasir/retur/{{ id_transaksi }}" class="text-xs text-blue-600 hover:underline">← kembali, ubah pilihan</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

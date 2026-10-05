@@ -239,7 +239,7 @@ def test_tukar_lebih_murah_sisa_hangus_laci_dan_omzet_diam(db):
     y, _ = _produk_y(db, "100000")
     laci0, omzet0 = _laci_tunai(db), _omzet_hari_ini(db)
     h = _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
-               pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+               pengganti=[{"id_produk": y.id_produk, "qty": 1}], setuju_hangus=True)
     assert h["nilai_hangus"] == 200000 and h["selisih_dibayar"] == 0
     assert _laci_tunai(db) == laci0 and _omzet_hari_ini(db) == omzet0
     ref = db.execute(select(TransaksiRefund).where(
@@ -394,7 +394,7 @@ def test_nota_retur_refund_dan_tukar(db):
     assert "(sebagian)" in t
     y, _ = _produk_y(db, "50000")
     h2 = _retur(db, d, jenis="TUKAR", qty=1, metode_refund="TUNAI",
-                pengganti=[{"id_produk": y.id_produk, "qty": 1}],
+                pengganti=[{"id_produk": y.id_produk, "qty": 1}], setuju_hangus=True,
                 id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
     t2 = _render_nota_retur(db, h2["id_retur"])
     assert "PENUKARAN PRODUK" in t2 and "Uji Pengganti" in t2
@@ -424,10 +424,46 @@ def test_ekspor_refund_memuat_kolom_retur(db):
     d = _setup(db)
     y, _ = _produk_y(db, "100000")
     h = _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
-               pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+               pengganti=[{"id_produk": y.id_produk, "qty": 1}], setuju_hangus=True)
     hari = datetime.now().date()
     baris = [r for r in ExportService(db).export_refunds_raw(hari, hari)
              if r["nomor_retur"] == h["nomor_retur"]]
     assert len(baris) == 1
     b = baris[0]
     assert (b["jenis_retur"], b["metode_refund"], b["nilai_hangus"]) == ("TUKAR", "TUKAR", 200000.0)
+
+
+# ============================================================================
+# Peringatan tukar (dr. Hansen 2026-10-05): "terutama yang lebih murah karena uang
+# pasien akan hilang". Pratinjau tanpa tulis + persetujuan hangus dijaga DI SERVER.
+# ============================================================================
+def test_pratinjau_tukar_menghitung_tanpa_menulis(db):
+    d = _setup(db)
+    y, lot_y = _produk_y(db, "100000")
+    n_retur = db.execute(select(func.count()).select_from(ReturPasien)).scalar()
+    p = _retur(db, d, jenis="TUKAR", metode_refund="TUNAI", pratinjau=True,
+               pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+    assert p["status"] == "pratinjau"
+    assert (p["nilai_retur"], p["nilai_pengganti"], p["nilai_hangus"], p["selisih_dibayar"]) ==         (300000.0, 100000.0, 200000.0, 0.0)
+    assert db.execute(select(func.count()).select_from(ReturPasien)).scalar() == n_retur
+    db.refresh(lot_y)
+    assert float(lot_y.qty_sisa) == 5                       # pengganti belum keluar
+    assert _komisi_aktif(db, d) == Decimal("30000")
+
+
+def test_tukar_lebih_murah_tanpa_persetujuan_ditolak(db):
+    d = _setup(db)
+    y, _ = _produk_y(db, "100000")
+    with pytest.raises(HTTPException) as e:
+        _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
+               pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+    assert e.value.status_code == 400 and "TIDAK dikembalikan" in e.value.detail
+    assert "Rp 200.000" in e.value.detail
+
+
+def test_tukar_lebih_mahal_tidak_butuh_persetujuan_hangus(db):
+    d = _setup(db)
+    y, _ = _produk_y(db, "400000")
+    h = _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
+               pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+    assert h["selisih_dibayar"] == 100000
