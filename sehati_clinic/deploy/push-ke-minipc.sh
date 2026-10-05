@@ -29,6 +29,11 @@ KECUALI=(
   "*.pyc"
   "exports/"          # hasil export bisa memuat data pasien
   "outputs/"          # sama
+  "uji_ui_log/"       # laporan jejak uji UI (scripts/jejak_uji_ui.py) — isi DB DEV,
+                      # memuat nama staf/pasien uji. Diabaikan git, tapi rsync tidak
+                      # membaca .gitignore: nyaris terkirim 2026-10-05.
+  "static/uploads/"   # unggahan (logo klinik) milik MINI PC. Dengan --delete, logo
+                      # yang diganti staf di sana akan ditimpa/dihapus versi desktop.
   "logs/"             # log dev tidak berarti di sana & bisa memuat jejak
   ".pytest_cache/"    # cache alat, sampah di produksi
   ".ruff_cache/"
