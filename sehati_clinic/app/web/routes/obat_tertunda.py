@@ -47,9 +47,37 @@ def obat_tertunda_list(request: Request, db: DbSession):
         return forbidden("Halaman Obat Tertunda hanya untuk FO / Kasir / Apotek / Owner.")
     items = ApotekService(db).list_obat_tertunda()
     today = date.today()
+
+    # T32: refund atas transaksi HARI LAMPAU butuh PIN Admin/Superadmin/Owner, dan
+    # penyetuju ≠ pemroses. Penanda di sini hanya untuk MENAMPILKAN kotak PIN — yang
+    # memutuskan tetap server (`KasirService._otorisasi_refund_lampau`); kalau penanda
+    # ini meleset, server menolak dengan pesan yang meminta PIN.
+    from sqlalchemy import func, select
+    from app.db.models import MasterStaf, TransaksiKasir
+    from app.services.kasir_service import _ROLES_PENYETUJU_REFUND
+    _ids = [i["id_kunjungan"] for i in items]
+    _tgl_bayar = dict(db.execute(
+        select(TransaksiKasir.id_kunjungan, func.max(TransaksiKasir.waktu_bayar))
+        .where(TransaksiKasir.id_kunjungan.in_(_ids))
+        .where(TransaksiKasir.status_transaksi == "BAYAR")
+        .group_by(TransaksiKasir.id_kunjungan)
+    ).all()) if _ids else {}
+    for i in items:
+        _wb = _tgl_bayar.get(i["id_kunjungan"])
+        i["butuh_otorisasi"] = _wb is not None and _wb.date() < today
+    penyetuju = [
+        s for s in db.execute(
+            select(MasterStaf).where(MasterStaf.is_active.is_(True))
+            .where(MasterStaf.pin.is_not(None)).where(MasterStaf.pin != "")
+            .order_by(MasterStaf.nama_staf)
+        ).scalars().all()
+        if (s.role.value if hasattr(s.role, "value") else str(s.role)) in _ROLES_PENYETUJU_REFUND
+        and s.id_staf != user.id_staf
+    ]
+
     ctx = build_shell_context(
         user, db=db, current_path="/web/obat-tertunda", page_subtitle="Obat Tertunda",
-        items=items, today=today,
+        items=items, today=today, penyetuju_refund=penyetuju,
         # Pembatalan berikut pengembalian uang hanya untuk peran kasir (lihat route
         # batalkan-item): apoteker tahu obatnya tak datang, kasir yang mengeluarkan uang.
         can_batalkan_item=require_kasir_role(user),  # lihat route batalkan-item
@@ -97,6 +125,13 @@ async def obat_tertunda_batalkan_item(id_kunjungan: int, request: Request, db: D
     raw_id = (f.get("id_item") or "").strip()
     alasan = (f.get("alasan") or "").strip()
     metode = (f.get("metode_refund") or "TUNAI").strip().upper()
+    # T32: hanya terisi untuk transaksi hari lampau. PIN TIDAK PERNAH dimasukkan ke
+    # URL atau pesan redirect — hanya diteruskan ke service untuk diverifikasi.
+    pin_otorisasi = (f.get("pin_otorisasi") or "").strip() or None
+    try:
+        id_staf_otorisasi = int(f.get("id_staf_otorisasi") or 0) or None
+    except (TypeError, ValueError):
+        id_staf_otorisasi = None
     try:
         id_item = int(raw_id)
     except (TypeError, ValueError):
@@ -114,7 +149,9 @@ async def obat_tertunda_batalkan_item(id_kunjungan: int, request: Request, db: D
             id_resep=id_item if jenis == "RESEP" else None,
             id_kunjungan_racikan=id_item if jenis == "RACIKAN" else None,
             alasan=alasan, metode_refund=metode,
-            actor_id_staf=user.id_staf, request=request,
+            actor_id_staf=user.id_staf,
+            id_staf_otorisasi=id_staf_otorisasi, pin_otorisasi=pin_otorisasi,
+            request=request,
         )
     except HTTPException as e:
         return RedirectResponse(url=f"/web/obat-tertunda?err={quote(str(e.detail))}",

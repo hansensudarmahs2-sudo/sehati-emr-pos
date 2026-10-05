@@ -276,11 +276,13 @@ class PrintService:
             voider = self.db.get(_MS, trx.void_by_id_staf)
             voided_by_nama = voider.nama_staf if voider else None
 
-        # Task #54-F: refund per item MENGURANGI `total_tagihan` header (keputusan
-        # dr. Hansen: supaya 12 titik agregasi uang otomatis benar). Akibatnya rincian
-        # baris di nota ini tidak lagi berjumlah sama dengan total transaksi. Nota WAJIB
-        # menyatakannya — kalau tidak, nota jadi dokumen yang angkanya tidak bisa
-        # dipertanggungjawabkan.
+        # Task #54-F + T32: nota menampilkan TOTAL BERSIH (total transaksi − refund)
+        # dan daftar pengembaliannya. Sejak T32 (2026-10-05) `total_tagihan` header
+        # TIDAK lagi dikurangi refund — jadi pengurangannya dilakukan DI SINI, supaya
+        # tampilan nota tetap sama dengan sebelumnya ("TOTAL sudah dikurangi
+        # pengembalian"). `kembali` sengaja dihitung dari total BRUTO di atas: uang
+        # kembalian terjadi saat bayar, sebelum ada refund. Dulu, dengan header yang
+        # dimutasi, kembalian di nota cetak-ulang membesar setelah refund (audit T31).
         from app.db.models import TransaksiRefund as _TR
         _refund_rows = self.db.execute(
             select(_TR.nilai_refund, _TR.tgl_refund, _TR.metode_refund, _TR.alasan)
@@ -297,6 +299,7 @@ class PrintService:
             for r in _refund_rows
         ]
         refund_total = round(sum(r["nilai"] for r in refund_items), 2)
+        total = round(total - refund_total, 2)
 
         return {
             "klinik": klinik,

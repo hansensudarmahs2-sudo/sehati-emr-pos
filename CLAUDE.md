@@ -110,12 +110,12 @@ dengan asumsi apa?*
 | **Tiga lini, tiga tingkat kehati-hatian, satu fungsi** | Diskon kepala vs per baris: **racikan** menjumlah per baris (sengaja), **tindakan** menitipkan sisa pembulatan ke baris terakhir, **produk** tidak melakukan keduanya. Hari ini produk selamat hanya karena ke-154 harga aktif kelipatan 100 — struktural, bukan karena kodenya. Satu harga BERSEN (diizinkan `decimal(12,2)`) membuat **31% nota multi-baris** berselisih Rp 0,01 antara kepala dan jumlah barisnya. Kalau menambal, pakai salah satu pola yang SUDAH ada — jangan pola keempat. TERBUKA — Temuan 35 |
 | **Kolom jembatan Finance dibuat, diekspor, tapi tidak pernah diisi** | Sudah DUA kali: `inventory_history.nilai_mutasi` (Temuan 13) dan sekarang `transaksi_kasir.doc_number` + `transaksi_refund.doc_number_refund` (Temuan 33). Migrasi 20260706_0100 mem-backfill baris lama lalu berhenti — **tidak ada penulis untuk baris BARU**, jadi setiap transaksi sejak 6 Juli 2026 referensi jurnalnya NULL, dan refund tidak bisa ditambatkan ke transaksi asalnya. Pertanyaan yang sebenarnya: **tidak ada pemeriksa yang menjaga bahwa kolom yang DIEKSPOR terisi.** TERBUKA — Temuan 33 |
 | **Pagar keunikan hanya hidup di migrasi, bukan di model** | `idempotency_key` menjaga pembayaran ganda, tapi modelnya cuma punya KOMENTAR — metadata `transaksi_kasir` punya nol indeks. DB hasil `create_all()` kehilangan pagarnya, dan begitu pagarnya hilang `IntegrityError` tak pernah terjadi sehingga backstop P0-2 **diam-diam tidak melakukan apa pun**: dua submit identik dua-duanya berhasil. Akibat Temuan 18 yang mendarat di uang. ⚠ Dan `except IntegrityError` di jalur bayar GENERIK — begitu Temuan 33 diperbaiki, pesan "pembayaran sudah diproses" bisa BERBOHONG. TERBUKA — Temuan 34 |
-| **Refund MEMUTASI transaksi asli, bukan menulis baris penyeimbang** | Omzet 3 Okt turun dari Rp 1.000.000 jadi Rp 800.000 karena refund 4 Okt — hari yang tutup kasirnya sudah ditandatangani. Satu refund, dua tanggal: tutup kasir mencatatnya di tanggal refund (benar), laporan omzet di tanggal transaksi asli. Totalnya benar, **periodenya** yang salah. Ekspor Finance harian sudah terkirim dengan angka lama. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 32 |
+| ~~Refund MEMUTASI transaksi asli~~ | **DIPERBAIKI 2026-10-05 (desktop), BELUM di mini PC.** Dulu omzet 3 Okt turun karena refund 4 Okt — hari yang tutup kasirnya sudah ditandatangani. Sekarang `total_tagihan` **tidak disentuh**; laporan mengurangi refund menurut `tgl_refund` lewat **satu** modul, `app/services/_refund_bukuan.py`. ⚠ **Laporan uang BARU yang menjumlah `total_tagihan` WAJIB memanggil modul itu** — dulu header yang dimutasi membuatnya "otomatis benar", sekarang tidak. ⚠ **Jangan kembalikan mutasi header**: migrasi `20261005_0100` sudah memulihkan header lama, jadi mutasi + pengurangan di laporan = refund dua kali. Refund hari lampau butuh PIN Admin/Superadmin/Owner (penyetuju ≠ pemroses); void ditolak bila sudah ada refund. `DESAIN_T32_REFUND_HARI_LAMPAU.md` |
 | **Kembalian dihitung, ditampilkan besar-besar, lalu dibuang** | Tidak ada kolom ber-"kembali" di 57 tabel, dan tidak ada pagar bayar-LEBIH (pagar bayar-kurang ada). Tutup kasir menghitung `SUM(nominal)`, jadi uang yang sudah keluar sebagai kembalian tetap dihitung sebagai isi laci — kasir tampak kurang tepat sebesar kembalian. Jalur yang dirancang benar (form terisi pas), tapi halaman sukses justru **menghadiahi** perilaku yang merusaknya. TERBUKA — Temuan 31 |
 | **`id_transaksi` dimasukkan ke URL ber-parameter `id_kunjungan`** | **DIPERBAIKI 2026-10-04.** Dua penomoran berbeda, dan nomornya bertabrakan: halaman membership A-T902 membuka tagihan **A-T901** dan **BKT-1791088098-591** — rekam keuangan PASIEN LAIN, status **200**, tanpa error. Satu klik biasa. Smoke UI melewatkannya karena hanya memeriksa kode status; `200` bisa berarti SALAH. Pelajarannya: crawler tidak bisa menangkap id yang salah JENIS tapi benar BENTUKNYA — itu hanya tertangkap dengan membaca template. `UJI_PENUH_LAPTOP_2026-10-04.md` |
 | ~~`created_at` dipakai sebagai TANGGAL KLINIS~~ | **DIPERBAIKI 2026-10-04.** `get_riwayat_soap` men-dedupe SOAP per tanggal `created_at` — kapan catatan DITULIS, bukan kunjungan mana yang dicatat. Dokter yang menyusul menulis catatan tiga kunjungan dalam satu hari melihat riwayatnya **luruh jadi satu entri**, tanpa error; grafik berat badan pun menumpuk di satu titik dan terlihat datar. Sekarang dedupe per `id_kunjungan` dan tanggalnya dari `kunjungan.tgl_kunjungan`. ⚠ `get_antropometri_terakhir` SENGAJA tetap memakai `updated_at` (keputusan Week 4: yang terakhir di-edit menang) — **jangan ikut diubah**. `created_at` tetap sah sebagai jejak audit. `UJI_PENUH_LAPTOP_2026-10-04.md` |
 | ~~`DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong"~~ | **DIPAGARI 2026-10-04.** Dua arti untuk dua penulis: bagi apoteker `DISERAHKAN` artinya "obat di tangan pasien", bagi penjaga void artinya "lot sudah keluar, jadi boleh dikembalikan". Penyerahan dengan stok kurang **berhasil** dan memasang `DISERAHKAN` tanpa satu lot pun terpakai — lalu void **menciptakan** lot `VOID-RETURN` berisi barang yang tak pernah ada, dan FEFO membagikannya. Sekarang di skema per-item void hanya memulihkan sebanyak yang dibuktikan jejak `kunjungan_lot_terpakai`. **Stok minus tetap diizinkan — yang diperbaiki jejaknya, bukan filosofinya.** Pemeriksanya: `python -m scripts.cek_serah_tanpa_lot`. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 30 |
-| **FEFO menyodorkan lot KEDALUWARSA lebih dulu** | Query FEFO tidak menyaring `tgl_ed`, dan karena "ED terdekat keluar dulu" lot yang sudah lewat ED ada di urutan PALING ATAS. Terbukti. Yang menahannya cuma apoteker yang membaca ED di layar — dan layarnya **tidak menandai** tanggal yang sudah lewat. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 29 |
+| **FEFO menyodorkan lot KEDALUWARSA lebih dulu** | Query FEFO tidak menyaring `tgl_ed`, dan karena "ED terdekat keluar dulu" lot yang sudah lewat ED ada di urutan PALING ATAS. Terbukti. Yang menahannya cuma apoteker yang membaca ED di layar. **DITANDAI 2026-10-05** (keputusan dr. Hansen: tandai, jangan blokir) — layar serah obat kini menandai lot lewat ED merah + "KEDALUWARSA". FEFO **sengaja tetap** tidak menyaring ED. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 29 |
 | **Nota dicetak dari harga MASTER, bukan yang ditagih** | `prepare_nota_context` menggabungkan ke `MasterTreatment.harga`/`MasterProduk.harga_jual` untuk BARIS, tapi mengambil TOTAL dari transaksi — dua sumber kebenaran di satu lembar. Tindakan kuota mencetak **baris Rp 500.000 dengan total Rp 0**. Snapshot-nya sudah ada di `transaksi_detail_*`. TERBUKA — `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 27 |
 | ~~Void diterima walau racikan/resep sudah DISERAHKAN~~ | **DIPAGARI 2026-10-04** (`_pagari_void_item_diserahkan`). Dulu: transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. `AUDIT_ALUR_UANG_2026-10-04.md` |
 | ~~`force_past_day_void` kehilangan 3 langkah rollback~~ | **DIPERBAIKI 2026-10-04.** Jalur void ADA DUA — kalau menambah langkah di satu, **periksa yang lain**. Dulu jalur kedua kehilangan `void_komisi_transaksi` + 2 revert membership, sehingga pasien mempertahankan tier VVIP atas pembayaran yang di-VOID. ⚠ **Baris yang terlanjur rusak belum dibersihkan** — query deteksinya di `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 5 |
@@ -153,6 +153,12 @@ di `dashboard_service.py`, daftarkan juga di safelist**, atau kartunya kehilanga
 warna tanpa error apa pun.
 
 ### 4.3 Audit ditulis di SESI YANG SAMA dengan bisnis
+
+✅ **DIPERBAIKI 2026-10-05** (keputusan dr. Hansen: *aksi tetap jalan, kegagalan audit
+juga tercatat*). `log()` kini menulis di dalam SAVEPOINT dan memotong setiap teks ke
+lebar kolomnya; kalau tetap gagal, ditulis baris pengganti `AUDIT_GAGAL`. Uraian di
+bawah adalah keadaan SEBELUMNYA — disimpan karena pelajarannya berlaku untuk helper
+lain yang memakai sesi bersama.
 
 `AuditService.log()` menelan semua exception — docstring-nya berkata *"audit failure
 tidak boleh block business"*. **Itu tidak berlaku.** Ia memakai sesi yang sama, jadi
@@ -273,8 +279,11 @@ estetik internal) · tindakan · resep & racikan · apotek (termasuk tebus resep
 penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Finance
 (file-drop harian) · backup terenkripsi terjadwal.
 
-**Migrasi terakhir:** `20260930_0200` (tabel `pasien_pseudonim`). Dev dan mini PC
-sama-sama di kepala ini. 57 tabel.
+**Migrasi terakhir:** `20261005_0100` (kolom penyetuju refund + pemulihan header refund,
+T32) — **hanya di DB dev desktop**, di cabang `laptop/audit-alur-uang-putaran-21`.
+**Mini PC masih di `20260930_0200`.** 57 tabel. ⚠ Migrasi ini mengubah angka
+`total_tagihan` lama (memulihkannya) — deploy di luar jam operasional, backup dulu, dan
+kabari `data_analyst` bahwa `transactions_raw.total_tagihan` kini bruto.
 
 ⚠ **Kerja 4 Oktober BELUM di `main`** — keputusan dr. Hansen: tetap di cabang.
 `main` ada di `304b58c`; cabang terakhir `laptop/perbaiki-tautan-tagihan-none`
@@ -290,7 +299,7 @@ Finance** (`transaksi_detail_tindakan` akhirnya ditulis) · workspace laptop + g
 paket klinis ber-pseudonim Tahap A · laporan Kasus Terbanyak · `age` di image
 container + folder drop klinis.
 
-✅ **Suite test: 139 lulus / 0 gagal / 1 dilewati** dengan kredensial uji terpasang — hijau penuh. Dua cacat 500 dan temuan `created_at` semuanya sudah diperbaiki.
+✅ **Suite test: 149 lulus / 0 gagal / 1 dilewati** (2026-10-05, desktop; +10 test T32) dengan kredensial uji terpasang — hijau penuh. Yang dilewati: `test_full_login_flow`, karena fixture lokalnya menanam sandi `password123` — alur login→/me→logout belum pernah teruji sungguhan. Dua cacat 500 dan temuan `created_at` semuanya sudah diperbaiki.
 ⚠ **Tanpa `TEST_USERNAME`/`TEST_PASSWORD` yang sah, 31 test DILEWATI — seluruh lapisan
 endpoint HTTP (pasien, kunjungan, dokter, antropometri, auth).** Ringkasan pytest
 menampilkan "dilewati" dengan warna yang sama seperti lulus, sehingga laporan lama

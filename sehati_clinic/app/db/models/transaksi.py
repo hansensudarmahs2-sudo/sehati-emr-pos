@@ -255,6 +255,12 @@ class TransaksiRefund(Base):
     id_staf_refund: Mapped[Optional[int]] = mapped_column(
         ForeignKey("master_staf.id_staf"), nullable=True
     )
+    # T32 (2026-10-05): refund atas transaksi HARI LAMPAU disetujui Admin/Superadmin/
+    # Owner lewat PIN, dan penyetuju TIDAK BOLEH sama dengan id_staf_refund.
+    # NULL = refund hari yang sama (kasir sendiri) atau baris sebelum migrasi.
+    id_staf_otorisasi: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("master_staf.id_staf"), nullable=True
+    )
 
     # --- Task #54-F (2026-09-22): refund PER ITEM -------------------------------
     # Obat yang sudah dibayar tapi tidak pernah datang dibatalkan per item, bukan

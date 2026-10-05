@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.security import verify_password
 from app.db.models import (
     StafRoleEnum,
+    StatusAksiAuditEnum,
     StatusTransaksiEnum,
     TransaksiDetailProduk,
     MasterTreatment,
@@ -63,6 +64,16 @@ from app.services.komisi_service import KomisiService
 # Role yang boleh otorisasi void
 _ROLES_BOLEH_OTORISASI_VOID = {
     StafRoleEnum.DOKTER.value,
+    StafRoleEnum.ADMIN.value,
+    StafRoleEnum.SUPERADMIN.value,
+    StafRoleEnum.OWNER.value,
+}
+
+# Role yang boleh menyetujui refund atas transaksi HARI LAMPAU (T32, keputusan
+# dr. Hansen 2026-10-05: "PIN admin"). SENGAJA himpunan sendiri, BUKAN
+# _ROLES_BOLEH_OTORISASI_VOID: himpunan void memuat Dokter, dan menyetujui uang
+# keluar bukan wewenang dokter. Satu himpunan, dua arti = jebakan CLAUDE.md §4.1.
+_ROLES_PENYETUJU_REFUND = {
     StafRoleEnum.ADMIN.value,
     StafRoleEnum.SUPERADMIN.value,
     StafRoleEnum.OWNER.value,
@@ -1213,10 +1224,20 @@ class KasirService:
         alasan: str,
         metode_refund: str = "TUNAI",
         actor_id_staf: int,
+        id_staf_otorisasi: Optional[int] = None,
+        pin_otorisasi: Optional[str] = None,
         request: Optional[Request] = None,
     ) -> dict:
         """Batalkan SATU item obat yang sudah dibayar tapi tidak pernah diserahkan,
         dan kembalikan uangnya.
+
+        T32 (keputusan dr. Hansen 2026-10-05, DESAIN_T32_REFUND_HARI_LAMPAU.md):
+        - Transaksi HARI LAMPAU butuh persetujuan PIN Admin/Superadmin/Owner, dan
+          penyetuju TIDAK BOLEH orang yang sama dengan pemroses refund. Uangnya tetap
+          dikembalikan; yang dipagari administrasinya. Hari yang sama: kasir sendiri.
+        - Refund dibukukan di HARI REFUND: header transaksi asal TIDAK lagi dikurangi.
+          Laporan omzet mengurangi `transaksi_refund` menurut `tgl_refund`
+          (`app.services._refund_bukuan`).
 
         Kenapa bukan void transaksi: void membatalkan SELURUH transaksi, termasuk item
         yang sudah benar-benar diserahkan ke pasien — riwayatnya rusak dan komisi
@@ -1362,6 +1383,21 @@ class KasirService:
                 detail=f"{_label} sudah pernah direfund.",
             )
 
+        # ---- 3b. T32: transaksi hari lampau butuh PIN penyetuju -------------
+        # "Hari lampau" memakai helper yang SAMA dengan jalur void, supaya refund
+        # dan void tidak punya dua definisi berbeda tentang "hari ini".
+        hari_lampau = (
+            trx.waktu_bayar is not None
+            and not self._is_same_calendar_day_utc7(trx.waktu_bayar, self._now_utc7())
+        )
+        id_penyetuju = None
+        if hari_lampau:
+            id_penyetuju = self._otorisasi_refund_lampau(
+                trx=trx, label=_label, actor_id_staf=actor_id_staf,
+                id_staf_otorisasi=id_staf_otorisasi, pin_otorisasi=pin_otorisasi,
+                request=request,
+            )
+
         try:
             now = self._now_utc7().replace(tzinfo=None)
 
@@ -1373,6 +1409,7 @@ class KasirService:
                 metode_refund=metode_refund,
                 alasan=f"Pembatalan obat tertunda — {_label}. {alasan.strip()}",
                 id_staf_refund=actor_id_staf,
+                id_staf_otorisasi=id_penyetuju,
                 jenis_refund="ITEM",
                 id_resep=id_resep,
                 id_kunjungan_racikan=id_kunjungan_racikan,
@@ -1386,13 +1423,15 @@ class KasirService:
             else:
                 item.status_item = "BATAL"
 
-            # ---- 6. Kurangi nilai transaksi ------------------------------------
-            # Keputusan dr. Hansen: header yang dikurangi, supaya 12 titik agregasi
-            # uang (omzet harian/bulanan, KPI dashboard, rekap shift, tutup kasir,
-            # ekspor Finance) otomatis benar tanpa satu pun query disentuh.
-            # Konsekuensi yang diterima: nota cetak ulang perlu penanda direfund.
+            # ---- 6. Header transaksi asal TIDAK disentuh (T32) -------------------
+            # Dulu: `trx.total_tagihan -= nilai`, supaya 12 titik agregasi uang benar
+            # tanpa query disentuh. Akibatnya omzet HARI ASAL berubah — hari yang
+            # mungkin sudah tutup kasir dan sudah terkirim ke Finance. Keputusan dr.
+            # Hansen 2026-10-05: refund dibukukan di HARI REFUND. Pengurangannya kini
+            # terjadi saat laporan dibaca (`app.services._refund_bukuan`).
+            # ⚠ JANGAN kembalikan mutasi ini: migrasi 20261005_0100 sudah memulihkan
+            # header lama, jadi mutasi + pengurangan di laporan = refund DUA KALI.
             _total_lama = Decimal(str(trx.total_tagihan or 0))
-            trx.total_tagihan = max(Decimal("0"), _total_lama - nilai)
 
             # ---- 7. Komisi baris item itu saja -------------------------------
             n_komisi = KomisiService(self.db).void_komisi_item(
@@ -1407,16 +1446,21 @@ class KasirService:
                 id_target=trx.id_transaksi,
                 data_lama={"total_tagihan": float(_total_lama)},
                 data_baru={
-                    "total_tagihan": float(trx.total_tagihan),
+                    "total_tagihan": float(_total_lama),  # tidak berubah sejak T32
                     "nilai_refund": float(nilai),
                     "metode_refund": metode_refund,
                     "id_resep": id_resep,
                     "id_kunjungan_racikan": id_kunjungan_racikan,
                     "komisi_divoid": n_komisi,
+                    "hari_lampau": hari_lampau,
+                    "id_staf_otorisasi": id_penyetuju,
                 },
                 keterangan=(
-                    f"Refund item: {_label} sebesar {nilai}. Stok TIDAK dikembalikan "
-                    f"(obat belum pernah diserahkan). Alasan: {alasan.strip()!r}"
+                    f"Refund item: {_label} sebesar {nilai}, dibukukan hari ini. Stok "
+                    f"TIDAK dikembalikan (obat belum pernah diserahkan)."
+                    + (f" Disetujui staf #{id_penyetuju} (transaksi hari lampau)."
+                       if id_penyetuju else "")
+                    + f" Alasan: {alasan.strip()!r}"
                 ),
                 request=request,
             )
@@ -1424,15 +1468,14 @@ class KasirService:
             return {
                 "status": "success",
                 "message": (
-                    f"{_label} dibatalkan. Refund Rp {nilai:,.0f} ({metode_refund}). "
-                    f"Total transaksi #{trx.id_transaksi} kini Rp "
-                    f"{trx.total_tagihan:,.0f}."
+                    f"{_label} dibatalkan. Refund Rp {nilai:,.0f} ({metode_refund}), "
+                    f"dibukukan hari ini."
                 ).replace(",", "."),
                 "data": {
                     "id_transaksi": trx.id_transaksi,
                     "nilai_refund": float(nilai),
-                    "total_tagihan_baru": float(trx.total_tagihan),
                     "komisi_divoid": n_komisi,
+                    "id_staf_otorisasi": id_penyetuju,
                 },
             }
         except HTTPException:
@@ -1445,6 +1488,72 @@ class KasirService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Gagal refund item: {e!s}",
             )
+
+    def _otorisasi_refund_lampau(
+        self,
+        *,
+        trx: TransaksiKasir,
+        label: str,
+        actor_id_staf: int,
+        id_staf_otorisasi: Optional[int],
+        pin_otorisasi: Optional[str],
+        request: Optional[Request],
+    ) -> int:
+        """Pagar T32: refund atas transaksi hari lampau. Return id penyetuju, atau raise.
+
+        Meniru otorisasi PIN dokter di `upsell_service` (pola yang sudah berjalan),
+        dengan satu tambahan: penyetuju ≠ pemroses (empat mata, keputusan dr. Hansen
+        2026-10-05). Penolakan PIN/peran dicatat di audit dan di-COMMIT sebelum raise —
+        percobaan yang ditolak justru yang paling perlu terlihat. Pesan untuk PIN salah
+        dan staf tak berwenang SENGAJA sama (tidak memberi petunjuk mana yang salah).
+        """
+        tgl_trx = trx.waktu_bayar.strftime("%d/%m/%Y")
+        if not id_staf_otorisasi or not (pin_otorisasi or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    f"Transaksi {label} dibayar {tgl_trx} (hari lampau). Refund butuh "
+                    "persetujuan PIN Admin/Superadmin/Owner."
+                ),
+            )
+        if id_staf_otorisasi == actor_id_staf:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Penyetuju tidak boleh orang yang sama dengan yang memproses refund.",
+            )
+
+        penyetuju = self.staf_repo.get_by_id(id_staf_otorisasi)
+        _role = (
+            penyetuju.role.value if penyetuju is not None and hasattr(penyetuju.role, "value")
+            else (str(penyetuju.role) if penyetuju is not None else None)
+        )
+        pin_valid = False
+        if (penyetuju is not None and penyetuju.is_active and penyetuju.pin
+                and _role in _ROLES_PENYETUJU_REFUND):
+            try:
+                pin_valid = verify_password(pin_otorisasi, penyetuju.pin)
+            except Exception:
+                pin_valid = False
+
+        if not pin_valid:
+            self.audit.log(
+                aksi="REFUND_DITOLAK_PIN",
+                id_staf=actor_id_staf,
+                tabel_target="transaksi_kasir",
+                id_target=trx.id_transaksi,
+                keterangan=(
+                    f"Refund {label} atas transaksi {tgl_trx} ditolak: PIN salah atau "
+                    f"staf tidak berwenang. id_staf_otorisasi_diuji={id_staf_otorisasi}"
+                ),
+                status_aksi=StatusAksiAuditEnum.FAILED,
+                request=request,
+            )
+            self.db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="PIN penyetuju salah atau staf tidak berwenang menyetujui refund.",
+            )
+        return penyetuju.id_staf
 
     # =========================================================================
     # REKAP SHIFT
@@ -1475,7 +1584,12 @@ class KasirService:
             RekapPerMetode(metode_bayar=m, jumlah_transaksi=n, total_nominal=total)
             for m, n, total in per_metode_rows
         ]
-        total_omzet = sum((t.total_tagihan for t in daftar), Decimal("0"))
+        # T32: refund oleh kasir ini sejak shift mulai dikurangkan di sini (sama dengan
+        # tutup kasir) — bukan lagi lewat header transaksi asal yang dimutasi.
+        from app.services import _refund_bukuan as _rb
+        total_refund = _rb.refund_per_staf(self.db, sejak, datetime.now()).get(
+            id_staf_kasir, Decimal("0"))
+        total_omzet = sum((t.total_tagihan for t in daftar), Decimal("0")) - total_refund
 
         return RekapShiftResponse(
             id_staf_kasir=id_staf_kasir,
@@ -1484,6 +1598,7 @@ class KasirService:
             waktu_rekap=datetime.now(),
             total_transaksi=len(daftar),
             total_omzet=total_omzet,
+            total_refund=total_refund,
             per_metode=per_metode,
             daftar_transaksi=daftar,
         )
@@ -2151,6 +2266,35 @@ class KasirService:
             ),
         )
 
+    def _pagari_void_sudah_refund(self, trx) -> None:
+        """Tolak void bila transaksi SUDAH punya refund (T32, keputusan dr. Hansen 2026-10-05).
+
+        Sejak T32 refund tidak lagi mengurangi `total_tagihan`; laporan mengurangi
+        `transaksi_refund` pada tanggal refund. Void mengecualikan transaksi PENUH dari
+        omzet — kalau refund-nya tetap dikurangi, uang yang sama terhitung keluar DUA
+        KALI. Dan uangnya memang sudah dikembalikan sebagian ke pasien: transaksinya
+        bukan lagi "belum selesai", jadi aturan void (CLAUDE.md §7) tidak berlaku.
+        Dipanggil di KEDUA jalur void (`void_transaksi` & `force_past_day_void`).
+        """
+        from sqlalchemy import func, select
+        from app.db.models import TransaksiRefund
+        n, total = self.db.execute(
+            select(func.count(TransaksiRefund.id_refund),
+                   func.coalesce(func.sum(TransaksiRefund.nilai_refund), 0))
+            .where(TransaksiRefund.id_transaksi == trx.id_transaksi)
+        ).one()
+        if not n:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Transaksi ini tidak bisa di-void: sudah ada {n} refund "
+                f"(Rp {Decimal(str(total)):,.0f}) yang uangnya sudah dikembalikan ke "
+                "pasien. Void akan menghitung uang itu keluar dua kali. Untuk item lain "
+                "yang belum diserahkan, pakai refund per item."
+            ).replace(",", "."),
+        )
+
     def _pagari_void_tindakan_selesai(self, trx, reason_enum) -> None:
         """Tolak void bila ada tindakan yang SUDAH SELESAI dikerjakan — APA PUN alasannya.
 
@@ -2228,6 +2372,7 @@ class KasirService:
             raise HTTPException(400, f"Hanya status BAYAR. Status: {trx.status_transaksi}")
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
+        self._pagari_void_sudah_refund(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar
@@ -2353,6 +2498,7 @@ class KasirService:
         # REFUND_PASCA_TINDAKAN paling mungkin dipakai (batasnya 10 hari).
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
+        self._pagari_void_sudah_refund(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar

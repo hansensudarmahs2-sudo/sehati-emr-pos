@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import extract, func, select, case
 from sqlalchemy.orm import Session
 
+from app.services import _refund_bukuan as _rb
 from app.db.models import (
     KunjunganTindakan,
     MasterStaf,
@@ -66,8 +67,10 @@ class ReportsService:
         )
         row = self.db.execute(stmt_total).first()
         total_trx = int(row[0] or 0)
-        total_omzet = Decimal(str(row[1] or 0))
         total_diskon = Decimal(str(row[2] or 0))
+        # T32: refund dibukukan di HARI REFUND, bukan hari transaksi asal.
+        total_refund = _rb.refund_total(self.db, start, end)
+        total_omzet = Decimal(str(row[1] or 0)) - total_refund
         rata = (total_omzet / total_trx) if total_trx > 0 else Decimal("0")
         rata = rata.quantize(Decimal("0.01"))
 
@@ -85,15 +88,26 @@ class ReportsService:
             .group_by(TransaksiKasir.id_staf_kasir, MasterStaf.nama_staf)
             .order_by(func.sum(TransaksiKasir.total_tagihan).desc())
         )
-        per_kasir = [
-            OmzetPerKasir(
+        # T32: refund dikurangkan dari PELAKU refund (sama dengan tutup kasir), supaya
+        # jumlah per kasir tetap = total_omzet. Pelaku yang tak punya penjualan hari ini
+        # tetap muncul (omzet negatif) — kalau disembunyikan, jumlahnya tak lagi cocok.
+        _ref_staf = _rb.refund_per_staf(self.db, start, end)
+        per_kasir = []
+        for r in self.db.execute(stmt_kasir).all():
+            per_kasir.append(OmzetPerKasir(
                 id_staf_kasir=int(r[0]),
                 nama_kasir=str(r[1]),
                 jumlah_transaksi=int(r[2]),
-                total_omzet=Decimal(str(r[3] or 0)),
-            )
-            for r in self.db.execute(stmt_kasir).all()
-        ]
+                total_omzet=Decimal(str(r[3] or 0)) - _ref_staf.pop(int(r[0]), Decimal("0")),
+            ))
+        for id_staf, nilai in _ref_staf.items():
+            staf = self.db.get(MasterStaf, id_staf)
+            per_kasir.append(OmzetPerKasir(
+                id_staf_kasir=id_staf,
+                nama_kasir=staf.nama_staf if staf else f"staf #{id_staf}",
+                jumlah_transaksi=0,
+                total_omzet=-nilai,
+            ))
 
         stmt_metode = (
             select(
@@ -108,14 +122,20 @@ class ReportsService:
             .group_by(TransaksiPembayaran.metode_bayar)
             .order_by(func.sum(TransaksiPembayaran.nominal).desc())
         )
-        per_metode = [
-            OmzetPerMetode(
+        # T32: refund dikurangkan per metode_refund, sama dengan tutup kasir.
+        _ref_metode = _rb.refund_per_metode(self.db, start, end)
+        per_metode = []
+        for r in self.db.execute(stmt_metode).all():
+            per_metode.append(OmzetPerMetode(
                 metode_bayar=str(r[0]),
                 jumlah_pembayaran=int(r[1]),
-                total_nominal=Decimal(str(r[2] or 0)),
-            )
-            for r in self.db.execute(stmt_metode).all()
-        ]
+                total_nominal=Decimal(str(r[2] or 0))
+                - _ref_metode.pop(str(r[0] or "TUNAI").upper(), Decimal("0")),
+            ))
+        for metode, nilai in _ref_metode.items():
+            per_metode.append(OmzetPerMetode(
+                metode_bayar=metode, jumlah_pembayaran=0, total_nominal=-nilai,
+            ))
 
         return OmzetHarianResponse(
             tanggal=tanggal,
@@ -123,6 +143,7 @@ class ReportsService:
             total_transaksi=total_trx,
             total_omzet=total_omzet,
             total_diskon=total_diskon,
+            total_refund=total_refund,
             rata_per_transaksi=rata,
             per_kasir=per_kasir,
             per_metode=per_metode,
@@ -164,9 +185,14 @@ class ReportsService:
         rows = {int(r[0]): (int(r[1]), Decimal(str(r[2] or 0)), Decimal(str(r[3] or 0)))
                 for r in self.db.execute(stmt_bulan).all()}
 
+        # T32: refund dibukukan di BULAN refund-nya, bukan bulan transaksi asal.
+        _ref_bulan = _rb.refund_per_bulan(self.db, start, end)
+
         per_bulan = []
         for b in range(bulan_dari, bulan_sampai + 1):
             count, omzet, diskon = rows.get(b, (0, Decimal("0"), Decimal("0")))
+            refund_b = _ref_bulan.get(b, Decimal("0"))
+            omzet = omzet - refund_b
             rata_b = (omzet / count).quantize(Decimal("0.01")) if count > 0 else Decimal("0")
             per_bulan.append(OmzetPerBulan(
                 tahun=tahun,
@@ -176,11 +202,13 @@ class ReportsService:
                 total_omzet=omzet,
                 total_diskon=diskon,
                 rata_per_transaksi=rata_b,
+                total_refund=refund_b,
             ))
 
         total_trx = sum(b.jumlah_transaksi for b in per_bulan)
         total_omzet = sum((b.total_omzet for b in per_bulan), Decimal("0"))
         total_diskon = sum((b.total_diskon for b in per_bulan), Decimal("0"))
+        total_refund = sum((b.total_refund for b in per_bulan), Decimal("0"))
         n_bulan = bulan_sampai - bulan_dari + 1
         rata_per_bulan = (total_omzet / n_bulan).quantize(Decimal("0.01")) if n_bulan > 0 else Decimal("0")
 
@@ -203,14 +231,19 @@ class ReportsService:
             .group_by(TransaksiPembayaran.metode_bayar)
             .order_by(func.sum(TransaksiPembayaran.nominal).desc())
         )
-        per_metode = [
-            OmzetPerMetode(
+        _ref_metode = _rb.refund_per_metode(self.db, start, end)
+        per_metode = []
+        for r in self.db.execute(stmt_metode).all():
+            per_metode.append(OmzetPerMetode(
                 metode_bayar=str(r[0]),
                 jumlah_pembayaran=int(r[1]),
-                total_nominal=Decimal(str(r[2] or 0)),
-            )
-            for r in self.db.execute(stmt_metode).all()
-        ]
+                total_nominal=Decimal(str(r[2] or 0))
+                - _ref_metode.pop(str(r[0] or "TUNAI").upper(), Decimal("0")),
+            ))
+        for metode, nilai in _ref_metode.items():
+            per_metode.append(OmzetPerMetode(
+                metode_bayar=metode, jumlah_pembayaran=0, total_nominal=-nilai,
+            ))
 
         return OmzetBulananResponse(
             tahun=tahun,
@@ -220,6 +253,7 @@ class ReportsService:
             total_transaksi=total_trx,
             total_omzet=total_omzet,
             total_diskon=total_diskon,
+            total_refund=total_refund,
             rata_per_bulan=rata_per_bulan,
             peak_bulan_label=peak_label,
             peak_bulan_omzet=peak_omzet,
@@ -676,20 +710,37 @@ class ReportsService:
         if force_id_staf_filter is not None:
             stmt_kasir = stmt_kasir.where(TransaksiKasir.id_staf_kasir == force_id_staf_filter)
 
+        # T32: refund hari ini dikurangkan dari PELAKU refund (sama dengan tutup kasir).
+        _ref_staf = _rb.refund_per_staf(self.db, start, end)
+        if force_id_staf_filter is not None:
+            _ref_staf = {k: v for k, v in _ref_staf.items() if k == force_id_staf_filter}
+
         per_kasir = []
         total_trx = 0
         total_omzet = Decimal("0")
         for r in self.db.execute(stmt_kasir).all():
             jml = int(r[2])
-            omz = Decimal(str(r[3] or 0))
+            refund_k = _ref_staf.pop(int(r[0]), Decimal("0"))
+            omz = Decimal(str(r[3] or 0)) - refund_k
             per_kasir.append({
                 "id_staf": int(r[0]),
                 "nama_kasir": str(r[1]),
                 "jumlah_transaksi": jml,
                 "total_omzet": omz,
+                "total_refund": refund_k,
             })
             total_trx += jml
             total_omzet += omz
+        for id_staf, nilai in _ref_staf.items():
+            staf = self.db.get(MasterStaf, id_staf)
+            per_kasir.append({
+                "id_staf": id_staf,
+                "nama_kasir": staf.nama_staf if staf else f"staf #{id_staf}",
+                "jumlah_transaksi": 0,
+                "total_omzet": -nilai,
+                "total_refund": nilai,
+            })
+            total_omzet -= nilai
 
         return {
             "tanggal": tgl,

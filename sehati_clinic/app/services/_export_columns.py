@@ -36,7 +36,8 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "jumlah_konsul_dokter", "type": "int", "description": "Count pemeriksaan_klinis (SOAP) di kunjungan tanggal ini."},
             {"name": "jumlah_tindakan_selesai", "type": "int", "description": "Count kunjungan_tindakan status=SELESAI dengan waktu_selesai di tanggal ini."},
             {"name": "jumlah_transaksi", "type": "int", "description": "Count transaksi_kasir dengan waktu_bayar di tanggal ini. SUDAH mengecualikan VOID."},
-            {"name": "total_omzet", "type": "float", "description": "Sum total_tagihan transaksi_kasir di tanggal ini (Rp). SUDAH mengecualikan VOID (filter status_transaksi='BAYAR' diterapkan di sumber) — JANGAN mengurangi VOID lagi dari angka ini, hasilnya akan terlalu kecil."},
+            {"name": "total_omzet", "type": "float", "description": "Omzet BERSIH tanggal ini (Rp) = sum total_tagihan transaksi_kasir yang dibayar di tanggal ini − total_refund (refund yang DIBUKUKAN di tanggal ini, bisa atas transaksi hari lampau). SUDAH mengecualikan VOID (filter status_transaksi='BAYAR' diterapkan di sumber) dan SUDAH dikurangi refund — JANGAN mengurangi VOID maupun refund lagi dari angka ini. Sejak 2026-10-05 (T32); sebelumnya refund mengurangi tanggal transaksi asal."},
+            {"name": "total_refund", "type": "float", "description": "Sum transaksi_refund.nilai_refund dengan tgl_refund di tanggal ini, atas transaksi asal BAYAR (Rp). SUDAH dikurangkan dari total_omzet; disajikan untuk penjelasan, BUKAN untuk dikurangkan lagi."},
             {"name": "total_diskon", "type": "float", "description": "Sum nominal_diskon transaksi_kasir di tanggal ini (Rp). SUDAH mengecualikan VOID, sama seperti total_omzet."},
             {"name": "jumlah_resep_dibayar", "type": "int", "description": "Count kunjungan_resep status=DIBAYAR di kunjungan tanggal ini."},
         ],
@@ -124,7 +125,7 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "nama_kasir", "type": "str | null", "description": "Nama kasir."},
             {"name": "subtotal", "type": "float", "description": "Subtotal sebelum diskon (Rp)."},
             {"name": "nominal_diskon", "type": "float", "description": "Diskon yang diberi (Rp)."},
-            {"name": "total_tagihan", "type": "float", "description": "Total final yang dibayar (Rp) = subtotal − diskon."},
+            {"name": "total_tagihan", "type": "float", "description": "Total yang dibayar SAAT TRANSAKSI (Rp) = subtotal − diskon. BRUTO terhadap refund: sejak 2026-10-05 (T32) refund TIDAK mengurangi kolom ini; refund ada di refunds_raw dan dibukukan menurut tgl_refund. Untuk omzet bersih, kurangi refunds_raw.nilai_refund per tanggal refund."},
             {"name": "keterangan_promo", "type": "str | null", "description": "Catatan promo/diskon (e.g., 'Member VIP 10%')."},
             {"name": "status_transaksi", "type": "str", "description": "BAYAR (sah) atau VOID (dibatalkan). PENTING: untuk omzet filter status='BAYAR'; VOID JANGAN dihitung sebagai penjualan."},
             {"name": "doc_number", "type": "str | null", "description": "Nomor dokumen stabil TRX-YYYY-MM-###### (referensi jurnal Finance, M-FIN-1). Backfill dari id_transaksi untuk baris lama."},
@@ -192,12 +193,18 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "jenis_refund", "type": "str", "description": "ITEM = satu baris resep/racikan dibatalkan; TRANSAKSI = seluruh transaksi."},
             {"name": "id_resep", "type": "int | null", "description": "Baris kunjungan_resep yang direfund (jenis_refund=ITEM)."},
             {"name": "id_kunjungan_racikan", "type": "int | null", "description": "Racikan yang direfund (jenis_refund=ITEM). Racikan all-or-nothing."},
+            {"name": "id_staf_otorisasi", "type": "int | null", "description": "Penyetuju (Admin/Superadmin/Owner, via PIN) untuk refund atas transaksi HARI LAMPAU; selalu orang yang berbeda dari id_staf_refund. NULL = refund di hari yang sama dengan transaksi, atau baris sebelum 2026-10-05."},
             {"name": "kode_entitas", "type": "str", "description": "Penanda PT. Konstan 'KLN'."},
         ],
         "catatan": (
-            "Refund per item (task #54-F, 2026-09-22) MENGURANGI "
-            "transaksi_kasir.total_tagihan, jadi omzet di laporan lain sudah bersih "
-            "dari nilai ini — JANGAN dikurangkan dua kali saat menyusun jurnal."
+            "BERUBAH 2026-10-05 (T32). Refund TIDAK lagi mengurangi "
+            "transaksi_kasir.total_tagihan: transactions_raw.total_tagihan adalah BRUTO, "
+            "dan refund WAJIB dikurangkan dari dataset ini menurut tgl_refund (hari uang "
+            "keluar). daily_operational_summary.total_omzet SUDAH bersih — jangan "
+            "dikurangkan lagi di sana. Refund lama yang dulu memutasi total_tagihan sudah "
+            "dipulihkan oleh migrasi 20261005_0100, jadi ekspor ulang rentang lama akan "
+            "menunjukkan total_tagihan yang LEBIH BESAR dari ekspor yang dulu dikirim — "
+            "itu angka sebenarnya saat transaksi, bukan kesalahan."
         ),
     },
 

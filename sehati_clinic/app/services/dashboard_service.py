@@ -8,6 +8,7 @@ sebanyak mungkin supaya tidak duplicate logic.
 """
 
 from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import and_, func, select, case
@@ -192,6 +193,10 @@ class DashboardService:
             .where(TransaksiKasir.waktu_bayar <= today_end)
             .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
         ).scalar() or 0
+        # T32: refund oleh kasir ini hari ini (atribusi pelaku, sama dengan tutup kasir).
+        from app.services import _refund_bukuan as _rb
+        omzet_shift = Decimal(str(omzet_shift)) - _rb.refund_per_staf(
+            self.db, today_start, today_end).get(actor.id_staf, Decimal("0"))
 
         trx_count = self.db.execute(
             select(func.count(TransaksiKasir.id_transaksi))
@@ -285,6 +290,11 @@ class DashboardService:
             .where(TransaksiKasir.waktu_bayar <= today_end)
             .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
         ).scalar() or 0
+        # T32: kurangi refund yang dibukukan hari ini. Pembayaran tidak pernah dikurangi
+        # refund (header pun tidak lagi), jadi tanpa ini KPI selalu lebih besar dari
+        # laporan omzet di hari yang ada refund-nya.
+        from app.services import _refund_bukuan as _rb
+        omzet = Decimal(str(omzet)) - _rb.refund_total(self.db, today_start, today_end)
         return {"label": "Omzet Hari Ini", "value_money": float(omzet), "icon": "💵", "color": "emerald"}
 
     def _kpi_pasien_hari_ini(self, today: date) -> dict:

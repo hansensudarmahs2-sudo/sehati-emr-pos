@@ -262,10 +262,15 @@ class ExportService:
             .group_by(func.date(Kunjungan.tgl_kunjungan))
         ).all())
 
+        # T32: refund dibukukan di TANGGAL REFUND (bukan tanggal transaksi asal).
+        from app.services import _refund_bukuan as _rb
+        ref = _rb.refund_per_tanggal(self.db, start_dt, end_dt)
+
         items = []
         cur = tgl_dari
         while cur <= tgl_sampai:
             t_cnt, t_omz, t_dsk = trx.get(cur, (0, 0, 0))
+            t_ref = ref.get(cur, 0)
             items.append({
                 "tanggal": cur.isoformat(),
                 "jumlah_kunjungan": int(kunj.get(cur, 0)),
@@ -273,7 +278,8 @@ class ExportService:
                 "jumlah_konsul_dokter": int(kons.get(cur, 0)),
                 "jumlah_tindakan_selesai": int(tind.get(cur, 0)),
                 "jumlah_transaksi": int(t_cnt),
-                "total_omzet": float(t_omz),
+                "total_omzet": float(t_omz) - float(t_ref),
+                "total_refund": float(t_ref),
                 "total_diskon": float(t_dsk),
                 "jumlah_resep_dibayar": int(resep.get(cur, 0)),
             })
@@ -653,6 +659,8 @@ class ExportService:
                 TransaksiRefund.jenis_refund,
                 TransaksiRefund.id_resep,
                 TransaksiRefund.id_kunjungan_racikan,
+                # T32: penyetuju PIN untuk refund atas transaksi hari lampau.
+                TransaksiRefund.id_staf_otorisasi,
             )
             .outerjoin(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiRefund.id_transaksi)
             .outerjoin(MasterStaf, MasterStaf.id_staf == TransaksiRefund.id_staf_refund)
@@ -675,6 +683,7 @@ class ExportService:
                 "jenis_refund": r[10],
                 "id_resep": int(r[11]) if r[11] else None,
                 "id_kunjungan_racikan": int(r[12]) if r[12] else None,
+                "id_staf_otorisasi": int(r[13]) if r[13] else None,
                 "kode_entitas": "KLN",
             }
             for r in self.db.execute(stmt).all()

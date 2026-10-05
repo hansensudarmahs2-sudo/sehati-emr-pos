@@ -22,6 +22,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.services import _refund_bukuan as _rb
 from app.db.models import (
     Kunjungan,
     KunjunganTindakan,
@@ -69,7 +70,10 @@ class RekapHarianService:
             )
         )).first()
         total_trx = int(row[0] or 0)
-        total_omzet = Decimal(str(row[1] or 0))
+        # T32: refund dibukukan di HARI REFUND (bisa atas transaksi hari lampau).
+        # Atribusi per metode & per kasir sama dengan tutup kasir (`_refund_bukuan`).
+        total_refund = _rb.refund_total(db, start, end)
+        total_omzet = Decimal(str(row[1] or 0)) - total_refund
         rata = (total_omzet / total_trx).quantize(Decimal("0.01")) if total_trx > 0 else Decimal("0")
 
         # ---- 3. Per metode bayar (jumlah transaksi distinct + rupiah) ----
@@ -82,9 +86,16 @@ class RekapHarianService:
             .group_by(TransaksiPembayaran.metode_bayar)
             .order_by(func.sum(TransaksiPembayaran.nominal).desc())
         )).all()
+        _ref_metode = _rb.refund_per_metode(db, start, end)
         per_metode = [
-            {"metode_bayar": str(m), "jumlah_transaksi": int(n), "total_nominal": Decimal(str(t or 0))}
+            {"metode_bayar": str(m), "jumlah_transaksi": int(n),
+             "total_nominal": Decimal(str(t or 0))
+             - _ref_metode.pop(str(m or "TUNAI").upper(), Decimal("0"))}
             for m, n, t in metode_rows
+        ]
+        per_metode += [
+            {"metode_bayar": m, "jumlah_transaksi": 0, "total_nominal": -v}
+            for m, v in _ref_metode.items()
         ]
 
         # ---- 4. Single vs Split (jumlah pembayaran per transaksi) ----
@@ -125,6 +136,13 @@ class RekapHarianService:
             else:
                 retail_n += 1
                 retail_rp += nilai
+        # T32: refund hari ini mengurangi golongan TRANSAKSI ASAL-nya (konsultasi/retail),
+        # tanpa menambah hitungan transaksi.
+        for id_kunjungan, nilai in _rb.refund_per_kunjungan(db, start, end):
+            if id_kunjungan is not None and id_kunjungan in klinis_set:
+                konsul_rp -= nilai
+            else:
+                retail_rp -= nilai
 
         # ---- 6. Per kasir ----
         kasir_rows = db.execute(_bayar_today(
@@ -137,11 +155,20 @@ class RekapHarianService:
             .group_by(TransaksiKasir.id_staf_kasir, MasterStaf.nama_staf)
             .order_by(func.sum(TransaksiKasir.total_tagihan).desc())
         )).all()
+        _ref_staf = _rb.refund_per_staf(db, start, end)
         per_kasir = [
             {"id_staf_kasir": int(i), "nama_kasir": str(nm),
-             "jumlah_transaksi": int(n), "total_omzet": Decimal(str(t or 0))}
+             "jumlah_transaksi": int(n),
+             "total_omzet": Decimal(str(t or 0)) - _ref_staf.pop(int(i), Decimal("0"))}
             for i, nm, n, t in kasir_rows
         ]
+        for id_staf, nilai in _ref_staf.items():
+            staf = db.get(MasterStaf, id_staf)
+            per_kasir.append({
+                "id_staf_kasir": id_staf,
+                "nama_kasir": staf.nama_staf if staf else f"staf #{id_staf}",
+                "jumlah_transaksi": 0, "total_omzet": -nilai,
+            })
 
         return {
             "tanggal": tanggal,
@@ -149,6 +176,7 @@ class RekapHarianService:
             "total_kunjungan": int(total_kunjungan),
             "total_transaksi": total_trx,
             "total_omzet": total_omzet,
+            "total_refund": total_refund,
             "rata_per_transaksi": rata,
             "per_metode": per_metode,
             "single_count": n_single,

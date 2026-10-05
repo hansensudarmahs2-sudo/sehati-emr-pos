@@ -266,7 +266,8 @@ class RekapShiftResponse(BaseModel):
     waktu_mulai_shift: Optional[datetime] = None
     waktu_rekap: datetime
     total_transaksi: int = 0
-    total_omzet: Decimal = Decimal("0")
+    total_omzet: Decimal = Decimal("0")  # BERSIH: dikurangi refund oleh kasir ini sejak shift mulai (T32)
+    total_refund: Decimal = Decimal("0")
     per_metode: list[RekapPerMetode] = Field(default_factory=list)
     daftar_transaksi: list[RekapShiftItem] = Field(default_factory=list)
 

@@ -37,9 +37,12 @@ class OmzetHarianResponse(BaseModel):
     waktu_rekap: datetime
 
     total_transaksi: int = 0
-    total_omzet: Decimal = Decimal("0")
+    total_omzet: Decimal = Decimal("0")  # BERSIH: penjualan hari ini − refund hari ini (T32)
     total_diskon: Decimal = Decimal("0")
     rata_per_transaksi: Decimal = Decimal("0")
+    # T32: refund yang DIBUKUKAN hari ini (bisa atas transaksi hari lampau).
+    # Sudah dikurangkan dari total_omzet; ditampilkan supaya angkanya bisa dijelaskan.
+    total_refund: Decimal = Decimal("0")
 
     per_kasir: list[OmzetPerKasir] = Field(default_factory=list)
     per_metode: list[OmzetPerMetode] = Field(default_factory=list)
@@ -54,9 +57,10 @@ class OmzetPerBulan(BaseModel):
     bulan: int  # 1-12
     bulan_label: str  # "Jan 2026"
     jumlah_transaksi: int
-    total_omzet: Decimal
+    total_omzet: Decimal  # BERSIH setelah refund yang dibukukan di bulan ini (T32)
     total_diskon: Decimal
     rata_per_transaksi: Decimal
+    total_refund: Decimal = Decimal("0")
 
 
 class OmzetBulananResponse(BaseModel):
@@ -71,6 +75,7 @@ class OmzetBulananResponse(BaseModel):
     total_transaksi: int = 0
     total_omzet: Decimal = Decimal("0")
     total_diskon: Decimal = Decimal("0")
+    total_refund: Decimal = Decimal("0")  # T32: sudah dikurangkan dari total_omzet
     rata_per_bulan: Decimal = Decimal("0")
     peak_bulan_label: str = ""  # bulan dengan omzet tertinggi
     peak_bulan_omzet: Decimal = Decimal("0")

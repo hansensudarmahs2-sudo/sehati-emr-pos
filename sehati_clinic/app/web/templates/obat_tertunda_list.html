@@ -57,6 +57,20 @@
                   <option value="TUNAI">Tunai</option>
                   <option value="TRANSFER">Transfer</option>
                 </select>
+                {# T32: transaksi hari lampau — refund butuh PIN Admin/Superadmin/Owner,
+                   dan penyetuju BUKAN orang yang sedang login (daftar sudah disaring). #}
+                {% if i.butuh_otorisasi %}
+                <select name="id_staf_otorisasi" required title="Penyetuju refund hari lampau"
+                        class="border border-amber-400 bg-amber-50 rounded px-1 py-0.5 text-xs">
+                  <option value="">— penyetuju —</option>
+                  {% for s in penyetuju_refund %}
+                  <option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>
+                  {% endfor %}
+                </select>
+                <input type="password" name="pin_otorisasi" required inputmode="numeric"
+                       autocomplete="off" placeholder="PIN" title="PIN penyetuju"
+                       class="border border-amber-400 bg-amber-50 rounded px-1 py-0.5 text-xs" style="width:56px">
+                {% endif %}
                 <button type="submit" title="Batalkan item & kembalikan uang"
                         class="px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">
                   ✗ Batal
