@@ -131,6 +131,42 @@ def pengembalian_kunjungan(db: Session, id_kunjungan: int) -> list:
     return sorted(flat, key=lambda r: (r["tgl"] is None, r["tgl"] or 0, r["id_refund"]))
 
 
+def transaksi_kunjungan(db: Session, id_kunjungan: int) -> list:
+    """SEMUA transaksi kunjungan ini, urut waktu bayar, dengan nilai bersihnya — untuk
+    halaman tagihan yang sudah lunas (dr. Hansen 2026-10-05).
+
+    Kenapa perlu: `get_tagihan` memakai transaksi TERAKHIR (benar untuk cutoff tagihan
+    susulan), dan sejak retur TUKAR menempel di kunjungan asal, header halaman jadi
+    menunjuk transaksi TUKAR (#1324 Rp 30.000) sementara daftar obatnya memuat obat
+    transaksi asal juga. Daftar ini menampilkan setiap transaksi dengan notanya sendiri.
+
+    `bersih` = total − pengembalian atas transaksi ITU; VOID → 0 (tidak dihitung).
+    Uang TUKAR saling meniadakan: transaksi TUKAR dibayar metode TUKAR dan transaksi
+    asalnya punya pengembalian TUKAR senilai sama, jadi jumlah `bersih` = uang yang
+    benar-benar dibayar pasien untuk kunjungan ini."""
+    from sqlalchemy import select
+    rows = db.execute(select(TransaksiKasir)
+                      .where(TransaksiKasir.id_kunjungan == id_kunjungan)
+                      .order_by(TransaksiKasir.waktu_bayar, TransaksiKasir.id_transaksi)
+                      ).scalars().all()
+    per = daftar_pengembalian(db, [t.id_transaksi for t in rows])
+    hasil = []
+    for t in rows:
+        total = Decimal(str(t.total_tagihan or 0))
+        kembali = sum((r["nilai"] for r in per.get(t.id_transaksi, [])), Decimal("0"))
+        void = t.status_transaksi == "VOID"
+        hasil.append({
+            "id_transaksi": t.id_transaksi,
+            "jenis": t.jenis_transaksi or "KLINIS",
+            "status": t.status_transaksi,
+            "waktu_bayar": t.waktu_bayar,
+            "total": total,
+            "kembali": kembali,
+            "bersih": Decimal("0") if void else total - kembali,
+        })
+    return hasil
+
+
 def daftar_penyetuju_refund(db: Session, kecuali_id_staf: Optional[int]) -> list:
     """Staf yang BISA dipilih sebagai penyetuju PIN refund/retur: aktif, ber-PIN, berperan
     `_ROLES_PENYETUJU_REFUND`, dan BUKAN orang yang sedang memproses (empat mata).

@@ -252,6 +252,32 @@ def test_tukar_lebih_murah_sisa_hangus_laci_dan_omzet_diam(db):
     assert float(rp.nilai_hangus) == 200000 and rp.jenis.value == "TUKAR"
 
 
+def _dibayar_bersih(db, d):
+    from app.services.kasir_service import transaksi_kunjungan
+    return sum(t["bersih"] for t in transaksi_kunjungan(db, d["trx"].id_kunjungan))
+
+
+@pytest.mark.parametrize("harga_y, bersih", [
+    ("400000", 400000),   # lebih mahal: 300.000 asal + 100.000 selisih tunai
+    ("100000", 300000),   # lebih murah: sisa 200.000 HANGUS — uang pasien tetap 300.000
+])
+def test_dibayar_bersih_halaman_tagihan_sesudah_tukar(db, harga_y, bersih):
+    """Angka "DIBAYAR BERSIH" di halaman tagihan lunas = uang yang benar-benar dibayar
+    pasien. Transaksi TUKAR dan pengembalian TUKAR atas transaksi asal saling meniadakan;
+    kalau salah satunya tidak dihitung, angkanya meleset sebesar nilai pengganti."""
+    d = _setup(db)
+    y, _ = _produk_y(db, harga_y)
+    _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
+           pengganti=[{"id_produk": y.id_produk, "qty": 1}], setuju_hangus=True)
+    assert _dibayar_bersih(db, d) == Decimal(bersih)
+
+
+def test_dibayar_bersih_nol_sesudah_retur_penuh_uang_kembali(db):
+    d = _setup(db)
+    _retur(db, d, metode_refund="TUNAI")
+    assert _dibayar_bersih(db, d) == 0
+
+
 def test_tukar_tanpa_pengganti_atau_selisih_bermetode_tukar_ditolak(db):
     d = _setup(db)
     with pytest.raises(HTTPException) as e:

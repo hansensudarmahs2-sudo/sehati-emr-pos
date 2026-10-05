@@ -27,6 +27,7 @@ from app.schemas.kasir import (
 from app.services.kasir_service import KasirService
 from app.services.kasir_service import daftar_pengembalian as _daftar_pengembalian
 from app.services.kasir_service import pengembalian_kunjungan as _pengembalian_kunjungan
+from app.services.kasir_service import transaksi_kunjungan as _transaksi_kunjungan
 from app.services.membership_service import MembershipService
 from app.services.klinik_config_service import KlinikConfigService
 from app.services.print_service import PrintService
@@ -122,6 +123,10 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         # TIDAK dikurangi refund sejak T32 — tanpa kotak ini halaman ini diam soal
         # uang yang sudah dikembalikan (dr. Hansen 2026-10-05, saat mencoba void #270).
         pengembalian=_pengembalian_kunjungan(db, id_kunjungan),
+        # Semua transaksi kunjungan (asal + TUKAR + susulan), masing-masing dengan notanya —
+        # header & ringkasan halaman lunas membaca ini, bukan transaksi TERAKHIR saja.
+        transaksi_kunjungan=(_transaksi_kunjungan(db, id_kunjungan)
+                             if tagihan_dict.get("sudah_lunas") else []),
         idempotency_key=_secrets.token_urlsafe(24),
         flash=request.query_params.get("ok"),
         error=request.query_params.get("err"),
