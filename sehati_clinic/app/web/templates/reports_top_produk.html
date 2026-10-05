@@ -137,7 +137,10 @@
                     <td class="py-2 px-3">
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{{ it.tipe_produk or "—" }}</span>
                     </td>
-                    <td class="py-2 px-3 text-right font-mono font-semibold">{{ "%g"|format(it.total_qty) }} {{ it.satuan }}</td>
+                    <td class="py-2 px-3 text-right font-mono font-semibold">{{ "%g"|format(it.total_qty) }} {{ it.satuan }}
+                        {# total_qty SUDAH bersih dari retur pasien (dr. Hansen 2026-10-05). #}
+                        {% if it.qty_diretur %}<div class="text-[10px] text-red-600 font-sans font-normal">bersih · {{ "%g"|format(it.qty_diretur) }} diretur</div>{% endif %}
+                    </td>
                     <td class="py-2 px-3 text-right font-mono">{{ it.total_dispensed_count }}</td>
                     <td class="py-2 px-3 text-right font-mono">{{ it.total_unique_kunjungan }}</td>
                     <td class="py-2 px-3 text-right font-mono text-xs">{{ "%.2f"|format(it.avg_qty_per_kunjungan) }}</td>

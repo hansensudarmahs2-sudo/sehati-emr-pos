@@ -872,6 +872,41 @@ class ReportsService:
     # =========================================================================
     # #363B - Rekap Resep Dispensed Apoteker
     # =========================================================================
+    def _retur_per_item(self, id_resep=(), id_racikan=()):
+        """Retur DARI PASIEN atas item yang sudah diserahkan → dua peta:
+        `{id_resep: {"qty": Decimal, "nomor": [RPS-…]}}` dan yang sama per
+        `id_kunjungan_racikan`. Satu item bisa diretur beberapa kali (sebagian).
+
+        Kenapa perlu: item yang diretur TETAP berstatus `DISERAHKAN` (statusnya
+        bercerita tentang penyerahan, dan penyerahan memang terjadi), jadi laporan
+        yang hanya membaca status ikut menghitungnya. Keputusan dr. Hansen 2026-10-05:
+        rekap apoteker tetap menghitung + penanda; top produk dihitung BERSIH,
+        dikurangkan di periode PENYERAHAN asli (bukan periode retur)."""
+        from collections import defaultdict
+        from decimal import Decimal
+        from sqlalchemy import select, or_
+        from app.db.models import ReturPasien
+
+        id_resep = [i for i in id_resep if i]
+        id_racikan = [i for i in id_racikan if i]
+        per_resep = defaultdict(lambda: {"qty": Decimal("0"), "nomor": []})
+        per_racik = defaultdict(lambda: {"qty": Decimal("0"), "nomor": []})
+        syarat = []
+        if id_resep:
+            syarat.append(ReturPasien.id_resep.in_(id_resep))
+        if id_racikan:
+            syarat.append(ReturPasien.id_kunjungan_racikan.in_(id_racikan))
+        if not syarat:
+            return {}, {}
+        for r in self.db.execute(
+            select(ReturPasien).where(or_(*syarat)).order_by(ReturPasien.id_retur)
+        ).scalars().all():
+            peta, kunci = ((per_resep, r.id_resep) if r.id_resep
+                           else (per_racik, r.id_kunjungan_racikan))
+            peta[kunci]["qty"] += Decimal(str(r.qty or 0))
+            peta[kunci]["nomor"].append(r.nomor_retur)
+        return dict(per_resep), dict(per_racik)
+
     def get_apoteker_dispensed_report(
         self,
         tgl_dari,
@@ -892,6 +927,10 @@ class ReportsService:
 
         CATATAN: racikan belum masuk laporan ini (skemanya per-produk); bahan racikan
         yang diserahkan tidak tampil sebagai baris tersendiri.
+
+        RETUR DARI PASIEN (dr. Hansen 2026-10-05): item yang kemudian diretur TETAP
+        dihitung — ini catatan KERJA apoteker, dan penyerahannya memang terjadi.
+        Barisnya hanya diberi penanda `qty_diretur` + `nomor_retur`.
 
         Filter:
         - apoteker_id: filter spesifik apoteker (optional)
@@ -1029,6 +1068,7 @@ class ReportsService:
             resep_rows.append(_NS2(
                 id_kunjungan=_rc.id_kunjungan,
                 id_resep=None, id_produk=None, kode_produk=None,
+                id_kunjungan_racikan=_rc.id_kunjungan_racikan,
                 nama_produk=_rc.nama_snapshot,
                 # qty=1 supaya subtotal = harga_jual; harga_jual dipakai sebagai
                 # TOTAL racikan (bahan + ongkos racik) yang sudah terkunci.
@@ -1059,6 +1099,11 @@ class ReportsService:
             ).all()
             apoteker_name_map = {r.id_staf: r.nama_staf for r in staf_rows}
 
+        # Penanda retur (tidak mengurangi angka apa pun — lihat docstring).
+        _ret_resep, _ret_racik = self._retur_per_item(
+            [getattr(r, "id_resep", None) for r in resep_rows],
+            [getattr(r, "id_kunjungan_racikan", None) for r in resep_rows])
+
         # Step 4: Build items + summary
         all_items = []
         per_apoteker_agg = {}  # id_staf -> dict accumulator
@@ -1076,6 +1121,8 @@ class ReportsService:
             subtotal = qty * harga
 
             _is_racik = bool(getattr(r, "is_racikan", False))
+            _ret = (_ret_racik.get(getattr(r, "id_kunjungan_racikan", None)) if _is_racik
+                    else _ret_resep.get(r.id_resep))
             all_items.append(ApotekerDispensedItem(
                 id_kunjungan=r.id_kunjungan,
                 id_resep=r.id_resep,
@@ -1095,6 +1142,8 @@ class ReportsService:
                 nama_pasien=r.nama_pasien,
                 apoteker_nama=apt_nama,
                 id_staf_apoteker=id_apt or 0,
+                qty_diretur=float(_ret["qty"]) if _ret else 0,
+                nomor_retur=", ".join(_ret["nomor"]) if _ret else None,
             ))
 
             # Aggregate per apoteker
@@ -1377,11 +1426,35 @@ class ReportsService:
         # yang diserahkan. Itu ikut menyembunyikan RACIKAN — hari yang seluruh
         # penyerahannya berupa racikan akan tampil sebagai laporan kosong. Sekarang
         # agregasi produk dilewati, tapi racikan tetap dihitung di bawah.
+        # RETUR DARI PASIEN (dr. Hansen 2026-10-05): laporan ini menjawab "obat apa
+        # yang benar-benar dipakai pasien" — dasar belanja stok — jadi dihitung
+        # BERSIH. Dikurangkan di periode PENYERAHAN asli (item ini sendiri), bukan
+        # periode retur: tak pernah minus. Item yang diretur seluruhnya keluar dari
+        # hitungan (qty, jumlah kejadian, kunjungan); yang sebagian dikurangi qty-nya.
+        # Obat PENGGANTI dari retur TUKAR adalah baris DISERAHKAN tersendiri dan
+        # memang dihitung — ia benar-benar keluar ke pasien.
+        _ret_resep, _ = self._retur_per_item(id_resep_serah, ())
+        kurang_per_produk, diretur_per_produk = {}, {}
+        if _ret_resep:
+            habis = set()
+            for _idr, _idp, _q in self.db.execute(
+                select(KunjunganResep.id_resep, KunjunganResep.id_produk, KunjunganResep.qty)
+                .where(KunjunganResep.id_resep.in_(list(_ret_resep)))
+            ).all():
+                _r = _ret_resep[_idr]["qty"]
+                diretur_per_produk[_idp] = diretur_per_produk.get(_idp, 0) + _r
+                if _r >= Decimal(str(_q or 0)):
+                    habis.add(_idr)
+                else:
+                    kurang_per_produk[_idp] = kurang_per_produk.get(_idp, 0) + _r
+            id_resep_serah = [i for i in id_resep_serah if i not in habis]
+
         rows = []
         if id_resep_serah:
             rows = self._agg_produk_dispensed(id_resep_serah)
 
-        items_raw, total_nominal_all, total_events = self._rakit_item_produk(rows)
+        items_raw, total_nominal_all, total_events = self._rakit_item_produk(
+            rows, kurang_per_produk, diretur_per_produk)
 
         # ---- RACIKAN (2026-09-30) -----------------------------------------
         # Dua pertanyaan berbeda, dijawab terpisah:
@@ -1427,14 +1500,21 @@ class ReportsService:
         )
         return list(self.db.execute(agg_stmt).all())
 
-    def _rakit_item_produk(self, rows):
-        """Baris agregasi → dict item + total nominal + jumlah event."""
+    def _rakit_item_produk(self, rows, kurang_per_produk=None, diretur_per_produk=None):
+        """Baris agregasi → dict item + total nominal + jumlah event.
+
+        `kurang_per_produk`: qty retur SEBAGIAN yang dikurangkan (retur penuh sudah
+        dikeluarkan sebelum agregasi). `diretur_per_produk`: seluruh qty retur, hanya
+        untuk ditampilkan."""
         from decimal import Decimal
+        kurang_per_produk = kurang_per_produk or {}
+        diretur_per_produk = diretur_per_produk or {}
         items_raw = []
         total_nominal_all = Decimal(0)  # A9: akumulasi Decimal
         total_events = 0
         for r in rows:
-            qty = Decimal(str(r.total_qty or 0))
+            qty = (Decimal(str(r.total_qty or 0))
+                   - Decimal(str(kurang_per_produk.get(r.id_produk, 0))))
             harga = r.harga_jual if r.harga_jual is not None else Decimal(0)
             nominal = qty * harga
             tipe = r.tipe_produk.value if hasattr(r.tipe_produk, "value") else (str(r.tipe_produk) if r.tipe_produk else None)
@@ -1451,6 +1531,7 @@ class ReportsService:
                 "avg_qty_per_kunjungan": (float(qty) / int(r.unique_kunj)) if r.unique_kunj else 0,
                 "harga_satuan": float(harga),
                 "stok_terkini": float(r.stok_terkini or 0),
+                "qty_diretur": float(diretur_per_produk.get(r.id_produk, 0)),
             })
             total_nominal_all += nominal
             total_events += int(r.dispensed_count or 0)
@@ -1479,6 +1560,10 @@ class ReportsService:
             .where(KunjunganRacikan.waktu_serah >= start_dt)
             .where(KunjunganRacikan.waktu_serah <= end_dt)
         ).scalars().all())
+        # Racikan yang diretur pasien (selalu UTUH) tidak dihitung — bahannya maupun
+        # peringkatnya. Lihat `get_top_dispensed_products`.
+        _, _ret_racik = self._retur_per_item((), head_ids)
+        head_ids = [h for h in head_ids if h not in _ret_racik]
         if not head_ids:
             return items_raw, [], 0, 0.0
 

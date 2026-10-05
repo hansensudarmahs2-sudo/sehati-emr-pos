@@ -767,6 +767,7 @@ def reports_apoteker_dispensed_csv(
         "waktu_serah", "jenis", "no_rm", "nama_pasien", "kode_produk", "nama_produk",
         "qty", "harga_satuan", "subtotal", "aturan_pakai",
         "apoteker_id", "apoteker_nama", "id_kunjungan",
+        "qty_diretur", "nomor_retur",   # penanda retur pasien; baris TIDAK dikurangi
     ])
     for it in data.items:
         writer.writerow([
@@ -776,6 +777,7 @@ def reports_apoteker_dispensed_csv(
             it.qty, ("" if it.is_racikan else it.harga_satuan), it.subtotal,
             it.aturan_pakai or "",
             it.id_staf_apoteker, it.apoteker_nama, it.id_kunjungan,
+            it.qty_diretur or "", it.nomor_retur or "",
         ])
 
     output.seek(0)
@@ -1083,6 +1085,7 @@ def reports_top_produk_csv(
         "avg_qty_per_kunjungan", "harga_satuan", "total_nominal", "stok_terkini",
         "qty_racikan", "satuan_racikan", "racikan_count", "nominal_racikan",
         "hanya_dari_racikan",
+        "qty_diretur",   # total_qty SUDAH bersih; ini hanya penjelas selisihnya
     ])
     for it in data.items:
         writer.writerow([
@@ -1091,6 +1094,7 @@ def reports_top_produk_csv(
             round(it.avg_qty_per_kunjungan, 2), it.harga_satuan, it.total_nominal, it.stok_terkini,
             it.qty_racikan, it.satuan_racikan or "", it.racikan_count, it.nominal_racikan,
             "YA" if it.hanya_dari_racikan else "",
+            it.qty_diretur or "",
         ])
 
     # Peringkat racikan disusulkan sebagai blok terpisah di CSV yang sama, dengan

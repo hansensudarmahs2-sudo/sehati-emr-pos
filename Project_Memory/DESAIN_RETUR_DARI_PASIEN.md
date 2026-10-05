@@ -319,9 +319,17 @@ pada DB tanpa retur → upgrade ulang.
 - **Daftar penyetuju PIN** satu fungsi: `kasir_service.daftar_penyetuju_refund`.
 
 ### Belum dikerjakan (dicatat jujur)
-- **Laporan apotek** (obat diserahkan, racikan) masih menghitung item yang SUDAH diretur —
-  statusnya tetap `DISERAHKAN`. Perlu keputusan arti laporan: "yang pernah keluar" atau
-  "yang terjual bersih". Pola sama dengan Temuan 1.
+- ~~**Laporan apotek** masih menghitung item yang SUDAH diretur~~ — **SELESAI 2026-10-05**
+  (keputusan dr. Hansen): dua laporan, dua arti.
+  - *Rekap penyerahan per apoteker* = catatan KERJA → tetap dihitung, baris diberi penanda
+    `qty_diretur` + `nomor_retur` (layar & CSV).
+  - *Top produk* = dasar belanja stok → BERSIH: retur penuh keluar dari qty/kejadian/kunjungan,
+    sebagian dikurangi qty-nya, racikan yang diretur (selalu utuh) keluar dari bahan & peringkat.
+    Dikurangkan di periode PENYERAHAN asli (bukan periode retur) → tak pernah minus; laporan
+    bulan lalu bisa bergeser ≤ 7 hari sesudah tutup bulan. Pengganti TUKAR tetap dihitung.
+  - Satu sumber: `ReportsService._retur_per_item`. Test: `test_laporan_apotek_*` (4, dua arah).
+- **Nominal Top produk memakai harga MASTER hari ini**, bukan harga yang ditagih (pola sebelum
+  T27). Bukan akibat retur; ditemukan saat mengerjakan butir di atas. Belum dikerjakan.
 - **Laporan susut / kerugian retur** (`nilai_kerugian`) belum punya layar; datanya tersimpan.
 - Satu produk pengganti per retur di layar (layanan menerima beberapa).
 - Uji otomatis route persetujuan draf dokter (menulis DB sungguhan) → diuji manual U40–U41.

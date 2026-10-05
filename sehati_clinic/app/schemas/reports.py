@@ -258,6 +258,9 @@ class ApotekerDispensedItem(BaseModel):
     nama_pasien: str
     apoteker_nama: str
     id_staf_apoteker: int
+    # Retur dari pasien atas item ini (penanda saja — rekap apoteker TIDAK dikurangi).
+    qty_diretur: float = 0
+    nomor_retur: str | None = None
 
 
 class ApotekerSummaryPerStaf(BaseModel):
@@ -378,6 +381,9 @@ class TopProdukItem(BaseModel):
     satuan_racikan: str | None = None      # "butir" / "gr" / satuan_isi produk
     racikan_count: int = 0                 # berapa racikan memakai produk ini
     nominal_racikan: float = 0
+    # Qty yang diretur pasien atas penyerahan di periode ini. `total_qty` SUDAH
+    # bersih (dikurangi angka ini); kolom ini hanya menjelaskan selisihnya.
+    qty_diretur: float = 0
     # True = produk ini TIDAK PERNAH terjual langsung dalam rentang ini, hanya
     # terpakai sebagai bahan racikan. Sebelum ini ia hilang sama sekali dari
     # laporan, sehingga terlihat seperti barang mati padahal stoknya terkuras.

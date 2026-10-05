@@ -158,6 +158,11 @@
                     </td>
                     <td class="py-2 px-3 text-right font-mono">
                         {{ "%g"|format(it.qty) }}{% if it.is_racikan %} <span class="text-xs text-slate-500">unit</span>{% endif %}
+                        {# Penanda saja: penyerahannya terjadi, jadi tetap dihitung
+                           (keputusan dr. Hansen 2026-10-05). #}
+                        {% if it.nomor_retur %}
+                        <div class="text-[10px] text-red-600 font-sans" title="{{ it.nomor_retur }}">↩ diretur {% if it.is_racikan %}utuh{% else %}{{ "%g"|format(it.qty_diretur) }}{% endif %} · {{ it.nomor_retur }}</div>
+                        {% endif %}
                     </td>
                     <td class="py-2 px-3 text-right font-mono text-xs">
                         {% if it.is_racikan %}<span class="text-slate-400">—</span>

@@ -496,3 +496,79 @@ def test_tukar_lebih_mahal_tidak_butuh_persetujuan_hangus(db):
     h = _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
                pengganti=[{"id_produk": y.id_produk, "qty": 1}])
     assert h["selisih_dibayar"] == 100000
+
+
+# ============================================================================
+# Laporan apotek atas obat yang diretur (keputusan dr. Hansen 2026-10-05):
+# rekap apoteker TETAP menghitung + penanda; top produk BERSIH, dikurangkan di
+# periode PENYERAHAN asli.
+# ============================================================================
+from app.db.models import ReturPasien  # noqa: E402
+from app.db.models.racikan import KunjunganRacikan  # noqa: E402
+
+
+def _tgl(d):
+    return d["resep"].waktu_serah.date()
+
+
+def _top(db, d):
+    return ReportsService(db).get_top_dispensed_products(_tgl(d), _tgl(d), limit=500)
+
+
+def _baris_top(db, d, id_produk):
+    return next((it for it in _top(db, d).items if it.id_produk == id_produk), None)
+
+
+def _baris_apoteker(db, d, **kunci):
+    rpt = ReportsService(db).get_apoteker_dispensed_report(_tgl(d), _tgl(d), page_size=100000)
+    return next(it for it in rpt.items
+                if all(getattr(it, k) == v for k, v in kunci.items()))
+
+
+def test_laporan_apotek_retur_sebagian(db):
+    d = _setup(db)
+    _retur(db, d, qty=1, id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
+    top = _baris_top(db, d, d["produk"].id_produk)
+    assert (top.total_qty, top.qty_diretur, top.total_dispensed_count) == (2, 1, 1)
+    apt = _baris_apoteker(db, d, id_resep=d["resep"].id_resep)
+    assert apt.qty == 3 and apt.qty_diretur == 1 and apt.nomor_retur.startswith("RPS-")
+
+
+def test_laporan_apotek_retur_penuh_keluar_dari_top_tetap_di_rekap(db):
+    d = _setup(db)
+    h = _retur(db, d, metode_refund="TUNAI")
+    assert _baris_top(db, d, d["produk"].id_produk) is None
+    apt = _baris_apoteker(db, d, id_resep=d["resep"].id_resep)
+    assert apt.qty == 3 and h["nomor_retur"] in apt.nomor_retur
+
+
+def test_laporan_apotek_tukar_hanya_pengganti_di_top(db):
+    """Sebelum perbaikan: obat asal DAN penggantinya sama-sama terhitung keluar."""
+    d = _setup(db)
+    y, _ = _produk_y(db, "300000")
+    _retur(db, d, jenis="TUKAR", metode_refund="TUNAI",
+           pengganti=[{"id_produk": y.id_produk, "qty": 1}])
+    assert _baris_top(db, d, d["produk"].id_produk) is None
+    assert _baris_top(db, d, y.id_produk).total_qty == 1
+
+
+def test_laporan_apotek_racikan_diretur_keluar_dari_top(db):
+    """Racikan selalu diretur UTUH → hilang dari peringkat racikan, tetap di rekap
+    apoteker dengan penanda. Baris retur ditulis langsung: yang diuji laporannya."""
+    d = _setup(db)
+    nama = f"Uji Racik Retur {random.randint(10000, 99999)}"
+    rc = KunjunganRacikan(id_kunjungan=d["trx"].id_kunjungan, nama_snapshot=nama,
+                          jenis_racik="PUYER", jumlah_unit=10, total=50000,
+                          status_item="DISERAHKAN", waktu_serah=d["resep"].waktu_serah)
+    db.add(rc); db.flush()
+    assert nama in [r.nama for r in _top(db, d).racikan]
+    db.add(ReturPasien(nomor_retur=f"RPS-UJI-{rc.id_kunjungan_racikan}",
+                       id_transaksi_asal=d["trx"].id_transaksi,
+                       id_kunjungan_racikan=rc.id_kunjungan_racikan, qty=1, is_sebagian=False,
+                       waktu_serah_asal=rc.waktu_serah, jenis="REFUND",
+                       alasan_kode="TIDAK_PUAS", alasan_teks="uji", nilai_retur=50000,
+                       stok_kembali=False, id_staf=d["kasir"].id_staf))
+    db.flush()
+    assert nama not in [r.nama for r in _top(db, d).racikan]
+    apt = _baris_apoteker(db, d, id_resep=None, nama_produk=nama)
+    assert apt.nomor_retur == f"RPS-UJI-{rc.id_kunjungan_racikan}"
