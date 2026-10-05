@@ -284,16 +284,16 @@ penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Financ
 
 **Migrasi terakhir:** `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
 `RETUR_PASIEN`), sebelumnya `20261005_0100` (penyetuju refund + pemulihan header, T32) —
-**keduanya hanya di DB dev desktop**, di cabang `laptop/audit-alur-uang-putaran-21`.
+**keduanya hanya di DB dev desktop** (kodenya sudah di `main`).
 **Mini PC masih di `20260930_0200`.** 59 tabel (dev). ⚠ Migrasi ini mengubah angka
 `total_tagihan` lama (memulihkannya) — deploy di luar jam operasional, backup dulu, dan
 kabari `data_analyst` bahwa `transactions_raw.total_tagihan` kini bruto.
 
-⚠ **Kerja 4 Oktober BELUM di `main`** — keputusan dr. Hansen: tetap di cabang.
-`main` ada di `304b58c`; cabang terakhir `laptop/perbaiki-tautan-tagihan-none`
-**29 commit** di atasnya, dalam **satu rantai lurus** (diverifikasi: semua cabang lain
-adalah leluhurnya, jadi menggabungkan nanti cukup SATU cabang).
-Peta lengkapnya: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
+✅ **Kerja 4–5 Oktober SUDAH di `main`** (2026-10-05, atas permintaan dr. Hansen):
+`main` dimajukan fast-forward `304b58c` → `55eeaea` (46 commit, satu rantai lurus;
+semua cabang `laptop/…` adalah leluhurnya). Remote `core` (`sehat-i-core`) repo LAIN —
+tidak disentuh. ⚠ `main` ≠ mini PC: mini PC masih kode lama + migrasi `20260930_0200`.
+Peta kerja 4 Okt: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
 
 **Baru selesai (2026-10-04, dari laptop):** kompilasi ulang Tailwind (48→0 kelas warna
 hilang) · paket klinis Tahap B · verifikasi S1 CSP/HSTS · **F3 snapshot line-item
