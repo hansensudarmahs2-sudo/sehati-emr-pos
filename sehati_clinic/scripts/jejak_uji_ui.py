@@ -296,9 +296,16 @@ def jejak(db, titik) -> Laporan:
           LEFT JOIN stok_lot l ON l.id_produk=p.id_produk AND l.tipe_item='PRODUK' AND l.status='AKTIF'
          WHERE p.id_produk IN (
                SELECT id_produk FROM kunjungan_lot_terpakai WHERE id_terpakai > :a
-               UNION SELECT id_produk FROM stok_lot WHERE id_lot > :b AND id_produk IS NOT NULL)
+               UNION SELECT id_produk FROM stok_lot WHERE id_lot > :b AND id_produk IS NOT NULL
+               -- retur dari pasien yang KEMBALI ke stok menambah lot LAMA (bukan lot baru),
+               -- jadi tak terlihat dari dua sumber di atas.
+               UNION SELECT l.id_produk FROM retur_pasien_lot rl
+                       JOIN retur_pasien r ON r.id_retur = rl.id_retur
+                       JOIN stok_lot l ON l.id_lot = rl.id_lot
+                      WHERE r.id_retur > :c)
          GROUP BY p.id_produk, p.nama_produk, p.stok_terkini"""),
-        {"a": ids["kunjungan_lot_terpakai"], "b": ids["stok_lot"]}).all()
+        {"a": ids["kunjungan_lot_terpakai"], "b": ids["stok_lot"],
+         "c": ids.get("retur_pasien", 0)}).all()
     if not beda:
         L.info("Tidak ada produk yang stoknya tersentuh")
     for r in beda:

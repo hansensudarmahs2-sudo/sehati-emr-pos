@@ -115,14 +115,14 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 
 | ID | Langkah di UI | Yang harus terlihat | Jejak § | Hasil |
 |---|---|---|---|---|
-| U34 | **Kasir → Cari Transaksi** → tombol **↩ Retur** pada transaksi BAYAR | Halaman retur memuat obat yang sudah diserahkan, batas tanggal 7 hari, saran pengganti golongan sama | — | |
-| U35 | Retur **penuh**, Kembalikan uang, Tunai, centang "kembali ke stok" | Nota retur "PENGEMBALIAN DANA"; omzet HARI INI turun; stok obat naik kembali | 1, 3, 5, 7 | |
+| U34 | **Kasir → Cari Transaksi** → tombol **↩ Retur** pada transaksi BAYAR | Halaman retur memuat obat yang sudah diserahkan, batas tanggal 7 hari, saran pengganti golongan sama | — | ✅ 05/10 — #270, Cream CP tampil, batas 7 hari, saran golongan |
+| U35 | Retur **penuh**, Kembalikan uang, Tunai, centang "kembali ke stok" | Nota retur "PENGEMBALIAN DANA"; omzet HARI INI turun; stok obat naik kembali | 1, 3, 5, 7 | ✅ 05/10 — RPS-2026-10-000416, Rp 150.000 tunai; komisi VOID; cache 100 = lot 100; omzet 4 pembaca sepakat |
 | U36 | Retur **sebagian** (qty kurang dari sisa) TANPA PIN | **Ditolak** "Retur SEBAGIAN … butuh persetujuan PIN" | 1 | |
 | U37 | Ulangi dengan penyetuju `admin` + PIN | Berhasil; nota bertanda "(sebagian)" | 3 | |
 | U38 | **Tukar** dengan produk LEBIH MAHAL | Nota "PENUKARAN PRODUK" + "Selisih dibayar pasien"; laci (Tutup Kasir) hanya bertambah selisih | 2, 5 | |
 | U39 | **Tukar** dengan produk LEBIH MURAH | "Sisa nilai tidak dikembalikan"; laci & omzet TIDAK bergerak | 5 | |
-| U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | |
-| U41 | Setujui lagi dengan keparahan dipilih | "Alergi dicatat di data pasien"; data pasien memuat alergen itu; KPI "Total Kunjungan" TIDAK bertambah | — | |
+| U40 | Retur alasan **Dugaan alergi** → login dokter peresep → **Draf SOAP** | Kartu draf + kotak kuning alergi; Setujui TANPA memilih keparahan → **ditolak**, tidak ada yang tersimpan | — | ⏳ belum terbukti — penolakan tanpa keparahan tidak tercatat di jejak; uji pada retur alergi berikutnya |
+| U41 | Setujui lagi dengan keparahan dipilih | "Alergi dicatat di data pasien"; data pasien memuat alergen itu; KPI "Total Kunjungan" TIDAK bertambah | — | ✅ 05/10 — dokter menyetujui 12:52:33; SOAP_DRAF_DISETUJUI + ALERGI_DARI_RETUR di detik yang sama; alergi #44 'Clobetasol Propionat 0,05%' dari kandungan |
 | U42 | Coba **void** transaksi asal yang sudah diretur | Ditolak (sudah ada refund) | 1 | |
 | U43 | Retur obat yang diserahkan > 7 hari lalu | Tidak ada form; "lewat batas 7 hari" | — | |
 
@@ -141,4 +141,6 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 
 | Tanggal | Penguji | Butir | Laporan jejak | Catatan |
 |---|---|---|---|---|
-| | | | | |
+| 2026-10-05 | dr. Hansen | U01–U03, U12 ✅ | jejak_20261005_100402 | Laci dibuka `kasir`, bayar oleh `hansen` masuk expected; tutup 1.150.000 selisih 0. U02 semula salah petunjuk (FO) — dikoreksi. Tutup kasir sempat terblokir 12 kunjungan sisa test booking (dibereskan) |
+| 2026-10-05 | dr. Hansen | U16 ✅ | — | Void ditolak karena obat sudah diserahkan → memunculkan modul retur |
+| 2026-10-05 | dr. Hansen | U34, U35, U41 ✅ · U40 ⏳ | jejak_20261005_125333 | Retur alergi Cream CP → draf → disetujui `dokter` → alergi tercatat |
