@@ -131,7 +131,22 @@ class PrintService:
         items = []
         benefit_items: list[dict[str, Any]] = []
         diskon_benefit = 0.0
-        if id_kunj is not None:
+        # T27 (keputusan dr. Hansen 2026-10-05, DESAIN_T27_NOTA_DARI_SNAPSHOT.md):
+        # baris nota = yang DITAGIH di transaksi INI, dari snapshot transaksi_detail_*.
+        # Dulu baris diambil dari harga MASTER hari ini dan dipilih per KUNJUNGAN:
+        # tindakan kuota tercetak "Rp 500.000" dengan total Rp 0, nota lama berubah kalau
+        # harga naik, dan split billing bisa memuat baris transaksi lain.
+        # Transaksi tanpa snapshot tindakan (sebelum F3, 2026-10-04 — artinya SEMUA data
+        # mini PC saat T27 dibuat) memakai cara lama + penanda `rekonstruksi`.
+        rekonstruksi = False
+        nilai_benefit_prabayar = 0.0
+        snap = self._baris_snapshot(trx.id_transaksi) if id_kunj is not None else None
+        if snap is not None:
+            items.extend(snap["items"])
+            benefit_items.extend(snap["benefit_items"])
+            nilai_benefit_prabayar = snap["nilai_benefit"]
+        elif id_kunj is not None:
+            rekonstruksi = True
             tindakan_rows = self.db.execute(
                 select(KunjunganTindakan, MasterTreatment.nama_treatment, MasterTreatment.harga)
                 .join(MasterTreatment, MasterTreatment.id_treatment == KunjunganTindakan.id_treatment)
@@ -212,6 +227,7 @@ class PrintService:
                     "subtotal": round(qty * hg, 2),
                 })
 
+        if id_kunj is not None:
             # Fase 3: racikan. Dibaca dari SNAPSHOT transaksi_detail_racikan (bukan dari
             # kunjungan_racikan) supaya nota lama tetap utuh walau racikannya diubah.
             # qty=1 karena satu baris = satu racikan utuh; jumlah unit masuk ke label.
@@ -325,8 +341,12 @@ class PrintService:
             "items": items,
             "subtotal": subtotal,
             "diskon": diskon,
-            "diskon_benefit": round(diskon_benefit, 2),
+            "diskon_benefit": round(diskon_benefit, 2),  # hanya jalur lama (rekonstruksi)
             "benefit_items": benefit_items,
+            # T27: nilai normal hak prabayar yang terpakai (kuota/series) — INFORMASI,
+            # bukan pengurang: barisnya sudah Rp 0. Hanya jalur snapshot.
+            "nilai_benefit_prabayar": nilai_benefit_prabayar,
+            "rekonstruksi": rekonstruksi,
             "total": total,
             "pembayaran": pembayaran_list,
             "total_bayar": total_bayar,
@@ -548,6 +568,114 @@ class PrintService:
     # =========================================================================
     # HELPERS
     # =========================================================================
+    def _info_kuota(self, id_kuota: int) -> tuple[str, str]:
+        """(nama_tier, periode) untuk satu baris kuota membership. '?' kalau tak terlacak."""
+        from app.db.models import (
+            MasterMembership as _MM,
+            PasienMembershipHistory as _PMH,
+            PasienMembershipKuota as _PMK,
+        )
+        tier_name, periode_str = "?", "?"
+        try:
+            k = self.db.get(_PMK, id_kuota)
+            if k is not None:
+                pv = k.periode_kuota.value if hasattr(k.periode_kuota, "value") else str(k.periode_kuota or "")
+                periode_str = f"{pv} {k.bulan_periode}" if k.bulan_periode else pv
+                if k.id_membership_history:
+                    h = self.db.get(_PMH, k.id_membership_history)
+                    t = self.db.get(_MM, h.id_membership) if h is not None else None
+                    if t is not None:
+                        tier_name = t.nama_tier
+        except Exception:
+            pass
+        return tier_name, periode_str
+
+    def _baris_snapshot(self, id_transaksi: int) -> Optional[dict]:
+        """Baris tindakan + obat dari snapshot transaksi INI (T27). None = pakai jalur lama.
+
+        Jalur lama HANYA kalau kunjungan punya tindakan SELESAI tapi TIDAK SATU PUN
+        transaksinya punya baris `transaksi_detail_tindakan` (data sebelum F3).
+        ⚠ Jangan sederhanakan jadi "transaksi ini tak punya snapshot tindakan": nota
+        transaksi obat-saja, atau transaksi KEDUA pada split billing, akan salah ditandai
+        "direkonstruksi" — dan yang kedua kembali memuat tindakan milik transaksi lain.
+        """
+        from app.db.models import (
+            KunjunganTindakan, MasterProduk, MasterTreatment, TransaksiDetailProduk,
+            TransaksiDetailTindakan, TransaksiKasir,
+        )
+        from app.db.models._enums import StatusTindakanEnum
+        trx = self.db.get(TransaksiKasir, id_transaksi)
+        if trx is None or trx.id_kunjungan is None:
+            return None
+        ada_tindakan = self.db.execute(
+            select(KunjunganTindakan.id_kunjungan_tindakan)
+            .where(KunjunganTindakan.id_kunjungan == trx.id_kunjungan,
+                   KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI)
+            .limit(1)
+        ).first()
+        ada_snapshot = self.db.execute(
+            select(TransaksiDetailTindakan.id_detail_tindakan)
+            .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)
+            .where(TransaksiKasir.id_kunjungan == trx.id_kunjungan)
+            .limit(1)
+        ).first()
+        if ada_tindakan and not ada_snapshot:
+            return None
+
+        items: list[dict[str, Any]] = []
+        benefit_items: list[dict[str, Any]] = []
+        nilai_benefit = 0.0
+        rows = self.db.execute(
+            select(TransaksiDetailTindakan, MasterTreatment.nama_treatment,
+                   MasterTreatment.harga, KunjunganTindakan)
+            .join(MasterTreatment, MasterTreatment.id_treatment == TransaksiDetailTindakan.id_treatment)
+            .outerjoin(KunjunganTindakan, KunjunganTindakan.id_kunjungan_tindakan
+                       == TransaksiDetailTindakan.id_kunjungan_tindakan)
+            .where(TransaksiDetailTindakan.id_transaksi == id_transaksi)
+            .order_by(TransaksiDetailTindakan.id_detail_tindakan)
+        ).all()
+        for d, nama, harga_master, kt in rows:
+            harga = float(d.harga_satuan or 0)
+            normal = float(harga_master or 0)
+            ket = ket_pendek = None
+            # Prabayar = ditagih Rp 0 karena haknya sudah dibayar di muka: kuota
+            # membership, atau sesi series ke-2..N. Sesi series PERTAMA ditagih penuh,
+            # jadi syarat harga 0 wajib — jangan hanya melihat id_rencana.
+            if kt is not None and harga == 0 and normal > 0:
+                if kt.id_kuota_member is not None:
+                    tier, periode = self._info_kuota(kt.id_kuota_member)
+                    ket = f"Benefit {tier} (prabayar)"
+                    ket_pendek = f"Benefit {tier}"
+                    benefit_items.append({"nama_treatment": nama, "tier": tier,
+                                          "periode": periode, "nominal": normal})
+                elif kt.id_rencana is not None:
+                    ket = "Paket series (prabayar)"
+                    ket_pendek = "Paket series"
+            if ket:
+                nilai_benefit += normal
+            items.append({
+                "tipe": "TND", "label": nama,
+                "qty": float(d.qty or 1), "harga": harga,
+                "subtotal": float(d.subtotal or 0),
+                "pakai_kuota": ket is not None,
+                "ket_prabayar": ket, "ket_pendek": ket_pendek,  # pendek: thermal 58mm
+                "nilai_normal": normal if ket else None,
+            })
+
+        for d, nama in self.db.execute(
+            select(TransaksiDetailProduk, MasterProduk.nama_produk)
+            .join(MasterProduk, MasterProduk.id_produk == TransaksiDetailProduk.id_produk)
+            .where(TransaksiDetailProduk.id_transaksi == id_transaksi)
+            .order_by(TransaksiDetailProduk.id_detail)
+        ).all():
+            items.append({
+                "tipe": "OBT", "label": nama,
+                "qty": float(d.qty or 0), "harga": float(d.harga_satuan or 0),
+                "subtotal": float(d.subtotal or 0),
+            })
+        return {"items": items, "benefit_items": benefit_items,
+                "nilai_benefit": round(nilai_benefit, 2)}
+
     def _klinik_dict(self, cfg) -> dict[str, Any]:
         """Helper: extract klinik config sebagai dict untuk template."""
         return {

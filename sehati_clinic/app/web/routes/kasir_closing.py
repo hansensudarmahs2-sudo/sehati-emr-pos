@@ -169,17 +169,24 @@ def kasir_tutup_slip(id_closing: int, request: Request, db: DbSession):
             "<div style='padding:2rem'>Closing tidak ditemukan / belum ditutup.</div>",
             status_code=404,
         )
-    # Kasir hanya boleh slip miliknya; admin/owner (rekap-kasir) boleh semua.
-    if not require_rekap_kasir_role(user) and sesi.id_staf_kasir != user.id_staf:
+    # Kasir hanya boleh slip sesi yang ia BUKA atau TUTUP (T28: satu laci, bisa dua
+    # orang berbeda); admin/owner (rekap-kasir) boleh semua.
+    if not require_rekap_kasir_role(user) and user.id_staf not in (
+            sesi.id_staf_kasir, sesi.id_staf_tutup):
         return _403()
 
     klinik = KlinikConfigService(db).get_config()
-    staf = StafRepository(db).get_by_id(sesi.id_staf_kasir)
+    staf_repo = StafRepository(db)
+    staf = staf_repo.get_by_id(sesi.id_staf_kasir)
+    penutup = staf_repo.get_by_id(sesi.id_staf_tutup) if sesi.id_staf_tutup else None
     ctx = {
         "klinik": klinik,
         "sesi": sesi,
         "detail": sesi.detail_metode or [],
         "kasir_nama": staf.nama_staf if staf else "-",
+        "penutup_nama": penutup.nama_staf if penutup else None,
+        "sesudah_tutup": KasirClosingService(db)._pembayaran_di_luar_jendela(
+            sesi, sesudah_tutup=True),
         "tgl_cetak": datetime.now().strftime("%d/%m/%Y %H:%M"),  # A4: WIB (slip)
     }
     return templates.TemplateResponse(request, "print/ztutup_kasir.html", ctx)

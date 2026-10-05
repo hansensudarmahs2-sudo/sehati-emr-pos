@@ -18,7 +18,8 @@
 
 <div style="margin-top: 4px;">
     <div>Sesi  : #{{ sesi.id_closing }}</div>
-    <div>Kasir : {{ kasir_nama }}</div>
+    <div>Dibuka: {{ kasir_nama }}</div>
+    {% if penutup_nama and penutup_nama != kasir_nama %}<div>Ditutup: {{ penutup_nama }}</div>{% endif %}
     <div>Buka  : {{ sesi.shift_mulai.strftime('%d/%m/%Y %H:%M') if sesi.shift_mulai else '-' }}</div>
     <div>Tutup : {{ sesi.shift_tutup.strftime('%d/%m/%Y %H:%M') if sesi.shift_tutup else '-' }}</div>
     <div>Modal : {{ "{:,.0f}".format(sesi.modal_awal|float).replace(",", ".") }}</div>
@@ -63,6 +64,20 @@
 <div class="divider"></div>
 <div>Catatan:</div>
 <div>{{ sesi.catatan }}</div>
+{% endif %}
+
+{# T28: uang yang masuk SESUDAH kasir ditutup di tanggal yang sama. Angka di atas
+   TIDAK diubah (sudah ditandatangani) — ini supaya uangnya tidak hilang dari pandangan. #}
+{% if sesudah_tutup %}
+<div class="divider"></div>
+<div class="font-bold">! MASUK SESUDAH TUTUP</div>
+{% for x in sesudah_tutup %}
+<div style="display:flex; justify-content:space-between; font-size:0.9em;">
+    <span>{{ x.waktu.strftime('%H:%M') }} #{{ x.id_transaksi }}</span>
+    <span>{{ "{:,.0f}".format(x.nominal|float).replace(",", ".") }}</span>
+</div>
+{% endfor %}
+<div style="font-size:0.85em;">Tidak termasuk angka di atas.</div>
 {% endif %}
 
 <div class="divider"></div>

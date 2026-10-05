@@ -50,6 +50,10 @@
     <span>  {{ "%g"|format(it.qty) }} x {{ "{:,.0f}".format(it.harga).replace(",", ".") }}</span>
     <span>{{ "{:,.0f}".format(it.subtotal).replace(",", ".") }}</span>
 </div>
+{# T27: versi pendek untuk 58mm (keputusan dr. Hansen 2026-10-05). #}
+{% if it.ket_pendek %}
+<div style="font-size: 0.85em;">  ↳ {{ it.ket_pendek }} · normal {{ "{:,.0f}".format(it.nilai_normal).replace(",", ".") }}</div>
+{% endif %}
 {% else %}
 <div class="text-center">(tidak ada item)</div>
 {% endfor %}
@@ -87,6 +91,17 @@
 {% if ada_refund %}
 <div style="font-size:0.85em;text-align:center;margin-top:3px">
     * TOTAL sudah dikurangi pengembalian dana
+</div>
+{% endif %}
+{% if nilai_benefit_prabayar and nilai_benefit_prabayar > 0 %}
+<div style="display: flex; justify-content: space-between; font-size: 0.85em;">
+    <span>Benefit prabayar terpakai</span>
+    <span>{{ "{:,.0f}".format(nilai_benefit_prabayar).replace(",", ".") }}</span>
+</div>
+{% endif %}
+{% if rekonstruksi %}
+<div style="font-size:0.8em;text-align:center;margin-top:3px">
+    * Rincian dari harga saat ini (transaksi lama)
 </div>
 {% endif %}
 

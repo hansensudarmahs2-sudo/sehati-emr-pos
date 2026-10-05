@@ -18,6 +18,7 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.db.models import (
+    KasirClosing,
     Kunjungan,
     KunjunganResep,
     StatusItemResepEnum,
@@ -137,20 +138,26 @@ def test_rekap_shift_excludes_void(db):
 # =============================================================================
 # 3. KasirClosingService._penjualan_per_metode — exclude VOID (sudah benar; lock)
 # =============================================================================
+def _sesi_laci_hari_ini():
+    """T28: expected tutup kasir kini milik LACI per TANGGAL (siapa pun pemrosesnya).
+    Objek sesi transien — tidak ditulis ke DB; cukup `shift_mulai` untuk tanggalnya."""
+    return KasirClosing(shift_mulai=datetime.now(), modal_awal=0, status="OPEN")
+
+
 def test_closing_penjualan_per_metode_excludes_void(db):
     staf = _first_staf(db)
-    sejak = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     svc = KasirClosingService(db)
+    sesi = _sesi_laci_hari_ini()
 
-    base = svc._penjualan_per_metode(staf.id_staf, sejak)
+    base = svc._penjualan_per_metode(sesi)
     base_tunai = Decimal(str(base.get("TUNAI", 0)))
 
     _mk_trx(db, staf.id_staf, 100000, status="BAYAR", metode="TUNAI")
-    a = svc._penjualan_per_metode(staf.id_staf, sejak)
+    a = svc._penjualan_per_metode(sesi)
     assert Decimal(str(a.get("TUNAI", 0))) == base_tunai + Decimal("100000")
 
     _mk_trx(db, staf.id_staf, 700000, status="VOID", metode="TUNAI")
-    b = svc._penjualan_per_metode(staf.id_staf, sejak)
+    b = svc._penjualan_per_metode(sesi)
     assert Decimal(str(b.get("TUNAI", 0))) == base_tunai + Decimal("100000")  # VOID diabaikan
 
 
@@ -216,7 +223,7 @@ def test_parity_closing_vs_rekap_per_metode(db):
     kasir = KasirService(db)
 
     def _tunai_closing():
-        return Decimal(str(closing._penjualan_per_metode(staf.id_staf, sejak).get("TUNAI", 0)))
+        return Decimal(str(closing._penjualan_per_metode(_sesi_laci_hari_ini()).get("TUNAI", 0)))
 
     def _tunai_rekap():
         for m in kasir.rekap_shift(staf.id_staf).per_metode:
@@ -224,9 +231,11 @@ def test_parity_closing_vs_rekap_per_metode(db):
                 return Decimal(str(m.total_nominal))
         return Decimal("0")
 
-    # Baseline: kedua sumber harus setuju
+    # T28 (2026-10-05): angka ABSOLUT tidak lagi sama, dan memang tidak boleh —
+    # tutup kasir menghitung SATU LACI (semua petugas di tanggal itu), rekap_shift
+    # hanya kasir ini. Yang tetap wajib sama adalah PERUBAHANNYA: transaksi BAYAR
+    # menambah keduanya sebesar nilainya, VOID tidak menambah apa pun.
     c0, r0 = _tunai_closing(), _tunai_rekap()
-    assert c0 == r0
 
     # Tambah BAYAR 100rb + VOID 700rb (TUNAI)
     _mk_trx(db, staf.id_staf, 100000, status="BAYAR", metode="TUNAI")
@@ -234,4 +243,4 @@ def test_parity_closing_vs_rekap_per_metode(db):
 
     c1, r1 = _tunai_closing(), _tunai_rekap()
     assert c1 == c0 + Decimal("100000")   # hanya BAYAR yang dihitung
-    assert c1 == r1                        # parity tetap; dua-duanya exclude VOID
+    assert r1 == r0 + Decimal("100000")   # parity PERUBAHAN; dua-duanya exclude VOID

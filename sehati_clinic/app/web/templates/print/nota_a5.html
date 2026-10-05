@@ -81,6 +81,10 @@
             <td>
                 <span class="mono muted" style="font-size: 0.8em;">{{ it.tipe }}</span>
                 {{ it.label }}
+                {# T27: hak prabayar (kuota/series) — ditagih Rp 0, nilai normalnya informasi. #}
+                {% if it.ket_prabayar %}
+                <div class="muted" style="font-size: 0.85em;">↳ {{ it.ket_prabayar }} · nilai normal Rp {{ "{:,.0f}".format(it.nilai_normal).replace(",", ".") }}</div>
+                {% endif %}
             </td>
             <td class="text-right mono">{{ "%g"|format(it.qty) }}</td>
             <td class="text-right mono">{{ "{:,.0f}".format(it.harga).replace(",", ".") }}</td>
@@ -126,7 +130,19 @@
         <td class="text-right font-bold" style="font-size: 1.1em;">TOTAL</td>
         <td class="text-right mono font-bold" style="font-size: 1.1em;">Rp {{ "{:,.0f}".format(total).replace(",", ".") }}</td>
     </tr>
+    {% if nilai_benefit_prabayar and nilai_benefit_prabayar > 0 %}
+    <tr>
+        <td class="text-right muted" style="font-size: 0.9em;">Nilai benefit prabayar terpakai hari ini</td>
+        <td class="text-right mono muted" style="font-size: 0.9em;">Rp {{ "{:,.0f}".format(nilai_benefit_prabayar).replace(",", ".") }}</td>
+    </tr>
+    {% endif %}
 </table>
+{% if rekonstruksi %}
+<div class="muted" style="font-size: 0.8em; margin-top: 4px;">
+    * Rincian direkonstruksi dari harga saat ini — transaksi ini dibuat sebelum rincian
+    per transaksi dicatat. TOTAL tetap sesuai yang dibayar.
+</div>
+{% endif %}
 
 {% if ada_refund %}
 <div class="divider"></div>

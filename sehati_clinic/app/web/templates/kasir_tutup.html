@@ -55,6 +55,48 @@
         <div><span class="text-slate-400 block text-xs">Shift mulai</span>{{ sesi.shift_mulai.strftime('%d/%m/%Y %H:%M') }}</div>
         <div><span class="text-slate-400 block text-xs">Modal awal</span>Rp {{ "{:,.0f}".format(preview.modal_awal|float).replace(",", ".") }}</div>
     </div>
+    {# T28: satu laci, dihitung per TANGGAL — semua uang hari itu, siapa pun yang memproses.
+       Sengaja di luar grid di atas: `sm:col-span-3` tidak ada di app.css yang terkompilasi. #}
+    <div class="mb-4 text-xs text-slate-500">
+        Laci tanggal <b>{{ preview.tanggal_sesi.strftime('%d/%m/%Y') }}</b> — dihitung dari
+        <b>semua</b> pembayaran & refund di tanggal itu, siapa pun petugasnya.
+        {% if preview.id_staf_kasir != user.id_staf %}Dibuka oleh staf lain; Anda yang menutup.{% endif %}
+    </div>
+
+    {# T28: uang yang masuk SEBELUM "Buka Kasir" ditekan — tetap dihitung, ini penjelasan. #}
+    {% if preview.sebelum_buka %}
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4 text-sm text-amber-800">
+        <div class="font-semibold mb-1">&#9888; {{ preview.sebelum_buka|length }} pembayaran masuk SEBELUM kasir dibuka</div>
+        <div class="text-xs text-amber-700 mb-2">Sudah termasuk di angka expected di bawah. Ditampilkan supaya selisihnya bisa dijelaskan.</div>
+        <ul class="space-y-0.5 text-xs font-mono">
+            {% for x in preview.sebelum_buka %}
+            <li>{{ x.waktu.strftime('%H:%M') }} · #{{ x.id_transaksi }} · {{ x.petugas }} · Rp {{ "{:,.0f}".format(x.nominal|float).replace(",", ".") }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if preview.per_petugas %}
+    <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4 text-sm">
+        <div class="font-semibold text-slate-700 mb-2">Rincian per petugas</div>
+        <table class="w-full text-xs">
+            <thead class="text-slate-500"><tr>
+                <th class="text-left py-1">Petugas</th><th class="text-right py-1">Diterima</th>
+                <th class="text-right py-1">Refund</th><th class="text-right py-1">Bersih</th>
+            </tr></thead>
+            <tbody class="divide-y divide-slate-100">
+            {% for p in preview.per_petugas %}
+            <tr>
+                <td class="py-1">{{ p.nama }}</td>
+                <td class="py-1 text-right font-mono">{{ "{:,.0f}".format(p.penjualan|float).replace(",", ".") }}</td>
+                <td class="py-1 text-right font-mono">{% if p.refund %}−{{ "{:,.0f}".format(p.refund|float).replace(",", ".") }}{% else %}–{% endif %}</td>
+                <td class="py-1 text-right font-mono">{{ "{:,.0f}".format(p.bersih|float).replace(",", ".") }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 
     {# Peringatan proaktif: masih ada pasien antri → tutup kasir akan ditolak #}
     {% if pending_antrian %}
