@@ -286,14 +286,23 @@ penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Financ
 
 **Migrasi terakhir:** `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
 (Sehati jadi sumber No. RM Omnicare selama input ganda; `DESAIN_NO_RM_OMNICARE.md`).
-**Di mini PC sejak 2026-10-07 09:41** (backup `sehati_db_20261007_094058`); 33 pasien, 0
-bernomor Omnicare — diisi dr. Hansen sendiri. Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
+**Di mini PC sejak 2026-10-07 09:41** (backup `sehati_db_20261007_094058`). Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
 `RETUR_PASIEN`), sebelumnya `20261005_0100` (penyetuju refund + pemulihan header, T32) —
 **keduanya sudah di mini PC** (deploy 2026-10-05 22:50, sesudah klinik tutup; backup
 `sehati_db_20261005_224934` dibuat tepat sebelumnya). Mini PC & dev: `20261006_0100`,
 60 tabel. Saat deploy mini PC punya **0 transaksi** (33 pasien) — pemulihan header T32
 tidak mengubah satu angka pun. ⚠ `data_analyst` tetap perlu tahu kontrak KE DEPAN:
 `transactions_raw.total_tagihan` bruto, refund dikurangi terpisah menurut `tgl_refund`.
+
+⚠ **DATA SAAT INI = TRIAL RUN — ABAIKAN** (keputusan dr. Hansen 2026-10-07). Isi DB mini
+PC maupun DB dev saat ini masih uji coba, BUKAN data klinik yang harus dirapikan:
+- 33 pasien di mini PC yang belum punya No. RM Omnicare — **jangan diusulkan diisi/dibereskan**;
+- komisi AKTIF atas transaksi VOID (#5 di dev, Rp 4.712) — **jangan diusulkan dibersihkan**;
+- transaksi mini PC 2026-10-05 22:54 (sesudah deploy) — **tidak perlu ditanyakan lagi**;
+- angka laporan/omzet dari data ini tidak bermakna bisnis.
+Jangan memasukkan hal-hal di atas ke daftar "menunggu keputusan". Yang tetap berlaku: kode,
+migrasi, dan pagar-pagarnya — keputusan ini tentang DATA, bukan tentang perbaikan kode.
+Tanyakan ulang saat klinik mulai memakai data sungguhan (gerbang keamanan §8 di bawah).
 
 ✅ **Kerja 4–5 Oktober SUDAH di `main`** (2026-10-05, atas permintaan dr. Hansen):
 `main` dimajukan fast-forward `304b58c` → `55eeaea` (46 commit, satu rantai lurus;
