@@ -55,6 +55,18 @@ Migrasi `20261007_0100` (satu kolom + unique index, tanpa mengubah data).
   Finance memilih kolom satu per satu, jadi tidak ikut.
 - **41 halaman lain** (nota, kasir, laporan) tetap hanya RM Sehati.
 
+## 3b. Isian: tombol cabang + angka saja (dr. Hansen 2026-10-07, putaran 2)
+
+Pendaftaran & edit memakai `_isian_rm_omnicare.html`: tombol **Cabang Jemur** (default) /
+**Cabang Citraland**, prefix `JJ-`/`JC-` tertulis di depan kotak, staf hanya mengetik angka.
+- Penggabungan di **server** (`gabung_isian`); JavaScript hanya mengganti tulisan prefix —
+  kalau JS gagal, nomor tetap benar karena cabang dikirim sebagai tombol radio.
+- Nomor LENGKAP yang ditempel (`JC-2010` saat Jemur terpilih) → prefix yang ditempel menang,
+  supaya salin-tempel dari Omnicare tidak diam-diam pindah cabang.
+- Form edit mengisi tombol & angka dari nomor tersimpan; kosongkan angka = hapus.
+- Bingkai prefix+angka dibulatkan sebagai SATU kotak karena `rounded-l-lg`/`rounded-r-lg`
+  belum terkompilasi di app.css (CLAUDE.md §4.2).
+
 ## 4. Uji
 
 `tests/integration/test_no_rm_omnicare.py` — 26 test. Dua arah: lima suntikan kesalahan

@@ -19,7 +19,9 @@ import random
 import pytest
 from fastapi import HTTPException
 
-from app.core.no_rm_omnicare import NoRmOmnicareTidakSah, normalisasi_no_rm_omnicare
+from app.core.no_rm_omnicare import (
+    NoRmOmnicareTidakSah, gabung_isian, normalisasi_no_rm_omnicare,
+)
 from app.db.models import MasterStaf, Pasien
 from app.db.models._enums import GenderEnum, StafRoleEnum
 from app.core.security import hash_password
@@ -69,6 +71,27 @@ def test_bentuk_baku(raw, baku):
 def test_bentuk_salah_ditolak(raw):
     with pytest.raises(NoRmOmnicareTidakSah):
         normalisasi_no_rm_omnicare(raw)
+
+
+# ---------------------------------------------------------------- isian form
+# Tombol cabang + kotak angka (dr. Hansen 2026-10-07): prefix otomatis, staf hanya
+# mengetik angka. Hasilnya lalu melewati normalisasi yang sama.
+@pytest.mark.parametrize("cabang, angka, baku", [
+    ("JJ", "8124", "JJ-8124"),
+    ("JC", "2010", "JC-2010"),
+    (None, "8124", "JJ-8124"),          # default Jemur
+    ("JJ", "08124", "JJ-8124"),         # nol depan tetap dibakukan
+    ("JJ", "JC-2010", "JC-2010"),       # nomor LENGKAP ditempel: prefix eksplisit menang
+    ("JC", "", None),                   # angka kosong = tidak ada / hapus
+])
+def test_isian_cabang_dan_angka(cabang, angka, baku):
+    assert normalisasi_no_rm_omnicare(gabung_isian(cabang, angka)) == baku
+
+
+@pytest.mark.parametrize("cabang, angka", [("JX", "8124"), ("JJ", "81-24x")])
+def test_isian_salah_ditolak(cabang, angka):
+    with pytest.raises(NoRmOmnicareTidakSah):
+        normalisasi_no_rm_omnicare(gabung_isian(cabang, angka))
 
 
 # ---------------------------------------------------------------- tertinggi

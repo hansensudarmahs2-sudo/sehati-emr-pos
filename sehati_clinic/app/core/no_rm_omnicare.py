@@ -76,6 +76,42 @@ def normalisasi_no_rm_omnicare(raw) -> Optional[str]:
     return f"{m.group(1)}-{nomor}"
 
 
+CABANG_DEFAULT = "JJ"   # klinik ini cabang Jemur (dr. Hansen 2026-10-07)
+
+
+def gabung_isian(cabang, angka_diketik) -> str:
+    """Isian form: tombol cabang (JJ/JC) + kotak ANGKA saja → teks mentah untuk
+    `normalisasi_no_rm_omnicare` (dr. Hansen 2026-10-07: prefix otomatis, staf hanya
+    mengetik angka).
+
+    - Angka kosong → "" (tidak ada nomor; di form edit artinya HAPUS).
+    - Kalau staf menempel nomor LENGKAP (ada huruf, mis. "JC-2010"), itu yang dipakai —
+      prefix yang diketik eksplisit menang atas tombol, supaya salin-tempel dari
+      Omnicare tidak diam-diam berpindah cabang.
+    - Penggabungan dilakukan di SERVER; JavaScript di layar hanya menampilkan prefix.
+
+    >>> gabung_isian("JJ", "8124")
+    'JJ-8124'
+    >>> gabung_isian("JC", " 2010 ")
+    'JC-2010'
+    >>> gabung_isian(None, "8124")
+    'JJ-8124'
+    >>> gabung_isian("JJ", "JC-2010")
+    'JC-2010'
+    >>> gabung_isian("JJ", "")
+    ''
+    """
+    a = re.sub(r"\s+", "", str(angka_diketik or ""))
+    if not a:
+        return ""
+    if re.search(r"[A-Za-z]", a):
+        return a
+    c = str(cabang or CABANG_DEFAULT).strip().upper()
+    if c not in PREFIX:
+        raise NoRmOmnicareTidakSah(f"Cabang '{cabang}' tidak dikenal — pilih Jemur atau Citraland.")
+    return f"{c}-{a.lstrip('-')}"
+
+
 def angka(no_rm_omnicare: str) -> int:
     """Bagian angka dari nomor BAKU — untuk membandingkan sebagai angka."""
     return int(no_rm_omnicare.split("-", 1)[1])

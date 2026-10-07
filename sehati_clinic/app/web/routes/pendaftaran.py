@@ -27,6 +27,7 @@ from app.schemas.pasien import (
     PenyakitKronisCreate,
 )
 from app.services.pasien_service import PasienService, DuplikatPasienError
+from app.core.no_rm_omnicare import NoRmOmnicareTidakSah, gabung_isian
 from app.services.master_membership_service import MasterMembershipService
 from app.web.routes._shared import (
     build_shell_context,
@@ -221,7 +222,12 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             tgl_lahir=tgl_lahir,
             nomor_telepon=(form_data.get("nomor_telepon") or "").strip(),
             nomor_ktp=(form_data.get("nomor_ktp") or "").strip(),
-            no_rm_omnicare=(form_data.get("no_rm_omnicare") or "").strip(),
+            # Tombol cabang + kotak angka (dr. Hansen 2026-10-07); `no_rm_omnicare`
+            # utuh tetap diterima untuk klien lama.
+            no_rm_omnicare=(gabung_isian(form_data.get("no_rm_omnicare_cabang"),
+                                         form_data.get("no_rm_omnicare_angka"))
+                            if form_data.get("no_rm_omnicare_angka") is not None
+                            else (form_data.get("no_rm_omnicare") or "").strip()),
             sumber_referensi=(form_data.get("sumber_referensi") or "").strip(),
             email_address=(form_data.get("email_address") or "").strip(),
             tipe_membership=tipe_membership,
@@ -232,6 +238,8 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             penyakit_kronis=penyakit_list,
             antropometri=None,
         )
+    except NoRmOmnicareTidakSah as e:
+        return _re_render(str(e))
     except Exception as e:
         return _re_render(f"Data tidak valid: {e!s}")
 

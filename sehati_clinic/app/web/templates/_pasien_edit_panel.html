@@ -109,10 +109,10 @@ Caller harus role-check sebelum include (lihat pasien_detail.html).
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">No. RM Omnicare (lama)</label>
                 {# Kosongkan lalu simpan = nomor DIHAPUS (beda dengan isian lain). #}
-                <input type="text" name="no_rm_omnicare" value="{{ pasien.no_rm_omnicare or '' }}" maxlength="20"
-                       placeholder="JJ-8123 / JC-2010" autocomplete="off"
-                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400 font-mono">
-                <p class="text-[10px] text-slate-500 mt-1">{% include "_rm_omnicare_tertinggi.html" %} · kosongkan = hapus</p>
+                {% with omni_nilai=pasien.no_rm_omnicare, omni_cabang=None, omni_angka=None %}
+                {% include "_isian_rm_omnicare.html" %}
+                {% endwith %}
+                <p class="text-[10px] text-slate-500 mt-1">{% include "_rm_omnicare_tertinggi.html" %} · kosongkan angka = hapus</p>
             </div>
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">Sumber Referensi</label>

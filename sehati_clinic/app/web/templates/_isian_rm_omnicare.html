@@ -1,0 +1,40 @@
+{# Isian No. RM Omnicare: tombol cabang (prefix otomatis) + kotak ANGKA saja
+   (dr. Hansen 2026-10-07). Dipakai di pendaftaran & edit pasien.
+
+   Konteks: omni_nilai = nomor baku yang sudah ada ("JJ-8123") ATAU None,
+            omni_cabang / omni_angka = isian form yang dikirim ulang (opsional).
+   Server menggabungkan kedua isian (`app/core/no_rm_omnicare.gabung_isian`) —
+   JavaScript di bawah HANYA mengganti tulisan prefix di depan kotak angka. #}
+{% set _v = omni_nilai or "" %}
+{% set _cab = omni_cabang or (_v[:2] if _v else "JJ") %}
+{% set _angka = omni_angka if omni_angka is not none else (_v[3:] if _v else "") %}
+<div class="omni-isian">
+    <div class="flex flex-wrap gap-2 mb-2">
+        {% for kode, nama in [("JJ", "Jemur"), ("JC", "Citraland")] %}
+        <label class="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-300 rounded-lg text-sm cursor-pointer hover:bg-slate-50">
+            <input type="radio" name="no_rm_omnicare_cabang" value="{{ kode }}" class="omni-cabang"
+                   {% if _cab == kode %}checked{% endif %}>
+            Cabang {{ nama }}
+        </label>
+        {% endfor %}
+    </div>
+    {# Satu bingkai bulat untuk prefix + kotak angka — kelas rounded-l/-r belum
+       terkompilasi di app.css (§4.2), jadi bingkainya yang dibulatkan. #}
+    <div class="flex border border-slate-300 rounded-lg overflow-hidden">
+        <span class="omni-prefix inline-flex items-center px-3 border-r border-slate-300 bg-slate-50 font-mono text-sm text-slate-700">{{ _cab }}-</span>
+        <input type="text" name="no_rm_omnicare_angka" value="{{ _angka }}" maxlength="10"
+               inputmode="numeric" autocomplete="off" placeholder="mis. 8124"
+               class="flex-1 px-3 py-2 border-0 font-mono text-sm focus:outline-none">
+    </div>
+</div>
+<script>
+(function () {
+    document.querySelectorAll('.omni-isian').forEach(function (w) {
+        w.querySelectorAll('.omni-cabang').forEach(function (r) {
+            r.addEventListener('change', function () {
+                w.querySelector('.omni-prefix').textContent = r.value + '-';
+            });
+        });
+    });
+})();
+</script>

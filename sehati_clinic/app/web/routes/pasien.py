@@ -1220,6 +1220,20 @@ async def pasien_edit_submit(
         except (TypeError, ValueError):
             return None
 
+    def _isian_omnicare(f):
+        # Tombol cabang + kotak angka (dr. Hansen 2026-10-07). Angka kosong = "" =
+        # HAPUS nomor. Kunci tak ada di form sama sekali = None = tidak diubah.
+        # Bentuk salah → 400, supaya penangan HTTPException di bawah menampilkannya.
+        from app.core.no_rm_omnicare import NoRmOmnicareTidakSah, gabung_isian
+        try:
+            if f.get("no_rm_omnicare_angka") is not None:
+                return gabung_isian(f.get("no_rm_omnicare_cabang"), f.get("no_rm_omnicare_angka"))
+        except NoRmOmnicareTidakSah as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if f.get("no_rm_omnicare") is not None:
+            return f.get("no_rm_omnicare").strip()
+        return None
+
     try:
         # Parse enum fields
         jk_str = (form.get("jenis_kelamin") or "").strip().upper()
@@ -1237,8 +1251,7 @@ async def pasien_edit_submit(
             nomor_ktp=_str_or_none("nomor_ktp"),
             # BUKAN _str_or_none: isian kosong di sini berarti HAPUS nomornya (nomor
             # salah ketik harus bisa dikosongkan). Kunci tak ada di form = tidak diubah.
-            no_rm_omnicare=(form.get("no_rm_omnicare").strip()
-                            if form.get("no_rm_omnicare") is not None else None),
+            no_rm_omnicare=_isian_omnicare(form),
             email_address=_str_or_none("email_address"),
             sumber_referensi=_str_or_none("sumber_referensi"),
             tipe_membership=tm,
