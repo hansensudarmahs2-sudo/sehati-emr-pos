@@ -284,9 +284,10 @@ estetik internal) · tindakan · resep & racikan · apotek (termasuk tebus resep
 penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Finance
 (file-drop harian) · backup terenkripsi terjadwal.
 
-**Migrasi terakhir (dev):** `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
+**Migrasi terakhir:** `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
 (Sehati jadi sumber No. RM Omnicare selama input ganda; `DESAIN_NO_RM_OMNICARE.md`).
-**BELUM di mini PC.** Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
+**Di mini PC sejak 2026-10-07 09:41** (backup `sehati_db_20261007_094058`); 33 pasien, 0
+bernomor Omnicare — diisi dr. Hansen sendiri. Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
 `RETUR_PASIEN`), sebelumnya `20261005_0100` (penyetuju refund + pemulihan header, T32) —
 **keduanya sudah di mini PC** (deploy 2026-10-05 22:50, sesudah klinik tutup; backup
 `sehati_db_20261005_224934` dibuat tepat sebelumnya). Mini PC & dev: `20261006_0100`,
@@ -297,8 +298,8 @@ tidak mengubah satu angka pun. ⚠ `data_analyst` tetap perlu tahu kontrak KE DE
 ✅ **Kerja 4–5 Oktober SUDAH di `main`** (2026-10-05, atas permintaan dr. Hansen):
 `main` dimajukan fast-forward `304b58c` → `55eeaea` (46 commit, satu rantai lurus;
 semua cabang `laptop/…` adalah leluhurnya). Remote `core` (`sehat-i-core`) repo LAIN —
-tidak disentuh. Mini PC = `main` per `2bb0751` (deploy 2026-10-07 09:00 — laporan apotek
-atas obat diretur; tanpa migrasi; backup `sehati_db_20261007_085937`).
+tidak disentuh. Mini PC = `main` per `9507426` (deploy 2026-10-07 09:41 — No. RM Omnicare + tombol
+cabang, migrasi `20261007_0100`). Sebelumnya `2bb0751` (09:00, laporan apotek).
 Peta kerja 4 Okt: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
 
 **Baru selesai (2026-10-04, dari laptop):** kompilasi ulang Tailwind (48→0 kelas warna
