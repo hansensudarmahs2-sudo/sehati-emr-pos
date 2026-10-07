@@ -22,6 +22,7 @@ from app.db.models import (
     PasienAlergi, PasienPenyakitKronis,
 )
 from app.core.nik import normalisasi_nik
+from app.core.no_rm_omnicare import NoRmOmnicareTidakSah, normalisasi_no_rm_omnicare
 from app.repositories.kunjungan_repo import KunjunganRepository
 from app.repositories.pasien_repo import PasienRepository
 from app.schemas.pasien import (
@@ -113,7 +114,38 @@ class PasienService:
                     soft.append(cand)
         return nik_match, soft
 
+    def _cek_no_rm_omnicare(self, raw, id_pasien_sendiri: Optional[int] = None) -> Optional[str]:
+        """Bakukan + pastikan belum dipegang pasien LAIN (aktif maupun nonaktif).
+        400 bila bentuknya salah, 409 bila sudah dipakai — pesannya menyebut pemiliknya
+        supaya staf bisa memeriksa siapa yang benar."""
+        try:
+            nomor = normalisasi_no_rm_omnicare(raw)
+        except NoRmOmnicareTidakSah as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if nomor:
+            lain = self.pasien_repo.find_by_no_rm_omnicare(nomor)
+            if lain is not None and lain.id_pasien != id_pasien_sendiri:
+                ket = "" if lain.is_active else " — pasien NONAKTIF; kalau orangnya sama, pakai Gabungkan Pasien"
+                raise HTTPException(status_code=409, detail=(
+                    f"No. RM Omnicare {nomor} sudah dipakai {lain.nama} "
+                    f"(RM Sehati {lain.no_rm}){ket}. Lihat nomor tertinggi di Cari Pasien."))
+        return nomor
+
+    @staticmethod
+    def _bentrok_omnicare(e: Exception) -> bool:
+        """IntegrityError dari unique index nomor Omnicare (dua pendaftaran bersamaan
+        dengan nomor yang sama). Dicocokkan per NAMA indeks — pelajaran Temuan 34:
+        `except IntegrityError` generik bisa memberi pesan yang berbohong."""
+        return "ux_pasien_no_rm_omnicare" in str(e)
+
+    def terbaru(self, limit: int = 10) -> list[PasienResponse]:
+        return [PasienResponse.model_validate(p) for p in self.pasien_repo.terbaru(limit)]
+
+    def rm_omnicare_tertinggi(self) -> dict:
+        return self.pasien_repo.rm_omnicare_tertinggi()
+
     def register_pasien_baru(self, payload: PasienBaruRequest, id_staf_fo: int, request: Optional[Request] = None, buat_kunjungan: bool = True, konfirmasi_duplikat: bool = False) -> dict:
+        no_rm_omnicare = self._cek_no_rm_omnicare(payload.no_rm_omnicare)
         # ---- Deteksi duplikat (SEBELUM membuat apa pun) ----
         nik_match, soft_matches = self.find_duplicate_candidates(
             payload.nama, payload.jenis_kelamin, payload.tgl_lahir, payload.nomor_ktp
@@ -132,6 +164,7 @@ class PasienService:
                 alamat=payload.alamat or None, tgl_lahir=payload.tgl_lahir,
                 nomor_telepon=payload.nomor_telepon or None,
                 nomor_ktp=normalisasi_nik(payload.nomor_ktp),
+                no_rm_omnicare=no_rm_omnicare,
                 email_address=payload.email_address or None, sumber_referensi=payload.sumber_referensi or None,
                 tipe_membership=(getattr(payload.tipe_membership, "value", payload.tipe_membership) or "REGULAR"), id_staf=id_staf_fo,
             )
@@ -192,6 +225,7 @@ class PasienService:
                 id_target=id_pasien_baru,
                 data_baru={
                     "no_rm": no_rm_baru,
+                    "no_rm_omnicare": no_rm_omnicare,
                     "nama": payload.nama,
                     "jenis_kelamin": payload.jenis_kelamin.value if hasattr(payload.jenis_kelamin, 'value') else str(payload.jenis_kelamin),
                     "tipe_membership": payload.tipe_membership.value if hasattr(payload.tipe_membership, 'value') else str(payload.tipe_membership),
@@ -230,6 +264,10 @@ class PasienService:
             raise
         except Exception as e:
             self.db.rollback()
+            if self._bentrok_omnicare(e):
+                raise HTTPException(status_code=409, detail=(
+                    f"No. RM Omnicare {no_rm_omnicare} baru saja dipakai pendaftaran lain. "
+                    f"Lihat nomor tertinggi di Cari Pasien lalu coba lagi."))
             raise HTTPException(status_code=500, detail=f"Gagal register pasien: {str(e)}")
 
     def search(self, keyword: str, limit: int = 50) -> list[PasienResponse]:
@@ -382,6 +420,13 @@ class PasienService:
                 # Audit: KTP NEVER logged raw — just flag change occurred
                 data_baru_audit["nomor_ktp_changed"] = True
                 fields_changed.append("nomor_ktp")
+            if payload.no_rm_omnicare is not None:
+                _omni = self._cek_no_rm_omnicare(payload.no_rm_omnicare, id_pasien)
+                if _omni != pasien.no_rm_omnicare:
+                    data_lama["no_rm_omnicare"] = pasien.no_rm_omnicare
+                    pasien.no_rm_omnicare = _omni
+                    data_baru_audit["no_rm_omnicare"] = _omni
+                    fields_changed.append("no_rm_omnicare")
             if payload.email_address is not None:
                 pasien.email_address = (payload.email_address or "").strip() or None
                 data_baru_audit["email_address"] = pasien.email_address
@@ -415,6 +460,10 @@ class PasienService:
             raise
         except Exception as e:
             self.db.rollback()
+            if self._bentrok_omnicare(e):
+                raise HTTPException(status_code=409, detail=(
+                    "No. RM Omnicare itu baru saja dipakai pasien lain. "
+                    "Lihat nomor tertinggi di Cari Pasien lalu coba lagi."))
             raise HTTPException(
                 status_code=500,
                 detail=f"Gagal update profile pasien: {str(e)}",

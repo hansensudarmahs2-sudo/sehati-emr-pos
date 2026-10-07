@@ -600,6 +600,17 @@ class AuditPasienService:
                     f"{srv.no_rm}: {n_srv}). Bereskan membership-nya dulu secara "
                     f"manual — sistem tidak boleh memutuskan kuota siapa yang hangus."
                 )
+
+        # No. RM Omnicare: satu orang = satu nomor (dr. Hansen 2026-10-07). Dua nomor
+        # BERBEDA (unique index menjamin tak mungkin sama) berarti salah satunya keliru
+        # — sistem tidak boleh menebak mana yang dipakai di Omnicare.
+        if dup.no_rm_omnicare and srv.no_rm_omnicare:
+            penghalang.append(
+                f"KEDUA pasien punya No. RM Omnicare ({dup.no_rm}: {dup.no_rm_omnicare}, "
+                f"{srv.no_rm}: {srv.no_rm_omnicare}). Satu orang hanya punya satu nomor — "
+                f"periksa di Omnicare mana yang benar, kosongkan yang salah lewat Edit "
+                f"Pasien, lalu gabungkan."
+            )
         return dup, srv, penghalang
 
     def _hitung_baris(self, id_pasien: int) -> dict[str, int]:
@@ -656,9 +667,12 @@ class AuditPasienService:
         return {
             "duplikat": {"id_pasien": dup.id_pasien, "no_rm": dup.no_rm,
                          "nama": dup.nama, "nik": dup.nomor_ktp or "—",
+                         "omnicare": dup.no_rm_omnicare or "—",
                          "tgl_lahir": dup.tgl_lahir},
             "bertahan": {"id_pasien": srv.id_pasien, "no_rm": srv.no_rm,
                          "nama": srv.nama, "nik": srv.nomor_ktp or "—",
+                         # Nomor Omnicare duplikat PINDAH ke sini bila yang bertahan kosong.
+                         "omnicare": srv.no_rm_omnicare or dup.no_rm_omnicare or "—",
                          "tgl_lahir": srv.tgl_lahir},
             "baris": [
                 {"tabel": t, "label": lbl, "jumlah": baris[t]}
@@ -734,6 +748,16 @@ class AuditPasienService:
                 dup.nomor_ktp_lama = nik_dilepas
                 dup.nomor_ktp = None
 
+            # No. RM Omnicare PINDAH ke yang bertahan (pagar sudah menolak bila keduanya
+            # punya). Duplikat dikosongkan & di-flush DULU — kalau tidak, dua baris
+            # memegang nomor yang sama sesaat dan unique index menolak.
+            omni_pindah = None
+            if dup.no_rm_omnicare and not srv.no_rm_omnicare:
+                omni_pindah = dup.no_rm_omnicare
+                dup.no_rm_omnicare = None
+                self.db.flush()
+                srv.no_rm_omnicare = omni_pindah
+
             self.db.flush()
 
             # ---- JARING PENGAMAN: tidak boleh ada sisa ----
@@ -765,6 +789,7 @@ class AuditPasienService:
                     "dismiss_dihapus": n_dismiss,
                     "id_transaksi_pindah": id_trx,
                     "no_nota_pindah": nota,
+                    "no_rm_omnicare_pindah": omni_pindah,
                     "alasan": dup.nonaktif_alasan,
                     "satu_arah": True,
                 },
@@ -789,6 +814,8 @@ class AuditPasienService:
                  f"{sum(dipindah.values())} baris riwayat dipindahkan.")
         if nik_dilepas:
             pesan += " NIK dilepas."
+        if omni_pindah:
+            pesan += f" No. RM Omnicare {omni_pindah} pindah ke {srv.no_rm}."
         pesan += " Penggabungan ini TIDAK bisa dibatalkan."
         return {
             "status": "success",

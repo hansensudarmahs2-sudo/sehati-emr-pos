@@ -62,6 +62,7 @@ class PasienBaruRequest(BaseModel):
     tgl_lahir: Optional[date] = None
     nomor_telepon: str = ""
     nomor_ktp: str = ""
+    no_rm_omnicare: str = ""   # dibakukan di service (app/core/no_rm_omnicare.py)
     sumber_referensi: str = ""
     email_address: str = ""  # bukan EmailStr karena bisa kosong
     tipe_membership: MembershipTierEnum = MembershipTierEnum.REGULAR
@@ -118,6 +119,7 @@ class PasienResponse(BaseModel):
     tgl_lahir: Optional[date] = None
     nomor_telepon: Optional[str] = None
     nomor_ktp: Optional[str] = None
+    no_rm_omnicare: Optional[str] = None
     email_address: Optional[str] = None
     sumber_referensi: Optional[str] = None
     tipe_membership: Optional[str] = None
@@ -169,6 +171,9 @@ class PasienUpdateRequest(BaseModel):
     alamat: Optional[str] = Field(default=None, max_length=500)
     nomor_telepon: Optional[str] = Field(default=None, max_length=20)
     nomor_ktp: Optional[str] = Field(default=None, max_length=30)
+    # None = tidak diubah; "" = HAPUS nomornya (beda dengan isian lain: nomor yang
+    # salah ketik harus bisa dikosongkan, dan kosong di form biasanya berarti "biarkan").
+    no_rm_omnicare: Optional[str] = Field(default=None, max_length=20)
     email_address: Optional[str] = Field(default=None, max_length=100)
     sumber_referensi: Optional[str] = Field(default=None, max_length=100)
     tipe_membership: Optional[str] = None

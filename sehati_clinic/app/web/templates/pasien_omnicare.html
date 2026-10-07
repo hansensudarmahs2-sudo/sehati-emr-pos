@@ -1,0 +1,62 @@
+{% extends "_app.html" %}
+{% block title %}Data untuk Omnicare — {{ klinik_nama }}{% endblock %}
+{% block page_title %}Data untuk Omnicare{% endblock %}
+
+{# Halaman SALIN untuk input ganda Sehati → Omnicare (dr. Hansen 2026-10-07).
+   Sengaja teks POLOS besar tanpa tombol pintar: staf memblok lalu copy-paste.
+   Isinya identitas + kontak + referensi; NIK tampil LENGKAP, jadi route-nya
+   dipagari role edit pasien dan setiap pembukaan dicatat di audit. #}
+{% block page_content %}
+<div class="max-w-3xl">
+
+    <div class="text-sm text-slate-500 mb-4">
+        <a href="/web/pasien" class="hover:text-blue-600">Cari Pasien</a>
+        <span class="mx-2">›</span>
+        <a href="/web/pasien/{{ pasien.id_pasien }}" class="hover:text-blue-600">{{ pasien.nama }}</a>
+        <span class="mx-2">›</span>
+        <span class="text-slate-700">Data untuk Omnicare</span>
+    </div>
+
+    {% if not pasien.is_active %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+        ⚠ Pasien ini <b>NONAKTIF</b> (duplikat yang sudah dibereskan). Jangan disalin ke Omnicare.
+    </div>
+    {% endif %}
+
+    {% if not pasien.no_rm_omnicare %}
+    <div class="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-lg mb-4 text-sm">
+        ⚠ Pasien ini <b>belum punya No. RM Omnicare</b>. Isi dulu lewat Edit Pasien di halaman
+        detail — {% include "_rm_omnicare_tertinggi.html" %}.
+    </div>
+    {% endif %}
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs text-slate-600">
+            Blok teks yang dibutuhkan lalu salin (Ctrl+C) ke Omnicare.
+        </div>
+        <table class="w-full">
+            <tbody class="divide-y divide-slate-100">
+                {% for label, nilai in baris %}
+                <tr>
+                    <td class="px-5 py-3 text-sm text-slate-500 w-48 align-top">{{ label }}</td>
+                    <td class="px-5 py-3 text-lg text-slate-900 font-mono">{{ nilai if nilai else "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mt-4 p-5">
+        <label for="semua" class="block text-sm font-medium text-slate-700 mb-2">Semua sekaligus</label>
+        <textarea id="semua" readonly rows="{{ baris|length }}"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm bg-slate-50">{{ teks_semua }}</textarea>
+    </div>
+
+    <div class="mt-4 flex gap-2">
+        <a href="/web/pasien/{{ pasien.id_pasien }}"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">← Detail pasien</a>
+        <a href="/web/pasien"
+           class="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">Cari Pasien</a>
+    </div>
+</div>
+{% endblock %}

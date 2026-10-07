@@ -81,6 +81,7 @@ def pendaftaran_pasien_form(request: Request, db: DbSession):
         available_tiers=available_tiers,
         # FO-ASSIGN-DOKTER (Task #329): list dokter aktif untuk dropdown
         dokter_list=get_dokter_aktif_list(db),
+        rm_tertinggi=PasienService(db).rm_omnicare_tertinggi(),
     )
     return templates.TemplateResponse(request, "pendaftaran_pasien.html", ctx)
 
@@ -133,6 +134,7 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             prefill_alergi=prefill_alergi or [],
             prefill_penyakit=prefill_penyakit or [],
             dokter_list=get_dokter_aktif_list(db),
+            rm_tertinggi=PasienService(db).rm_omnicare_tertinggi(),
         )
         return templates.TemplateResponse(request, "pendaftaran_pasien.html", ctx)
 
@@ -219,6 +221,7 @@ async def pendaftaran_pasien_submit(request: Request, db: DbSession):
             tgl_lahir=tgl_lahir,
             nomor_telepon=(form_data.get("nomor_telepon") or "").strip(),
             nomor_ktp=(form_data.get("nomor_ktp") or "").strip(),
+            no_rm_omnicare=(form_data.get("no_rm_omnicare") or "").strip(),
             sumber_referensi=(form_data.get("sumber_referensi") or "").strip(),
             email_address=(form_data.get("email_address") or "").strip(),
             tipe_membership=tipe_membership,

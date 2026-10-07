@@ -54,6 +54,7 @@ KOLOM_TERLARANG = frozenset({
     "id_pasien",          # kunci internal; paket memakai `pid`
     "nama", "nama_pasien",
     "no_rm", "nomor_rm",
+    "no_rm_omnicare",     # nomor RM sistem lama — pengenal orang, sama seperti no_rm
     "nomor_ktp", "nomor_ktp_lama", "nik", "nik_pasien",
     "alamat",
     "nomor_telepon", "telepon", "no_hp",

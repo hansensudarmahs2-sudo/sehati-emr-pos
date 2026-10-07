@@ -15,6 +15,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Index,
     ForeignKey,
     Integer,
     String,
@@ -37,6 +38,11 @@ class Pasien(Base):
     """Tabel `pasien` — master pasien klinik."""
 
     __tablename__ = "pasien"
+    # UNIQUE di model JUGA (bukan hanya di migrasi 20261007_0100) — Temuan 34:
+    # pagar yang hanya di migrasi hilang dari DB hasil create_all().
+    __table_args__ = (
+        Index("ux_pasien_no_rm_omnicare", "no_rm_omnicare", unique=True),
+    )
 
     # ----- Primary key -----
     id_pasien: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -55,6 +61,11 @@ class Pasien(Base):
     nomor_ktp: Mapped[Optional[str]] = mapped_column(String(30), unique=True, nullable=True, comment="NIK. Opsional (boleh kosong=NULL); unik bila diisi.")
     email_address: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sumber_referensi: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # No. RM di Omnicare / sistem lama (JJ-8123, JC-2010). Sehati = SUMBER nomornya
+    # selama input ganda (dr. Hansen 2026-10-07). Tulis HANYA lewat
+    # app/core/no_rm_omnicare.normalisasi_no_rm_omnicare. Pasien nonaktif TETAP
+    # memegangnya (dipensiunkan, seperti no_rm); penggabungan memindahkannya.
+    no_rm_omnicare: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
     # --- Nonaktif (task #18) -------------------------------------------------
     # Pasien TIDAK PERNAH dihapus: kunjungan, transaksi, resep dan komisi menunjuk

@@ -82,51 +82,56 @@ def pasien_search_partial(
 
     keyword = (keyword or "").strip()
     hasil = []
-    if keyword:
-        try:
-            rows = PasienService(db).search(keyword=keyword, limit=50)
-            series_svc = SeriesService(db)
-            hasil = []
-            for p in rows:
-                # Fetch series aktif (rencana PENDING) per pasien
+    _svc = PasienService(db)
+    try:
+        # Tanpa kata kunci: 10 pasien TERAKHIR didaftarkan, bukan halaman kosong
+        # (dr. Hansen 2026-10-07 — staf perlu melihat pasien & nomor terbaru sekilas).
+        # ⚠ Urutan PENDAFTARAN; nomor Omnicare terakhir dibaca dari `rm_tertinggi`.
+        rows = (_svc.search(keyword=keyword, limit=50) if keyword
+                else _svc.terbaru(10))
+        series_svc = SeriesService(db)
+        hasil = []
+        for p in rows:
+            # Fetch series aktif (rencana PENDING) per pasien
+            series_aktif_raw = []
+            try:
+                series_aktif_raw = series_svc.list_active_for_pasien(p.id_pasien)
+            except Exception:
                 series_aktif_raw = []
-                try:
-                    series_aktif_raw = series_svc.list_active_for_pasien(p.id_pasien)
-                except Exception:
-                    series_aktif_raw = []
-                # Flatten ke list rencana PENDING (untuk button "Lanjut Series #N")
-                series_pending_flat = []
-                for g in series_aktif_raw:
-                    for r in g.get("rencana_pending", []):
-                        series_pending_flat.append({
-                            "id_rencana": r["id_rencana"],
-                            "urutan_sesi": r["urutan_sesi"],
-                            "nama_tindakan": g["nama_tindakan"],
-                            "total_sesi": g["total_sesi"],
-                        })
-                hasil.append({
-                    "id_pasien": p.id_pasien,
-                    "no_rm": p.no_rm,
-                    "nama": p.nama,
-                    "jenis_kelamin": (
-                        p.jenis_kelamin.value
-                        if hasattr(p.jenis_kelamin, "value")
-                        else (str(p.jenis_kelamin) if p.jenis_kelamin else None)
-                    ),
-                    "nomor_telepon": p.nomor_telepon,
-                    "tipe_membership": (
-                        p.tipe_membership.value
-                        if hasattr(p.tipe_membership, "value")
-                        else (str(p.tipe_membership) if p.tipe_membership else None)
-                    ),
-                    "series_pending": series_pending_flat,
-                })
-        except Exception as e:
-            return HTMLResponse(
-                f"<div class='p-4 bg-red-50 text-red-700 rounded-lg text-sm'>"
-                f"Error: {e!s}</div>",
-                status_code=500,
-            )
+            # Flatten ke list rencana PENDING (untuk button "Lanjut Series #N")
+            series_pending_flat = []
+            for g in series_aktif_raw:
+                for r in g.get("rencana_pending", []):
+                    series_pending_flat.append({
+                        "id_rencana": r["id_rencana"],
+                        "urutan_sesi": r["urutan_sesi"],
+                        "nama_tindakan": g["nama_tindakan"],
+                        "total_sesi": g["total_sesi"],
+                    })
+            hasil.append({
+                "id_pasien": p.id_pasien,
+                "no_rm": p.no_rm,
+                "no_rm_omnicare": p.no_rm_omnicare,
+                "nama": p.nama,
+                "jenis_kelamin": (
+                    p.jenis_kelamin.value
+                    if hasattr(p.jenis_kelamin, "value")
+                    else (str(p.jenis_kelamin) if p.jenis_kelamin else None)
+                ),
+                "nomor_telepon": p.nomor_telepon,
+                "tipe_membership": (
+                    p.tipe_membership.value
+                    if hasattr(p.tipe_membership, "value")
+                    else (str(p.tipe_membership) if p.tipe_membership else None)
+                ),
+                "series_pending": series_pending_flat,
+            })
+    except Exception as e:
+        return HTMLResponse(
+            f"<div class='p-4 bg-red-50 text-red-700 rounded-lg text-sm'>"
+            f"Error: {e!s}</div>",
+            status_code=500,
+        )
 
     return templates.TemplateResponse(
         request,
@@ -134,6 +139,8 @@ def pasien_search_partial(
         {
             "hasil": hasil,
             "keyword": keyword,
+            "mode_terbaru": not keyword,
+            "rm_tertinggi": _svc.rm_omnicare_tertinggi(),
             "can_add_antrian": require_antrian_mgmt_role(user),
             "flash": request.query_params.get("ok"),
             "flash_error": request.query_params.get("err"),
@@ -141,6 +148,63 @@ def pasien_search_partial(
             "dokter_list": get_dokter_aktif_list(db),
         },
     )
+# =============================================================================
+# GET /web/pasien/{id}/omnicare — data polos untuk disalin ke Omnicare
+# =============================================================================
+@router.get("/pasien/{id_pasien}/omnicare", response_class=HTMLResponse)
+def pasien_omnicare_page(id_pasien: int, request: Request, db: DbSession):
+    """Input ganda Sehati → Omnicare (dr. Hansen 2026-10-07): identitas, kontak, referensi
+    sebagai teks polos yang mudah diblok & disalin.
+
+    NIK tampil LENGKAP (halaman detail menyamarkannya), jadi pagarnya = form edit
+    pasien (`require_antrian_mgmt_role`: FO/Admin/Owner/Superadmin), dan setiap
+    pembukaan dicatat seperti membuka detail pasien.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_antrian_mgmt_role(user):
+        return HTMLResponse(
+            "<div style='padding:2rem'>403 - Hanya FO/Admin/Owner yang bisa membuka data ini.</div>",
+            status_code=403,
+        )
+    from app.db.models import Pasien as _Pasien
+    p = db.get(_Pasien, id_pasien)
+    if p is None:
+        return HTMLResponse("<div style='padding:2rem'>404 - Pasien tidak ditemukan.</div>",
+                            status_code=404)
+
+    from app.services.audit_service import AuditService as _AS
+    _AS(db).log_view(user.id_staf, id_pasien,
+                     keterangan="Buka data untuk Omnicare (NIK lengkap)", request=request)
+
+    _jk = p.jenis_kelamin.value if hasattr(p.jenis_kelamin, "value") else p.jenis_kelamin
+    baris = [
+        ("No. RM Omnicare", p.no_rm_omnicare),
+        ("No. RM Sehati", p.no_rm),
+        ("Nama", p.nama),
+        ("Jenis kelamin", {"L": "Laki-laki", "P": "Perempuan"}.get(_jk or "", _jk)),
+        ("Tanggal lahir", p.tgl_lahir.strftime("%d-%m-%Y") if p.tgl_lahir else None),
+        ("NIK", p.nomor_ktp),
+        ("Telepon", p.nomor_telepon),
+        ("Alamat", p.alamat),
+        ("Email", p.email_address),
+        ("Sumber referensi", p.sumber_referensi),
+    ]
+    teks_semua = "\n".join(f"{lbl}: {val or '-'}" for lbl, val in baris)
+    ctx = build_shell_context(
+        user,
+        db=db,
+        current_path="/web/pasien",
+        page_subtitle="Salin ke Omnicare",
+        pasien=p,
+        baris=baris,
+        teks_semua=teks_semua,
+        rm_tertinggi=PasienService(db).rm_omnicare_tertinggi(),
+    )
+    return templates.TemplateResponse(request, "pasien_omnicare.html", ctx)
+
+
 # =============================================================================
 # GET /web/pasien/_produk-row - HTMX partial: 1 row produk untuk Beli Produk form
 # =============================================================================
@@ -279,6 +343,7 @@ def pasien_detail_page(
         db=db,
         current_path="/web/pasien",
         pasien=pasien_dict,
+        rm_tertinggi=PasienService(db).rm_omnicare_tertinggi(),
         antropometri=antropometri,
         antro_laporan=AntroReportService().laporan_by_rm(pasien_dict.get("no_rm")),
         soap_riwayat=soap_riwayat,
@@ -1170,6 +1235,10 @@ async def pasien_edit_submit(
             alamat=_str_or_none("alamat"),
             nomor_telepon=_str_or_none("nomor_telepon"),
             nomor_ktp=_str_or_none("nomor_ktp"),
+            # BUKAN _str_or_none: isian kosong di sini berarti HAPUS nomornya (nomor
+            # salah ketik harus bisa dikosongkan). Kunci tak ada di form = tidak diubah.
+            no_rm_omnicare=(form.get("no_rm_omnicare").strip()
+                            if form.get("no_rm_omnicare") is not None else None),
             email_address=_str_or_none("email_address"),
             sumber_referensi=_str_or_none("sumber_referensi"),
             tipe_membership=tm,

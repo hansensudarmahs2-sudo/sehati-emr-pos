@@ -50,6 +50,16 @@ class PasienRepository:
         Limit default 50 cukup untuk Phase 1.
         """
         term = f"%{keyword}%"
+        # No. RM Omnicare dicari juga dalam bentuk BAKU: staf mengetik "JJ-08123"
+        # padahal tersimpan "JJ-8123" — ilike biasa tidak akan menemukannya.
+        from app.core.no_rm_omnicare import NoRmOmnicareTidakSah, normalisasi_no_rm_omnicare
+        try:
+            omni = normalisasi_no_rm_omnicare(keyword)
+        except NoRmOmnicareTidakSah:
+            omni = None
+        syarat_omni = [Pasien.no_rm_omnicare.ilike(term)]
+        if omni:
+            syarat_omni.append(Pasien.no_rm_omnicare == omni)
         stmt = (
             select(Pasien)
             # Task #18: pasien NONAKTIF (duplikat yang sudah dibereskan) tidak boleh
@@ -63,12 +73,49 @@ class PasienRepository:
                     Pasien.no_rm.ilike(term),
                     Pasien.nomor_telepon.ilike(term),
                     Pasien.alamat.ilike(term),
+                    *syarat_omni,
                 )
             )
             .order_by(Pasien.nama.asc())
             .limit(limit)
         )
         return list(self.db.execute(stmt).scalars().all())
+
+    def terbaru(self, limit: int = 10) -> list[Pasien]:
+        """Pasien AKTIF yang paling akhir didaftarkan di Sehati (Cari Pasien tanpa kata
+        kunci). ⚠ Urutan PENDAFTARAN, bukan urutan nomor Omnicare — pasien lama yang
+        datang lagi ikut di atas. Nomor terakhir dibaca dari `rm_omnicare_tertinggi`."""
+        stmt = (
+            select(Pasien)
+            .where(Pasien.is_active.is_(True))
+            .order_by(Pasien.created_at.desc(), Pasien.id_pasien.desc())
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    def find_by_no_rm_omnicare(self, nomor: Optional[str]) -> Optional[Pasien]:
+        """Pemegang nomor Omnicare (bentuk BAKU) — termasuk pasien NONAKTIF: nomornya
+        dipensiunkan, tidak boleh dibagikan ke orang lain."""
+        if not nomor:
+            return None
+        return self.db.query(Pasien).filter(Pasien.no_rm_omnicare == nomor).first()
+
+    def rm_omnicare_tertinggi(self) -> dict:
+        """`{"JJ": "JJ-8123", "JC": "JC-2010"}` (None bila belum ada) — nomor tertinggi
+        per cabang, termasuk pasien nonaktif.
+
+        Dibandingkan sebagai ANGKA di Python (`angka()`), bukan ORDER BY teks: sebagai
+        teks "JJ-8199" > "JJ-10000", jadi tepat saat nomor menyentuh 5 digit angka
+        tertinggi akan salah dan staf membagikan nomor ganda."""
+        from app.core.no_rm_omnicare import PREFIX, angka
+        hasil = {p: None for p in PREFIX}
+        for (nomor,) in self.db.execute(
+            select(Pasien.no_rm_omnicare).where(Pasien.no_rm_omnicare.is_not(None))
+        ).all():
+            pfx = nomor.split("-", 1)[0]
+            if pfx in hasil and (hasil[pfx] is None or angka(nomor) > angka(hasil[pfx])):
+                hasil[pfx] = nomor
+        return hasil
 
     # ----- Deteksi duplikat (identitas) -----
     def find_by_nik(self, nik: str):

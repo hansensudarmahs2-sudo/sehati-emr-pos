@@ -22,7 +22,10 @@
                 <div>
                     <h2 class="text-2xl font-bold text-slate-800">{{ pasien.nama }}</h2>
                     <div class="flex items-center gap-3 mt-1 text-sm text-slate-600">
-                        <span class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">{{ pasien.no_rm }}</span>
+                        {# Dua nomor, label TEGAS: keduanya berawalan JJ- dan mudah tertukar
+                           saat disalin ke Omnicare (JJ-261005-001 vs JJ-8123). #}
+                        <span class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded" title="Nomor RM Sehati">Sehati {{ pasien.no_rm }}</span>
+                        <span class="font-mono text-xs bg-amber-50 text-amber-800 px-2 py-0.5 rounded" title="Nomor RM Omnicare / sistem lama">Omnicare {{ pasien.no_rm_omnicare or "—" }}</span>
                         <span>•</span>
                         <span>{{ pasien.jenis_kelamin or "-" }}</span>
                         {% if pasien.tgl_lahir %}
@@ -39,6 +42,15 @@
                 <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-sm font-medium">⭐ VIP</span>
                 {% else %}
                 <span class="inline-flex items-center px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-sm">{{ pasien.tipe_membership or "REGULAR" }}</span>
+                {% endif %}
+                {# Data polos untuk disalin ke Omnicare — NIK tampil LENGKAP di sana, jadi
+                   pagarnya sama dengan form edit (FO/Admin/Owner/Superadmin). #}
+                {% set _ur_om = (user.role.value if user.role.value is defined else user.role)|string|upper %}
+                {% if _ur_om in ["FO", "ADMIN", "OWNER", "SUPERADMIN"] %}
+                <a href="/web/pasien/{{ pasien.id_pasien }}/omnicare"
+                   class="inline-flex items-center px-3 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 border border-amber-200">
+                    📋 Data untuk Omnicare
+                </a>
                 {% endif %}
                 {# #362E - Link ke section Membership #}
                 <a href="/web/pasien/{{ pasien.id_pasien }}/membership"

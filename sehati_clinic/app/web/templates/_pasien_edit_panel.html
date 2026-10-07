@@ -95,8 +95,8 @@ Caller harus role-check sebelum include (lihat pasien_detail.html).
             </div>
         </div>
 
-        {# Baris 5: KTP + Sumber Referensi #}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {# Baris 5: KTP + No. RM Omnicare + Sumber Referensi #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">
                     No. KTP
@@ -105,6 +105,14 @@ Caller harus role-check sebelum include (lihat pasien_detail.html).
                 <input type="text" name="nomor_ktp" value="{{ pasien.nomor_ktp or '' }}" maxlength="30"
                        placeholder="32xxxxxxxxxxxxxx"
                        class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400 font-mono">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">No. RM Omnicare (lama)</label>
+                {# Kosongkan lalu simpan = nomor DIHAPUS (beda dengan isian lain). #}
+                <input type="text" name="no_rm_omnicare" value="{{ pasien.no_rm_omnicare or '' }}" maxlength="20"
+                       placeholder="JJ-8123 / JC-2010" autocomplete="off"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-400 font-mono">
+                <p class="text-[10px] text-slate-500 mt-1">{% include "_rm_omnicare_tertinggi.html" %} · kosongkan = hapus</p>
             </div>
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">Sumber Referensi</label>

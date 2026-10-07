@@ -1,0 +1,13 @@
+{# Nomor RM Omnicare TERTINGGI per cabang — dibandingkan sebagai ANGKA
+   (PasienRepository.rm_omnicare_tertinggi). Sehati = sumber nomor Omnicare selama
+   input ganda (dr. Hansen 2026-10-07): staf membaca ini, memberi nomor berikutnya.
+   ⚠ JANGAN membaca nomor terakhir dari daftar "pasien terbaru" — itu urutan
+   pendaftaran, dan pasien lama yang datang lagi ikut di atasnya.
+   Butuh konteks: rm_tertinggi = {"JJ": "JJ-8123" | None, "JC": ...} #}
+{% if rm_tertinggi %}
+<span class="font-sans">No. RM Omnicare tertinggi:
+{% for pfx, no in rm_tertinggi.items() %}
+  <b class="font-mono text-slate-800">{{ no if no else pfx ~ '-(belum ada)' }}</b>{% if not loop.last %} ·{% endif %}
+{% endfor %}
+</span>
+{% endif %}

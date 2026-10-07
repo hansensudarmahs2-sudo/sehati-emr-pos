@@ -11,15 +11,22 @@
 </div>
 {% endif %}
 
+{# Nomor Omnicare tertinggi SELALU tampil, dibaca terpisah dari daftar: daftar
+   "terbaru" berurut PENDAFTARAN, dan pasien lama yang datang lagi ikut di atasnya. #}
+<div class="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-2 rounded-lg mb-3 text-sm">
+    {% include "_rm_omnicare_tertinggi.html" %}
+</div>
+
 {% if hasil and hasil|length > 0 %}
 <div class="bg-white rounded-xl shadow-sm border border-slate-200">
     <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-        {{ hasil|length }} pasien ditemukan untuk "{{ keyword }}"
+        {% if mode_terbaru %}{{ hasil|length }} pasien terakhir didaftarkan{% else %}{{ hasil|length }} pasien ditemukan untuk "{{ keyword }}"{% endif %}
     </div>
     <table class="w-full">
         <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
             <tr>
-                <th class="text-left px-5 py-2 font-medium">No. RM</th>
+                <th class="text-left px-5 py-2 font-medium">RM Sehati</th>
+                <th class="text-left px-5 py-2 font-medium">RM Omnicare</th>
                 <th class="text-left px-5 py-2 font-medium">Nama</th>
                 <th class="text-left px-5 py-2 font-medium">JK</th>
                 <th class="text-left px-5 py-2 font-medium">Telepon</th>
@@ -31,6 +38,7 @@
             {% for p in hasil %}
             <tr class="hover:bg-blue-50/30 transition">
                 <td class="px-5 py-3 font-mono text-xs text-slate-600">{{ p.no_rm }}</td>
+                <td class="px-5 py-3 font-mono text-sm text-amber-800 font-semibold">{{ p.no_rm_omnicare or "—" }}</td>
                 <td class="px-5 py-3 font-medium text-slate-800">{{ p.nama }}</td>
                 <td class="px-5 py-3 text-slate-600">{{ p.jenis_kelamin or "-" }}</td>
                 <td class="px-5 py-3 text-slate-600 font-mono text-xs">{{ p.nomor_telepon or "-" }}</td>
@@ -101,6 +109,10 @@
                             </div>
                         </div>
                         {% endif %}
+                        {% if can_add_antrian %}
+                        <a href="/web/pasien/{{ p.id_pasien }}/omnicare" title="Data untuk disalin ke Omnicare"
+                           class="inline-flex items-center px-3 py-1 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg hover:bg-amber-100">📋</a>
+                        {% endif %}
                         <a href="/web/pasien/{{ p.id_pasien }}" class="inline-flex items-center px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Detail</a>
                     </div>
                 </td>
@@ -111,7 +123,11 @@
 </div>
 {% else %}
 <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+    {% if mode_terbaru %}
+    <p class="text-slate-500">Belum ada pasien terdaftar.</p>
+    {% else %}
     <p class="text-slate-500">Tidak ada pasien yang cocok dengan "<strong>{{ keyword }}</strong>".</p>
     <p class="text-xs text-slate-400 mt-2">Coba kata kunci lain.</p>
+    {% endif %}
 </div>
 {% endif %}

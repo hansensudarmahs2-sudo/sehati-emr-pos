@@ -20,7 +20,8 @@ Bahasa Indonesia, kasual. Jelaskan dampak, bukan mekanisme.
    lima langkah dalam satu blok — kalau gagal di tengah, tidak ketahuan yang mana.
 3. **Minta persetujuan sebelum mengubah skema DB atau membuat modul baru.**
    Tunjukkan rancangannya dulu.
-4. **Jangan deploy saat jam operasional klinik.** `docker compose up -d --build`
+4. **Jangan deploy saat jam operasional klinik — 12.00–22.00 WIB** (dr. Hansen 2026-10-07;
+   cek `date` di mini PC). `docker compose up -d --build`
    mematikan aplikasi beberapa menit; meja FO, kasir, apotek berhenti total.
    Persiapan (backup, push, rsync) aman kapan saja — hanya rebuild yang menunggu.
 5. **Periksa dulu, baru bicara.** Jangan menyatakan ada bug/risiko sebelum membaca
@@ -117,6 +118,7 @@ dengan asumsi apa?*
 | ~~`DISERAHKAN` dipakai sebagai bukti "stok sudah dipotong"~~ | **DIPAGARI 2026-10-04.** Dua arti untuk dua penulis: bagi apoteker `DISERAHKAN` artinya "obat di tangan pasien", bagi penjaga void artinya "lot sudah keluar, jadi boleh dikembalikan". Penyerahan dengan stok kurang **berhasil** dan memasang `DISERAHKAN` tanpa satu lot pun terpakai — lalu void **menciptakan** lot `VOID-RETURN` berisi barang yang tak pernah ada, dan FEFO membagikannya. Sekarang di skema per-item void hanya memulihkan sebanyak yang dibuktikan jejak `kunjungan_lot_terpakai`. **Stok minus tetap diizinkan — yang diperbaiki jejaknya, bukan filosofinya.** Pemeriksanya: `python -m scripts.cek_serah_tanpa_lot`. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 30 |
 | **FEFO menyodorkan lot KEDALUWARSA lebih dulu** | Query FEFO tidak menyaring `tgl_ed`, dan karena "ED terdekat keluar dulu" lot yang sudah lewat ED ada di urutan PALING ATAS. Terbukti. Yang menahannya cuma apoteker yang membaca ED di layar. **DITANDAI 2026-10-05** (keputusan dr. Hansen: tandai, jangan blokir) — layar serah obat kini menandai lot lewat ED merah + "KEDALUWARSA". FEFO **sengaja tetap** tidak menyaring ED. `AUDIT_ALUR_UANG_2026-10-04.md` Temuan 29 |
 | ~~Nota dicetak dari harga MASTER, bukan yang ditagih~~ | **DIPERBAIKI 2026-10-05, di mini PC sejak deploy 5 Okt malam.** Baris kini dari snapshot `transaksi_detail_*` milik transaksi ITU (bukan per kunjungan — split billing tak lagi memuat baris transaksi lain). Tindakan kuota/series: Rp 0 + "↳ Benefit <tier> (prabayar) · nilai normal". ⚠ Transaksi yang kunjungannya punya tindakan tapi TAK SATU PUN transaksinya punya `transaksi_detail_tindakan` (= semua data sebelum F3, termasuk SELURUH data mini PC saat ini) memakai jalur lama + penanda **"direkonstruksi"**. Jangan sederhanakan kriteria itu — lihat docstring `PrintService._baris_snapshot`. `DESAIN_T27_NOTA_DARI_SNAPSHOT.md` |
+| **Dua nomor RM, sama-sama berawalan JJ-** | RM Sehati `JJ-261005-001` (tanggal+urut) dan RM Omnicare `JJ-8123` (sistem lama). Mudah tertukar saat disalin — layar SELALU melabelinya "Sehati" / "Omnicare". Kolomnya `no_rm_omnicare`, sengaja BUKAN `no_rm_lama` (sudah ada `nomor_ktp_lama` berarti lain). Nomor tertinggi dibanding sebagai ANGKA; daftar "pasien terbaru" ≠ nomor terakhir. `DESAIN_NO_RM_OMNICARE.md` |
 | **Retur dari pasien — modul baru 2026-10-05** | Obat yang SUDAH diserahkan dikembalikan (uang kembali / tukar produk), maks 7 hari, PIN untuk sebagian. Menu: Kasir → Cari Transaksi → ↩ Retur. ⚠ Tiga hal yang dipelajari: (1) **"transaksi BAYAR terbaru di kunjungan" bukan transaksi asal** sejak satu kunjungan bisa punya transaksi TUKAR — pakai `KasirService.trx_dan_nilai_bersih`, jangan menulis pencarian sendiri; (2) **kunjungan `RETUR_PASIEN` bukan kunjungan klinis** — penghitung kunjungan BARU wajib menyaring `_jenis_kunjungan.JENIS_KUNJUNGAN_BUKAN_KLINIS`; (3) draf SOAP **tidak boleh** ditempel ke kunjungan asal — riwayat menampilkan satu SOAP per kunjungan, draf yang disetujui akan menggantikan SOAP asli. ✅ Laporan apotek (2026-10-05): rekap per apoteker TETAP menghitung + penanda ↩ (kerja apoteker memang terjadi); Top produk BERSIH, dikurangkan di periode PENYERAHAN asli — satu sumber `ReportsService._retur_per_item`. ⚠ Laporan BARU yang membaca `status_item='DISERAHKAN'` wajib bertanya: obat yang diretur dihitung atau tidak? `DESAIN_RETUR_DARI_PASIEN.md` |
 | ~~Tutup kasir menghitung per ORANG, sejak jam buka~~ | **DIPERBAIKI 2026-10-05, di mini PC sejak deploy 5 Okt malam.** Klinik = SATU laci, SATU shift/hari. Dulu pembayaran oleh staf yang tidak membuka sesi (Admin/Owner/Superadmin — yang berhak membayar selain Kasir; FO TIDAK berhak) dan pembayaran sebelum "Buka Kasir" **tidak masuk hitungan siapa pun**. Sekarang sesi milik laci, expected = semua uang di TANGGAL sesi (refund lewat `_refund_bukuan`), plus rincian per petugas dan peringatan "masuk sebelum dibuka / sesudah ditutup". Sesi kedua di hari yang sama ditolak. `id_staf_kasir` di `kasir_closing` kini berarti **pembuka laci**. `DESAIN_T28_TUTUP_KASIR_PER_TANGGAL.md` |
 | ~~Void diterima walau racikan/resep sudah DISERAHKAN~~ | **DIPAGARI 2026-10-04** (`_pagari_void_item_diserahkan`). Dulu: transaksi jadi VOID tapi barangnya tetap `DISERAHKAN` — laporan omzet mengecualikan, laporan apotek **tetap menghitung**. `AUDIT_ALUR_UANG_2026-10-04.md` |
@@ -282,7 +284,9 @@ estetik internal) · tindakan · resep & racikan · apotek (termasuk tebus resep
 penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Finance
 (file-drop harian) · backup terenkripsi terjadwal.
 
-**Migrasi terakhir:** `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
+**Migrasi terakhir (dev):** `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
+(Sehati jadi sumber No. RM Omnicare selama input ganda; `DESAIN_NO_RM_OMNICARE.md`).
+**BELUM di mini PC.** Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
 `RETUR_PASIEN`), sebelumnya `20261005_0100` (penyetuju refund + pemulihan header, T32) —
 **keduanya sudah di mini PC** (deploy 2026-10-05 22:50, sesudah klinik tutup; backup
 `sehati_db_20261005_224934` dibuat tepat sebelumnya). Mini PC & dev: `20261006_0100`,
@@ -293,7 +297,8 @@ tidak mengubah satu angka pun. ⚠ `data_analyst` tetap perlu tahu kontrak KE DE
 ✅ **Kerja 4–5 Oktober SUDAH di `main`** (2026-10-05, atas permintaan dr. Hansen):
 `main` dimajukan fast-forward `304b58c` → `55eeaea` (46 commit, satu rantai lurus;
 semua cabang `laptop/…` adalah leluhurnya). Remote `core` (`sehat-i-core`) repo LAIN —
-tidak disentuh. Mini PC = `main` per `59d1710` (deploy 2026-10-05 malam).
+tidak disentuh. Mini PC = `main` per `2bb0751` (deploy 2026-10-07 09:00 — laporan apotek
+atas obat diretur; tanpa migrasi; backup `sehati_db_20261007_085937`).
 Peta kerja 4 Okt: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
 
 **Baru selesai (2026-10-04, dari laptop):** kompilasi ulang Tailwind (48→0 kelas warna
