@@ -40,7 +40,11 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
     "KONSULTASI": {"ANTRI_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT", "BATAL"},
     "ANTRI_TREATMENT": {"ON_TREATMENT", "BATAL"},
     "ON_TREATMENT": {"ANTRI_BAYAR", "ANTRI_OBAT", "COMPLETED", "BATAL"},
-    "ANTRI_BAYAR": {"ANTRI_OBAT", "COMPLETED", "BATAL"},
+    # Audit T2-4 (keputusan dr. Hansen 2026-10-13): ANTRI_BAYAR → COMPLETED DIHAPUS.
+    # Menu "Ubah" FO menawarkannya: kunjungan selesai TANPA transaksi, keluar dari
+    # antrian kasir, gerbang tutup kasir lolos. Tagihan Rp 0 (series/kuota) sudah
+    # diproses kasir (DEC-049), jadi jalan pintas ini tidak dibutuhkan siapa pun.
+    "ANTRI_BAYAR": {"ANTRI_OBAT", "BATAL"},
     "ANTRI_OBAT": {"COMPLETED", "BATAL"},
     "COMPLETED": set(),
     "BATAL": set(),
@@ -326,7 +330,10 @@ class KunjunganService:
         - Transisi harus ada di _VALID_TRANSITIONS.
         - allow_batal=False untuk role yang tidak boleh BATAL (perawat/kasir).
         """
-        kunjungan = self.kunjungan_repo.get_by_id(id_kunjungan)
+        # Audit T2-3: DIKUNCI. Dulu dibaca tanpa kunci: FO membatalkan saat kasir sedang
+        # membayar → validasi lolos dari status lama, lalu UPDATE-nya menimpa ANTRI_OBAT
+        # hasil pembayaran menjadi BATAL (uang masuk, kunjungan batal, obat terdampar).
+        kunjungan = self.kunjungan_repo.get_by_id_for_update(id_kunjungan)
         if kunjungan is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

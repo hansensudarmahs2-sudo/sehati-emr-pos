@@ -718,7 +718,17 @@ class KasirService:
         # pembayaran konkuren utk kunjungan sama. Submit kedua baru lanjut setelah yang
         # pertama commit, sehingga get_tagihan di bawah melihat item yang sudah ter-billing
         # (resep DIBAYAR / tindakan terpakai) → tak double-charge item yang sama.
-        self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
+        _kj_kunci = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
+
+        # Audit T2-3: kunjungan BATAL dulu tetap bisa dibayar (halaman tagihan yang
+        # terbuka sebelum FO membatalkan) dan "hidup lagi" jadi ANTRI_OBAT/COMPLETED.
+        # Diperiksa SESUDAH kunci, jadi pembatalan yang menang lebih dulu terlihat.
+        if _kj_kunci is not None and _kj_kunci.status_antrian == "BATAL":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Kunjungan {payload.id_kunjungan} sudah DIBATALKAN — tidak bisa "
+                        f"dibayar. Kalau pasien tetap dilayani, daftarkan antrian baru."),
+            )
 
         # 1. Re-fetch tagihan (server source of truth)
         tagihan = self.get_tagihan(payload.id_kunjungan)
@@ -905,9 +915,17 @@ class KasirService:
             # Racikan WAJIB ikut diperhitungkan: kunjungan yang isinya racikan saja akan
             # loncat ke COMPLETED tanpa pernah diserahkan, sehingga stok bahan tidak
             # pernah keluar.
+            # Audit T2-1: juga obat LAMA yang sudah lunas tapi belum diserahkan (tagihan
+            # susulan untuk tindakan tidak menandai obat apa pun). KECUALI kunjungan di
+            # jalur Obat Tertunda (tgl_janji_kirim): sisanya SENGAJA DIBAYAR + COMPLETED
+            # dan diurus modul itu (apotek_service.serah sebagian).
+            _obat_lama_menunggu = (
+                kunjungan is not None and kunjungan.tgl_janji_kirim is None
+                and self.repo.hitung_obat_dibayar_belum_serah(payload.id_kunjungan) > 0
+            )
             status_baru = (
                 "ANTRI_OBAT"
-                if (n_resep_updated > 0 or n_racikan_updated > 0)
+                if (n_resep_updated > 0 or n_racikan_updated > 0 or _obat_lama_menunggu)
                 else "COMPLETED"
             )
             status_lama = kunjungan.status_antrian if kunjungan else None

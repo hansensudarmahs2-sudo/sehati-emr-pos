@@ -185,6 +185,27 @@ class KasirRepository:
             out.append((h, list(bahan)))
         return out
 
+    def hitung_obat_dibayar_belum_serah(self, id_kunjungan: int) -> int:
+        """Resep + racikan kunjungan ini yang DIBAYAR tapi belum DISERAHKAN.
+
+        Audit T2-1: status sesudah bayar dulu ditentukan HANYA dari baris yang baru
+        ditandai lunas. Tagihan susulan untuk tindakan (DEC-050) tidak menandai obat
+        apa pun → kunjungan COMPLETED, padahal obat dari pembayaran pertama belum
+        diserahkan → terdampar: lunas, tak ada di antrian apotek, stok tak dipotong."""
+        from sqlalchemy import func, select
+        from app.db.models.racikan import KunjunganRacikan
+        n_resep = self.db.execute(
+            select(func.count(KunjunganResep.id_resep))
+            .where(KunjunganResep.id_kunjungan == id_kunjungan)
+            .where(KunjunganResep.status_item == "DIBAYAR")
+        ).scalar() or 0
+        n_racik = self.db.execute(
+            select(func.count(KunjunganRacikan.id_kunjungan_racikan))
+            .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
+            .where(KunjunganRacikan.status_item == "DIBAYAR")
+        ).scalar() or 0
+        return int(n_resep) + int(n_racik)
+
     def mark_racikan_dibayar(self, id_kunjungan: int, id_transaksi: int) -> int:
         """Racikan PENDING di kunjungan ini → DIBAYAR + tautkan ke transaksinya."""
         from sqlalchemy import update

@@ -135,6 +135,9 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | U51 | **📋 Data untuk Omnicare** (dari detail / Cari Pasien) | Teks besar: RM Omnicare, RM Sehati, nama, JK, tgl lahir (dd-mm-yyyy), NIK LENGKAP, telepon, alamat, email, referensi + kotak "Semua sekaligus" yang bisa diblok. Login sebagai Dokter/Kasir → tombol tidak ada, URL langsung → 403 | — | ✅ 07/10 — dicoba dr. Hansen di layar desktop & MINI PC, sesuai |
 | U52 | **Ketik `JJ-8124` dan `jj 08124`** di Cari Pasien | Keduanya menemukan pasien yang sama | — | ✅ 07/10 — dicoba dr. Hansen di layar desktop & MINI PC, sesuai |
 | U53 | Audit T1-B: buka detail pasien yang sudah DIGABUNG (dari Audit Pasien → buka rekam) | Pita merah "Pasien ini NONAKTIF — sudah digabung ke …" dengan tautan ke pasien yang bertahan. Pasien VIP yang digabung tidak ada lagi di dropdown New Booking; pasien yang bertahan (bila membership pindah) bisa di-booking | — | 🤖 dirender 13/10 (pita muncul di pasien nonaktif #3, tidak di pasien aktif) |
+| U54 | Audit T2-4: kunjungan di ANTRI_BAYAR → menu **Ubah** di antrian FO | Pilihan hanya "Antri Obat" dan "Batal" — **tidak ada "Completed"**. Kunjungan hanya selesai lewat kasir | — | 🤖 diuji otomatis 13/10 |
+| U55 | Audit T2-3: buka halaman tagihan kasir, lalu (di tab lain) FO membatalkan kunjungan itu, lalu kasir tekan Bayar | Ditolak: "Kunjungan … sudah DIBATALKAN — tidak bisa dibayar". Tidak ada transaksi terbentuk | — | 🤖 diuji otomatis 13/10 |
+| U56 | Audit T2-1: pasien dengan obat → bayar → (obat BELUM diserahkan) dokter Ubah Konsul tambah tindakan → perawat selesai → kasir bayar susulan | Sesudah bayar susulan kunjungan tetap di **antrian apotek**; obat lama bisa diserahkan | — | 🤖 diuji otomatis 13/10 |
 
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 

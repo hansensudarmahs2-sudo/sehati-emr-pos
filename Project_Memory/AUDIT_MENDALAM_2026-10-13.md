@@ -11,7 +11,7 @@ usulan membereskan data lama.
 | Tahap | Alur | Status |
 |---|---|---|
 | 1 | Identitas pasien: daftar → cari → edit → nonaktif → gabung | **selesai 2026-10-13** |
-| 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | belum |
+| 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **diaudit 2026-10-13 — menunggu keputusan perbaikan** |
 | 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | belum |
 | 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | belum |
 | 5 | Laporan & ekspor: omzet, apotek, Finance, paket klinis | belum |
@@ -90,3 +90,102 @@ pasien biasa — tanpa peringatan — dan bisa dibuka dari halaman audit ("buka 
 - **API v1 pasien & kunjungan:** setiap endpoint ber-`role_required` (rincian → tahap 6).
 - **No. RM Omnicare & NIK:** satu jalur normalisasi; gabung/nonaktif sudah ditangani
   (lihat `DESAIN_NO_RM_OMNICARE.md`, `app/core/nik.py`).
+
+
+---
+
+## Tahap 2 — Alur klinis (diaudit 2026-10-13)
+
+Metode: tiga agen pembaca (antrian+SOAP · tindakan+kuota+series · resep+racikan+apoteker)
+memetakan kode dan mengusulkan kandidat; SETIAP kandidat dibuktikan ulang dari kode, dan
+yang menyangkut uang/obat dibuktikan dengan percobaan memakai `proses_bayar` /
+`void_transaksi` SEBENARNYA di DB dev (sesi di-rollback; skrip `repro_tahap2.py`).
+
+### Terbukti dengan percobaan (fungsi bayar/void asli)
+
+**T2-1 ✅ DIPERBAIKI 2026-10-13 — Obat lunas TERDAMPAR sesudah tagihan susulan.** Bayar 1 → resep DIBAYAR,
+ANTRI_OBAT. Dokter menambah tindakan (status mundur ke ANTRI_TREATMENT, DEC-050), perawat
+selesai, kasir menagih susulan → `proses_bayar` menentukan status dari baris PENDING yang
+BARU ditandai saja (`kasir_service.py` "status_baru = ANTRI_OBAT if n_resep_updated …") →
+**COMPLETED**, resep lama tetap DIBAYAR. Hasil: lunas, keluar dari antrian apotek, tak bisa
+diserahkan (`apotek_service` serah menolak selain ANTRI_OBAT), stok tak pernah dipotong.
+
+**T2-2 🔴 Void satu transaksi membatalkan obat transaksi LAIN di kunjungan yang sama.**
+Split billing T1 (resep A) + T2 (resep B). Void T2 → **resep A milik T1 ikut BATAL**,
+kunjungan COMPLETED; T1 tetap BAYAR (uangnya dihitung, obatnya tidak akan diserahkan).
+Sebab: pembatal resep/racikan memilih per `id_kunjungan`, bukan per transaksi — padahal
+racikan sudah menyimpan `id_transaksi`. Pola sama dengan Temuan 27 (nota per kunjungan),
+yang dulu diperbaiki hanya untuk cetak.
+
+**T2-3 ✅ DIPERBAIKI 2026-10-13 — Kunjungan BATAL masih bisa dibayar dan "hidup lagi".** `proses_bayar` tidak
+memeriksa status kunjungan → kunjungan BATAL dibayar → **ANTRI_OBAT**. (Agen juga mencatat
+varian bersamaan: `ubah_status` membaca tanpa kunci, jadi BATAL bisa menimpa status sesudah
+pembayaran masuk.)
+
+### Terbukti dari kode
+
+**T2-4 ✅ DIPERBAIKI 2026-10-13 — FO bisa melewati kasir.** Menu "Ubah" antrian (role FO/Admin/Owner) menawarkan
+ANTRI_BAYAR → **COMPLETED** (juga KONSULTASI → ANTRI_OBAT). Tindakan selesai, tanpa
+transaksi, keluar dari antrian kasir, dan gerbang tutup kasir lolos. DEC-015 menjanjikan
+validasi pra-bayar yang tak pernah dibuat. Daftar transisi juga ditulis DUA kali (route +
+service, "keep in sync") — §4.1.
+
+**T2-5 🟠 BATAL tidak mengembalikan apa pun.** `ubah_status` → BATAL hanya mengubah status.
+Kuota membership sudah dipakai saat SOAP disimpan → **hilang**; sesi series yang sudah
+SCHEDULED → **tersangkut** selamanya (hanya void yang mengembalikannya; tidak ada di daftar
+"Pakai Sesi").
+
+**T2-6 🟠 Sesi 2..N series bisa dipakai GRATIS walau sesi 1 (pembawa harga paket) tak
+pernah ditagih.** `use_session` hanya cek rencana PENDING; harga sesi > 1 selalu Rp 0.
+Contoh: series 6× dibatalkan sebelum bayar → 5 sesi tetap tersedia gratis.
+
+**T2-7 🟠 Penanda "sudah ditebus" = ada salinan, APA PUN statusnya.** Salinan tebus yang
+ditunda / di-void / dibatalkan membuat resep & racikan asli **hilang permanen** dari daftar
+tebus (`apotek_service` `sudah_ditebus = exists(...)`). Satu kolom, dua arti (§4.1).
+
+**T2-8 🟠 Tebus resep tanpa validasi** (racikan memvalidasi): baris resep lama disalin
+tanpa cek status, salinan yang sudah ada, atau pemilik → klik ganda / dua apoteker = tebus
+ganda; halaman basi bisa menyalin resep yang sudah DIBAYAR.
+
+**T2-9 🟠 Halaman SOAP basi menggandakan racikan yang sudah dibayar/ditunda.** Kartu ber-id
+racikan non-PENDING diperlakukan sebagai kartu BARU → baris PENDING kembar, ditagih lagi
+sebagai susulan (`racikan_service` "perlakukan sebagai kartu baru").
+
+**T2-10 🟡 Admin/Superadmin bisa menyetujui draf SOAP apoteker dan tercatat sebagai dokter
+penulis.** Pagar "hanya dokter yang dituju" hanya berlaku untuk role DOKTER.
+
+**T2-11 🟡 Upsell TREATMENT mengabaikan kuota membership & batas 2 transaksi** — penulis
+kedua `kunjungan_tindakan` (§4.1). Pasien VIP berkuota ditagih penuh lewat upsell, Rp 0
+lewat SOAP dokter. Bisa jadi kebijakan — perlu keputusan.
+
+**T2-12 🟡 Simpan SOAP: kegagalan blok racikan/diagnosa/kontrol ditelan diam-diam.**
+SOAP+resep+status sudah di-commit; blok kedua gagal → rollback, redirect normal tanpa pesan.
+Pemicu nyata belum ditemukan (field dibatasi), tapi penelanannya pasti.
+
+### Perbaikan T2-1, T2-3, T2-4 (disetujui dr. Hansen 2026-10-13)
+
+- **T2-1:** `proses_bayar` → ANTRI_OBAT juga bila masih ada obat LAMA yang DIBAYAR tapi
+  belum diserahkan (`KasirRepository.hitung_obat_dibayar_belum_serah`) — KECUALI kunjungan
+  di jalur Obat Tertunda (`tgl_janji_kirim` terisi), yang sisanya sengaja DIBAYAR+COMPLETED.
+- **T2-3:** `proses_bayar` menolak kunjungan BATAL, diperiksa SESUDAH kunci baris.
+  `ubah_status` kini mengunci baris (`get_by_id_for_update`). Kunci itu kini membaca
+  SEGAR (`populate_existing`) — tanpa itu objek di sesi tidak dibaca ulang dan pagar
+  memeriksa status lama (dibuktikan oleh test).
+- **T2-4:** ANTRI_BAYAR → COMPLETED dihapus dari mesin status. Dropdown "Ubah" kini
+  DITURUNKAN dari `KunjunganService._VALID_TRANSITIONS` (dulu salinan "keep in sync").
+- Uji: `tests/integration/test_audit_tahap2.py` (7, memakai `proses_bayar` asli). Dua arah —
+  5 suntikan, semuanya tertangkap. Repro: T2-1 kini ANTRI_OBAT, T2-3 kini ditolak.
+- ⚠ Masih terbuka dan SENGAJA tidak disentuh (perlu keputusan, dibahas bersama T2-5):
+  ANTRI_OBAT → BATAL / COMPLETED lewat menu masih mungkin untuk kunjungan yang obatnya
+  sudah lunas; ON_TREATMENT → COMPLETED tetap ada (DEC-015, keputusan terdokumentasi).
+
+### Kandidat — belum dibuktikan
+- Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.
+- Void mengembalikan kuota tapi tindakannya tetap ber-`id_kuota_member` → bisa ditagih Rp 0
+  sesudahnya (butuh urutan khusus).
+
+### Diperiksa — BERSIH (dari laporan agen, tidak diperiksa ulang satu per satu)
+Kunci kuota/series/serah; pagar void tindakan SELESAI; komisi anti-dobel per `id_ref`;
+snapshot `transaksi_detail_tindakan` + sisa pembulatan; cutoff susulan satu jam (DB);
+harga racikan terkunci; pagar SOAP basi untuk diagnosa & racikan PENDING; draf apoteker
+dikecualikan dari SOAP terakhir; pagar alergi sebelum persetujuan draf.

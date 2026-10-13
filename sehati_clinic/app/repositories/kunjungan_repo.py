@@ -40,6 +40,9 @@ class KunjunganRepository:
             select(Kunjungan)
             .where(Kunjungan.id_kunjungan == id_kunjungan)
             .with_for_update()
+            # Audit T2-3: tanpa populate_existing, objek yang sudah ada di sesi TIDAK
+            # dibaca ulang — status yang diperiksa sesudah kunci bisa status lama.
+            .execution_options(populate_existing=True)
         )
         return self.db.execute(stmt).scalar_one_or_none()
 

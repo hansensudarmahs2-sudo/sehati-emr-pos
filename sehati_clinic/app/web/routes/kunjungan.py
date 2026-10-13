@@ -24,15 +24,15 @@ from app.web.routes._shared import (
 router = APIRouter(tags=["Web Antrian (Umum)"])
 
 
-# Valid status transitions — keep in sync dengan KunjunganService._VALID_TRANSITIONS
-# Used untuk render dropdown "Ubah" di tabel antrian (UI cue saja, service tetap validate).
+# Dropdown "Ubah" di tabel antrian — DITURUNKAN dari KunjunganService._VALID_TRANSITIONS.
+# Audit T2-4: dulu daftar ini ditulis ULANG di sini ("keep in sync") — dua salinan yang
+# bisa menyimpang (CLAUDE.md §4.1). Urutan tampilan saja yang ditentukan di sini.
+from app.services.kunjungan_service import _VALID_TRANSITIONS as _TRANSISI_SERVICE
+_URUTAN_STATUS = ["ANTRI_KONSULTASI", "KONSULTASI", "ANTRI_TREATMENT", "ON_TREATMENT",
+                  "ANTRI_BAYAR", "ANTRI_OBAT", "COMPLETED", "BATAL"]
 VALID_TRANSITIONS = {
-    "ANTRI_KONSULTASI": ["KONSULTASI", "BATAL"],
-    "KONSULTASI": ["ANTRI_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT", "BATAL"],
-    "ANTRI_TREATMENT": ["ON_TREATMENT", "BATAL"],
-    "ON_TREATMENT": ["ANTRI_BAYAR", "ANTRI_OBAT", "COMPLETED", "BATAL"],
-    "ANTRI_BAYAR": ["ANTRI_OBAT", "COMPLETED", "BATAL"],
-    "ANTRI_OBAT": ["COMPLETED", "BATAL"],
+    asal: [s for s in _URUTAN_STATUS if s in tujuan]
+    for asal, tujuan in _TRANSISI_SERVICE.items() if tujuan
 }
 
 
