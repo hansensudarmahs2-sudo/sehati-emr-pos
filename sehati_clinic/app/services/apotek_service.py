@@ -437,8 +437,11 @@ class ApotekService:
         id_staf_apoteker: int,
         request: Optional[Request] = None,
     ) -> dict:
-        # 1. Validasi kunjungan
-        kunjungan = self.kunjungan_repo.get_by_id(payload.id_kunjungan)
+        # 1. Validasi kunjungan — DIKUNCI (Audit T3-2, 2026-10-13). Dulu tanpa kunci: klik
+        # ganda / dua apoteker / layar Obat Tertunda menyerahkan obat yang SAMA dua kali
+        # (stok dipotong dua kali, dua jejak lot). Void, refund, dan bayar mengunci baris
+        # yang sama, jadi semuanya berurutan per kunjungan.
+        kunjungan = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
         if kunjungan is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -462,9 +465,9 @@ class ApotekService:
         #    berarti "semua" (alur lama & API v1); kalau diisi, hanya itu yang diserahkan.
         _parsial = payload.id_resep is not None or payload.id_kunjungan_racikan is not None
         resep_list = self.repo.get_resep_dibayar_for_serah(
-            payload.id_kunjungan, only_ids=payload.id_resep)
+            payload.id_kunjungan, only_ids=payload.id_resep, kunci=True)
         racikan_list = self.repo.get_racikan_dibayar_for_serah(
-            payload.id_kunjungan, only_ids=payload.id_kunjungan_racikan)
+            payload.id_kunjungan, only_ids=payload.id_kunjungan_racikan, kunci=True)
         if not resep_list and not racikan_list:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -476,8 +479,8 @@ class ApotekService:
             )
 
         # 2b. Hitung SISA — item DIBAYAR yang tidak ikut diserahkan kali ini.
-        _semua_resep = self.repo.get_resep_dibayar_for_serah(payload.id_kunjungan)
-        _semua_racik = self.repo.get_racikan_dibayar_for_serah(payload.id_kunjungan)
+        _semua_resep = self.repo.get_resep_dibayar_for_serah(payload.id_kunjungan, kunci=True)
+        _semua_racik = self.repo.get_racikan_dibayar_for_serah(payload.id_kunjungan, kunci=True)
         _id_resep_serah = {r.id_resep for r in resep_list}
         _id_racik_serah = {h.id_kunjungan_racikan for h, _ in racikan_list}
         n_sisa = (

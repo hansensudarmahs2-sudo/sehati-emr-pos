@@ -146,7 +146,16 @@ class ReturService:
             for it in items:
                 if it.id_lot is None:
                     continue
-                lot = self.db.get(StokLot, it.id_lot)
+                # Audit T3-2: kunci PRODUK dulu (urutan sama dengan serah), lalu lot BERKUNCI
+                # & segar. Dulu `db.get` biasa → serah yang commit di antaranya tertimpa.
+                _lot0 = self.db.get(StokLot, it.id_lot)
+                if _lot0 is not None and _lot0.id_produk:
+                    self.db.execute(select(MasterProduk).where(MasterProduk.id_produk == _lot0.id_produk)
+                                    .with_for_update().execution_options(populate_existing=True))
+                lot = self.db.execute(
+                    select(StokLot).where(StokLot.id_lot == it.id_lot)
+                    .with_for_update().execution_options(populate_existing=True)
+                ).scalar_one_or_none()
                 if lot is None:
                     raise HTTPException(400, f"Lot batch {it.batch_no or '-'} sudah tak ada.")
                 qty = float(it.qty)

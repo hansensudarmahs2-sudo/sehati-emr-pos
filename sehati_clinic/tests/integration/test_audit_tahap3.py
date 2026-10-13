@@ -72,3 +72,93 @@ def test_void_t2_tidak_mengembalikan_stok_obat_yang_diserahkan_lewat_t1(db):
     jr = db.execute(select(KunjunganLotTerpakai).where(
         KunjunganLotTerpakai.id_resep == ra.id_resep)).scalar_one()
     assert jr.reversed_at is None                                         # jejak T1 utuh
+
+
+# ---------------------------------------------------------------- T3-2
+# Balapan sungguhan butuh dua koneksi yang commit (= menulis permanen ke DB dev). Yang diuji
+# di sini: jalur ASLI dijalankan dan SQL-nya direkam — keputusan harus memakai pembacaan
+# BERKUNCI (REPEATABLE-READ: SELECT biasa membaca potret awal permintaan), dalam urutan
+# produk → lot (sama dengan serah, supaya tak saling mengunci).
+from contextlib import contextmanager  # noqa: E402
+from sqlalchemy import event  # noqa: E402
+
+
+@contextmanager
+def _rekam_sql(db):
+    terekam = []
+    eng = db.get_bind()
+    def _cat(conn, cursor, statement, params, context, executemany):
+        terekam.append(" ".join(statement.split()))
+    event.listen(eng, "before_cursor_execute", _cat)
+    try:
+        yield terekam
+    finally:
+        event.remove(eng, "before_cursor_execute", _cat)
+
+
+def _berkunci(terekam, tabel):
+    """Kueri FOR UPDATE atas tabel PERSIS ini. Pencocokan substring biasa ("FROM kunjungan")
+    ikut cocok dengan kunjungan_resep — suntikan "serah tanpa kunci kunjungan" sempat LOLOS."""
+    import re
+    pola = re.compile(rf"FROM {re.escape(tabel)}(?![A-Za-z0-9_])")
+    return [q for q in terekam if pola.search(q) and "FOR UPDATE" in q]
+
+
+def test_serah_mengunci_kunjungan_resep_dan_lot(db):
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db)
+    r = _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    with _rekam_sql(db) as q:
+        ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf)
+    assert _berkunci(q, "kunjungan") and _berkunci(q, "kunjungan_resep") and _berkunci(q, "stok_lot")
+    db.refresh(r); db.refresh(lot)
+    assert V(r.status_item) == "DISERAHKAN" and float(lot.qty_sisa) == 8.0
+
+
+def test_serah_kedua_ditolak(db):
+    """Klik ganda yang tiba BERURUTAN: permintaan kedua tak menyerahkan lagi."""
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db)
+    _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    svc = ApotekService(db)
+    svc.serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf)
+    with pytest.raises(HTTPException):
+        svc.serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf)
+    db.refresh(lot)
+    assert float(lot.qty_sisa) == 8.0
+
+
+def test_void_mengunci_transaksi_lalu_kunjungan_sebelum_pagar(db):
+    staf, k = _siapkan(db)
+    p, _ = _produk_dengan_lot(db)
+    _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    t = _trx_terakhir(db, k)
+    with _rekam_sql(db) as q:
+        KasirService(db).void_transaksi(t.id_transaksi, "SALAH_INPUT", "uji T3-2", [], staf.id_staf)
+    i_trx = next(i for i, x in enumerate(q) if "FROM transaksi_kasir" in x and "FOR UPDATE" in x)
+    i_kj = q.index(_berkunci(q, "kunjungan")[0])
+    i_pagar = next(i for i, x in enumerate(q) if "FROM kunjungan_resep" in x and "FOR UPDATE" in x)
+    assert i_trx < i_kj < i_pagar
+
+
+def test_refund_tertunda_membaca_item_dan_anti_dobel_berkunci(db):
+    """Juga membuktikan jalur refund BERJALAN — patch pertama memakai nama yang tak
+    diimpor di fungsi ini (NameError saat dipakai), tertangkap sebelum test."""
+    staf, k = _siapkan(db)
+    p, _ = _produk_dengan_lot(db)
+    r = _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    with _rekam_sql(db) as q:
+        KasirService(db).refund_item_tertunda(
+            id_resep=r.id_resep, alasan="uji T3-2", metode_refund="TUNAI",
+            actor_id_staf=staf.id_staf)
+    assert _berkunci(q, "kunjungan_resep") and _berkunci(q, "transaksi_refund")
+    db.refresh(r)
+    assert V(r.status_item) == "BATAL"

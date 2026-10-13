@@ -109,7 +109,7 @@ class ApotekRepository:
         return [(row[0], row[1]) for row in rows]
 
     def get_resep_dibayar_for_serah(
-        self, id_kunjungan: int, only_ids: Optional[list[int]] = None
+        self, id_kunjungan: int, only_ids: Optional[list[int]] = None, kunci: bool = False
     ) -> list[KunjunganResep]:
         """List resep DIBAYAR di kunjungan ini — kandidat untuk diserahkan.
 
@@ -127,22 +127,29 @@ class ApotekRepository:
             if not only_ids:
                 return []
             stmt = stmt.where(KunjunganResep.id_resep.in_(only_ids))
+        if kunci:
+            # Audit T3-2: serah memakai pembacaan BERKUNCI — permintaan kedua (klik ganda)
+            # menunggu, lalu melihat status terbaru (DISERAHKAN) dan tak menyerahkan lagi.
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return list(self.db.execute(stmt).scalars().all())
 
-    def get_racikan_for_apotek(self, id_kunjungan: int) -> list:
+    def get_racikan_for_apotek(self, id_kunjungan: int, kunci: bool = False) -> list:
         """Racikan di kunjungan ini (exclude BATAL) + bahannya.
 
         Return: list[(KunjunganRacikan, list[KunjunganRacikanBahan])]
         """
         from app.db.models.racikan import KunjunganRacikan, KunjunganRacikanBahan
 
-        heads = self.db.execute(
+        _q_heads = (
             select(KunjunganRacikan)
             .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
             # R8: sama alasannya dengan resep di atas.
             .where(KunjunganRacikan.status_item.notin_(["BATAL", "DITUNDA"]))
             .order_by(KunjunganRacikan.id_kunjungan_racikan.asc())
-        ).scalars().all()
+        )
+        if kunci:   # Audit T3-2 — lihat get_resep_dibayar_for_serah
+            _q_heads = _q_heads.with_for_update().execution_options(populate_existing=True)
+        heads = self.db.execute(_q_heads).scalars().all()
         out = []
         for h in heads:
             bahan = self.db.execute(
@@ -154,14 +161,14 @@ class ApotekRepository:
         return out
 
     def get_racikan_dibayar_for_serah(
-        self, id_kunjungan: int, only_ids: Optional[list[int]] = None
+        self, id_kunjungan: int, only_ids: Optional[list[int]] = None, kunci: bool = False
     ) -> list:
         """Racikan DIBAYAR + bahannya — kandidat untuk diracik & diserahkan.
 
         `only_ids` (task #54) sama seperti pada resep: None = semua, list = pilihan.
         """
         rows = [
-            (h, b) for (h, b) in self.get_racikan_for_apotek(id_kunjungan)
+            (h, b) for (h, b) in self.get_racikan_for_apotek(id_kunjungan, kunci=kunci)
             if h.status_item == "DIBAYAR"
         ]
         if only_ids is not None:
@@ -178,6 +185,9 @@ class ApotekRepository:
             select(MasterProduk)
             .where(MasterProduk.id_produk == id_produk)
             .with_for_update()
+            # Audit T3-2: tanpa ini objek produk yang sudah ada di sesi TIDAK dibaca ulang —
+            # cache stok dihitung dari angka lama walau barisnya sudah terkunci.
+            .execution_options(populate_existing=True)
         )
         return self.db.execute(stmt).scalar_one_or_none()
 

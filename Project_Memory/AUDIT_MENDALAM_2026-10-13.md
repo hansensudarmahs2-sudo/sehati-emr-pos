@@ -314,12 +314,31 @@ pembatal obat/kuota/series dan kedua pagar ke `_lingkup_void`, tapi MELEWATKAN p
 Skenario: T1 obat A ×3 sudah diserahkan; susulan T2 obat B ×2 belum; void T2 + centang
 "produk masih utuh" → stok +2 HANTU, dan jejak lot A ditandai reversed (retur A kelak ditolak).
 
-**T3-2 Serah obat menulis LOT dari potret lama tanpa kunci → serah ganda / pemotongan hilang.**
+**T3-2 ✅ DIPERBAIKI 2026-10-13 — Serah obat menulis LOT dari potret lama tanpa kunci → serah ganda / pemotongan hilang.**
 Hanya baris produk yang dikunci; `consume_fefo` membaca lot dengan SELECT biasa lalu menulis
 nilai absolut. REPEATABLE-READ + klik ganda / dua apoteker → cache dipotong dua kali, lot sekali
 (atau sebaliknya), dua jejak lot untuk satu resep. Pola sama: opname approve & retur supplier
 (lot dibaca `db.get` tanpa kunci); void & refund obat tertunda membaca resep tanpa kunci (bisa
 VOID atas item yang baru saja DISERAHKAN); anti-dobel refund = cek-lalu-insert tanpa indeks unik.
+
+Perbaikan T3-2 — prinsip: REPEATABLE-READ membuat SELECT biasa membaca POTRET awal
+permintaan walau sudah menunggu kunci; setiap KEPUTUSAN stok/status kini memakai pembacaan
+BERKUNCI (+ `populate_existing` agar objek di sesi ikut segar):
+- FEFO mengunci lot; `get_produk_for_update` (apotek & opname repo) membaca segar.
+- Serah mengunci KUNJUNGAN lalu resep & racikan (pembacaan berkunci) → serah kedua menunggu,
+  melihat DISERAHKAN, ditolak.
+- Void (`_kunci_untuk_void`, kedua jalur): kunci transaksi lalu kunjungan SEBELUM pagar;
+  pagar "tindakan selesai"/"obat diserahkan" pembacaan berkunci. Menutup juga void ganda
+  (komisi & kuota dikembalikan dua kali).
+- Refund obat tertunda: item & anti-dobel pembacaan berkunci.
+- Opname approve & retur supplier: kunci PRODUK dulu lalu lot (urutan sama dengan serah).
+Uji: 5 test (perekam SQL + jalur asli); dua arah — 6 suntikan tertangkap. Dua kesalahan sendiri
+tertangkap: (1) patch pertama memakai `KunjunganResep` yang tak diimpor di fungsi refund
+(NameError saat dipakai) — ditemukan sebelum test, kini dijaga test; (2) pencocok tabel di
+test terlalu longgar ("kunjungan" cocok dengan "kunjungan_resep") sehingga suntikan "serah tanpa
+kunci kunjungan" sempat LOLOS — diperketat. ⚠ Balapan SUNGGUHAN (dua koneksi commit) tidak diuji
+— itu menulis permanen ke DB dev; kunci opname & retur supplier diuji lewat test lama yang
+menjalankan jalurnya (`test_opname_lot`, `test_retur`), bukan perekam SQL.
 
 **T3-3 Penerimaan barang bisa ganda — kunci membaca salinan basi.** Route memuat item PO lebih
 dulu; `get_item_for_update` tanpa `populate_existing` mengembalikan `qty_diterima` lama → pagar

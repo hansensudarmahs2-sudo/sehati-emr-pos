@@ -68,7 +68,16 @@ class InventoryLotService:
         qty = float(qty or 0)
         if qty <= 0:
             return {"consumed": [], "shortfall": 0.0}
-        lots = self.db.execute(self._query_fefo(tipe_item, id_produk, id_bahan, lokasi)).scalars().all()
+        # Audit T3-2 (2026-10-13): PEMBACAAN BERKUNCI. DB berjalan REPEATABLE-READ — SELECT biasa
+        # membaca POTRET dari awal permintaan, walau permintaan itu sudah menunggu kunci; hanya
+        # pembacaan berkunci (FOR UPDATE) yang melihat data terbaru. `populate_existing` membuat
+        # ORM menimpa objek yang sudah ada di sesi dengan nilai segar itu.
+        # Dulu lot dibaca SELECT biasa lalu ditulis nilai absolut → dua serah atas produk
+        # yang sama (klik ganda / dua apoteker) saling menimpa pemotongan lot.
+        lots = self.db.execute(
+            self._query_fefo(tipe_item, id_produk, id_bahan, lokasi)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalars().all()
         consumed = []
         remaining = qty
         for lot in lots:

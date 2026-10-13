@@ -193,6 +193,7 @@ class OpnameRepository:
             select(MasterProduk)
             .where(MasterProduk.id_produk == id_produk)
             .with_for_update()
+            .execution_options(populate_existing=True)   # Audit T3-2: baca segar
         )
         return self.db.execute(stmt).scalar_one_or_none()
 

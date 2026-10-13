@@ -1396,8 +1396,16 @@ class KasirService:
             )
 
         # ---- 1. Ambil item + pastikan statusnya DIBAYAR --------------------
+        # Audit T3-2: item dibaca BERKUNCI & segar — refund yang berjalan bersama serah
+        # dulu bisa mengembalikan uang atas obat yang baru saja diserahkan; dua refund
+        # bersamaan sama-sama lolos anti-dobel (cek-lalu-insert tanpa indeks unik).
+        from sqlalchemy import select as _sel_k
+        from app.db.models import KunjunganResep   # dulu tak diimpor di sini (repo yang membaca)
         if id_resep is not None:
-            item = self.repo.get_resep_by_id(id_resep)
+            item = self.db.execute(
+                _sel_k(KunjunganResep).where(KunjunganResep.id_resep == id_resep)
+                .with_for_update().execution_options(populate_existing=True)
+            ).scalar_one_or_none()
             if item is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND,
                                     f"Resep {id_resep} tidak ditemukan.")
@@ -1405,7 +1413,11 @@ class KasirService:
             _label = f"resep #{id_resep}"
             _sumber_komisi, _id_ref_komisi = "PRODUK", id_resep
         else:
-            item = self.db.get(KunjunganRacikan, id_kunjungan_racikan)
+            item = self.db.execute(
+                _sel_k(KunjunganRacikan)
+                .where(KunjunganRacikan.id_kunjungan_racikan == id_kunjungan_racikan)
+                .with_for_update().execution_options(populate_existing=True)
+            ).scalar_one_or_none()
             if item is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND,
                                     f"Racikan {id_kunjungan_racikan} tidak ditemukan.")
@@ -1453,7 +1465,7 @@ class KasirService:
                 TransaksiRefund.id_resep == id_resep
                 if id_resep is not None
                 else TransaksiRefund.id_kunjungan_racikan == id_kunjungan_racikan
-            ).limit(1)
+            ).limit(1).with_for_update()   # Audit T3-2: lihat refund yang baru saja di-commit
         ).first()
         if _sudah:
             raise HTTPException(
@@ -2460,6 +2472,23 @@ class KasirService:
                 pass
         return reverted
 
+    def _kunci_untuk_void(self, id_transaksi):
+        """Kunci transaksi LALU kunjungannya, dengan pembacaan segar — Audit T3-2.
+
+        Dulu void membaca transaksi & status obat tanpa kunci: dua void bersamaan sama-sama
+        lolos (komisi & kuota dikembalikan dua kali); void yang berjalan bersama serah obat
+        bisa mem-void transaksi yang obatnya baru saja DISERAHKAN — persis yang dicegah
+        pagar 2026-10-04. Serah, refund, dan bayar mengunci kunjungan yang sama.
+        """
+        from sqlalchemy import select
+        trx = self.db.execute(
+            select(TransaksiKasir).where(TransaksiKasir.id_transaksi == id_transaksi)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if trx is not None and trx.id_kunjungan:
+            self.kunjungan_repo.get_by_id_for_update(trx.id_kunjungan)
+        return trx
+
     def _tindakan_selesai_di_transaksi(self, trx) -> list:
         """Tindakan berstatus SELESAI pada kunjungan transaksi ini.
 
@@ -2487,7 +2516,7 @@ class KasirService:
                 # Audit T2-2: hanya tindakan transaksi INI (dulu tindakan T1 menghalangi
                 # void T2 yang hanya berisi obat)
                 KunjunganTindakan.id_kunjungan_tindakan.in_(self._lingkup_void(trx)["tindakan"]),
-            )
+            ).with_for_update()   # Audit T3-2: status TERBARU, bukan potret awal permintaan
         ).scalars().all()
         out = []
         for kt in rows:
@@ -2525,7 +2554,7 @@ class KasirService:
                 KunjunganResep.id_kunjungan == trx.id_kunjungan,
                 KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
                 KunjunganResep.id_resep.in_(lingkup["resep"]),
-            )
+            ).with_for_update()   # Audit T3-2
         ).scalars().all():
             prod = self.db.get(MasterProduk, r.id_produk)
             out.append({
@@ -2539,7 +2568,7 @@ class KasirService:
                 _KRC.id_kunjungan == trx.id_kunjungan,
                 _KRC.status_item == "DISERAHKAN",
                 _KRC.id_kunjungan_racikan.in_(lingkup["racikan"]),
-            )
+            ).with_for_update()   # Audit T3-2
         ).scalars().all():
             out.append({"jenis": "Racikan", "nama": rc.nama_snapshot or "racikan"})
 
@@ -2693,7 +2722,7 @@ class KasirService:
             raise HTTPException(400, f"Reason code '{reason_code}' tidak valid")
         self._validate_reason_note(reason_enum, reason_note)
 
-        trx = self.db.get(TransaksiKasir, id_transaksi)
+        trx = self._kunci_untuk_void(id_transaksi)   # Audit T3-2
         if trx is None:
             raise HTTPException(404, f"Transaksi #{id_transaksi} tidak ditemukan")
         if trx.status_transaksi == StatusTransaksiEnum.VOID.value:
@@ -2818,7 +2847,7 @@ class KasirService:
             raise HTTPException(400, f"Reason code '{reason_code}' tidak valid")
         self._validate_reason_note(reason_enum, reason_note)
 
-        trx = self.db.get(TransaksiKasir, id_transaksi)
+        trx = self._kunci_untuk_void(id_transaksi)   # Audit T3-2
         if trx is None:
             raise HTTPException(404, f"Transaksi #{id_transaksi} tidak ditemukan")
         if trx.status_transaksi == StatusTransaksiEnum.VOID.value:

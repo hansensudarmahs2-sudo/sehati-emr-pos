@@ -227,7 +227,14 @@ class OpnameService:
                 if it.tipe_item == "PRODUK":
                     # P-L9: terapkan selisih ke LOT spesifik, lalu recompute cache stok_terkini.
                     if it.id_lot is not None:
-                        lot = self.db.get(StokLot, it.id_lot)
+                        # Audit T3-2: kunci PRODUK dulu (urutan sama dengan serah → tanpa
+                        # deadlock), lalu lot dibaca BERKUNCI & segar. Dulu `db.get` biasa:
+                        # serah yang commit di antara baca & tulis tertimpa (pemotongan hilang).
+                        self.repo.get_produk_for_update(it.id_produk)
+                        lot = self.db.execute(
+                            select(StokLot).where(StokLot.id_lot == it.id_lot)
+                            .with_for_update().execution_options(populate_existing=True)
+                        ).scalar_one_or_none()
                         if lot is None:
                             continue
                         lot.qty_sisa = float(lot.qty_sisa or 0) + selisih
