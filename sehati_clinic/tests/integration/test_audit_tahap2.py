@@ -233,3 +233,98 @@ def test_satu_transaksi_perilaku_lama_utuh(db):
     _void(db, _trx_terakhir(db, k).id_transaksi, staf)
     db.refresh(r); db.refresh(k)
     assert V(r.status_item) == "BATAL" and k.status_antrian == "COMPLETED"
+
+
+# ---------------------------------------------------------------- T2-5
+# Pembatalan kunjungan. Dulu BATAL hanya mengubah status: kuota hilang, sesi series
+# tersangkut, kunjungan yang sudah dibayar pun bisa dibatalkan (obat terdampar).
+def _batal(db, k, staf):
+    KunjunganService(db).ubah_status(k.id_kunjungan, "BATAL", actor_id_staf=staf.id_staf,
+                                     catatan_batal="uji T2-5")
+    db.refresh(k)
+
+
+def _kuota_terpakai(db, k):
+    from app.db.models import MasterMembership, PasienMembershipHistory, PasienMembershipKuota
+    m = db.execute(select(MasterMembership).limit(1)).scalar_one()
+    h = PasienMembershipHistory(id_pasien=k.id_pasien, id_membership=m.id_membership,
+                                tgl_aktif=date.today(), tgl_expired=date.today() + timedelta(days=30),
+                                harga_bayar=0, is_active=True, status_aktivasi="ACTIVE")
+    db.add(h); db.flush()
+    tr = db.execute(select(MasterTreatment).limit(1)).scalar_one()
+    q = PasienMembershipKuota(id_pasien=k.id_pasien, id_membership_history=h.id_history,
+                              id_treatment=tr.id_treatment, periode_kuota="TOTAL_PAKET",
+                              kuota_total=3, kuota_terpakai=1, is_active=True,
+                              expired_at=datetime.now() + timedelta(days=30))
+    db.add(q); db.flush()
+    db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
+                             id_kuota_member=q.id_kuota, status_tindakan="PENDING"))
+    db.flush()
+    return q
+
+
+def _rencana(db, k, urutan, pembuat, status):
+    from app.db.models import PasienRencanaTreatment
+    tr = db.execute(select(MasterTreatment).limit(1)).scalar_one()
+    r = PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=tr.id_treatment,
+                               urutan_sesi=urutan, nama_tindakan="Uji Series",
+                               id_kunjungan_pembuat=pembuat, status=status)
+    db.add(r); db.flush()
+    return r
+
+
+def test_batal_ditolak_bila_sudah_dibayar(db):
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)                               # ANTRI_OBAT, obat lunas
+    with pytest.raises(HTTPException) as e:
+        _batal(db, k, staf)
+    assert e.value.status_code == 409 and "VOID" in e.value.detail
+
+
+def test_batal_ditolak_bila_tindakan_sudah_selesai(db):
+    staf, k = _siapkan(db, "ANTRI_BAYAR")
+    _tindakan_selesai(db, k, detik=-60)
+    with pytest.raises(HTTPException) as e:
+        _batal(db, k, staf)
+    assert e.value.status_code == 409 and "SELESAI" in e.value.detail
+
+
+def test_batal_mengembalikan_kuota(db):
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    q = _kuota_terpakai(db, k)
+    _batal(db, k, staf)
+    db.refresh(q)
+    assert k.status_antrian == "BATAL" and q.kuota_terpakai == 0
+
+
+def test_batal_series_lahir_dibatalkan_yang_dijadwalkan_kembali(db):
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    _, lama = _siapkan(db, "COMPLETED")
+    lahir = _rencana(db, k, 2, k.id_kunjungan, "PENDING")         # series dibuat di sini
+    jadwal = _rencana(db, k, 3, lama.id_kunjungan, "SCHEDULED")   # sesi series lain, dipakai di sini
+    db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=jadwal.id_treatment,
+                             id_rencana=jadwal.id_rencana, status_tindakan="PENDING"))
+    db.flush()
+    _batal(db, k, staf)
+    db.refresh(lahir); db.refresh(jadwal)
+    assert (V(lahir.status), V(jadwal.status)) == ("CANCELLED", "PENDING")
+
+
+def test_selesai_lewat_menu_ditolak_bila_obat_lunas_belum_diserahkan(db):
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
+    assert e.value.status_code == 409 and "LUNAS" in e.value.detail
+
+
+def test_selesai_lewat_menu_boleh_di_jalur_obat_tertunda(db):
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    k.tgl_janji_kirim = date.today() + timedelta(days=2); db.flush()
+    KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
+    db.refresh(k)
+    assert k.status_antrian == "COMPLETED"

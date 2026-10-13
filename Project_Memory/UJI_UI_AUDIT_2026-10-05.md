@@ -138,6 +138,9 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | U54 | Audit T2-4: kunjungan di ANTRI_BAYAR → menu **Ubah** di antrian FO | Pilihan hanya "Antri Obat" dan "Batal" — **tidak ada "Completed"**. Kunjungan hanya selesai lewat kasir | — | 🤖 diuji otomatis 13/10 |
 | U55 | Audit T2-3: buka halaman tagihan kasir, lalu (di tab lain) FO membatalkan kunjungan itu, lalu kasir tekan Bayar | Ditolak: "Kunjungan … sudah DIBATALKAN — tidak bisa dibayar". Tidak ada transaksi terbentuk | — | 🤖 diuji otomatis 13/10 |
 | U56 | Audit T2-1: pasien dengan obat → bayar → (obat BELUM diserahkan) dokter Ubah Konsul tambah tindakan → perawat selesai → kasir bayar susulan | Sesudah bayar susulan kunjungan tetap di **antrian apotek**; obat lama bisa diserahkan | — | 🤖 diuji otomatis 13/10 |
+| U57 | Audit T2-2: satu kunjungan, bayar obat A → (belum diserahkan) dokter tambah obat B → bayar susulan → **void transaksi kedua** | Hanya obat B batal; obat A tetap di antrian apotek dan bisa diserahkan | — | 🤖 diuji otomatis 13/10 |
+| U58 | Audit T2-5: Batal antrian untuk kunjungan yang (a) sudah dibayar, (b) tindakannya sudah selesai | (a) ditolak "…sudah DIBAYAR … Batalkan lewat VOID"; (b) ditolak "…SUDAH SELESAI … Tagih lewat kasir" | — | 🤖 diuji otomatis 13/10 |
+| U59 | Audit T2-5: pasien VIP berkuota → dokter tulis SOAP (kuota terpakai) → FO Batal antrian sebelum ditindak | Sisa kuota di halaman Membership kembali seperti sebelum SOAP | — | 🤖 diuji otomatis 13/10 |
 
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 

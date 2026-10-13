@@ -313,6 +313,102 @@ class KunjunganService:
                 detail=f"Gagal ubah dokter dituju: {e!s}",
             )
 
+    # =====================================================================
+    # Audit T2-5 (2026-10-13) — pembatalan kunjungan. Keputusan diambil Claude atas
+    # usulan yang disampaikan ke dr. Hansen dan DITANDAI UNTUK DITINJAU (dr. Hansen
+    # meminta audit diteruskan & ditinjau di akhir). Project_Memory/AUDIT_MENDALAM_2026-10-13.md.
+    # =====================================================================
+    def _pagari_batal(self, kunjungan) -> None:
+        """Tolak BATAL bila (a) sudah ada pembayaran — uang masuk, obat terdampar;
+        jalurnya void transaksi; atau (b) tindakan sudah SELESAI dikerjakan — pekerjaan
+        yang sudah terjadi ditagih lewat kasir, sejalan dengan "void hanya untuk tindakan
+        yang belum selesai" (CLAUDE.md §7). Dulu keduanya lolos tanpa jejak."""
+        from sqlalchemy import func, select
+        from app.db.models import KunjunganTindakan, TransaksiKasir
+        from app.db.models._enums import StatusTindakanEnum
+        trx = self.db.execute(
+            select(TransaksiKasir.id_transaksi)
+            .where(TransaksiKasir.id_kunjungan == kunjungan.id_kunjungan)
+            .where(TransaksiKasir.status_transaksi == "BAYAR")).scalars().all()
+        if trx:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Kunjungan ini sudah DIBAYAR (transaksi "
+                        f"{', '.join('#' + str(t) for t in trx)}). Batalkan lewat VOID "
+                        f"transaksinya dulu (Kasir → Cari Transaksi), bukan lewat Batal antrian."),
+            )
+        n_selesai = self.db.execute(
+            select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
+            .where(KunjunganTindakan.id_kunjungan == kunjungan.id_kunjungan)
+            .where(KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI)).scalar() or 0
+        if n_selesai:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"{n_selesai} tindakan di kunjungan ini SUDAH SELESAI dikerjakan — "
+                        f"tidak bisa dibatalkan. Tagih lewat kasir."),
+            )
+
+    def _bereskan_batal(self, kunjungan, actor_id_staf, request) -> None:
+        """Kembalikan yang dipakai kunjungan yang dibatalkan (dipanggil SETELAH pagar —
+        jadi belum ada pembayaran dan tidak ada tindakan selesai):
+        - kuota membership tiap tindakan ber-`id_kuota_member` (dipakai saat SOAP disimpan);
+        - sesi series yang DIJADWALKAN ke kunjungan ini → kembali PENDING (dipakai lagi);
+        - series yang LAHIR di kunjungan ini → CANCELLED: sesi 1 pembawa harga paket tak
+          pernah dibayar, jadi sesi 2..N tak boleh tersisa untuk dipakai gratis (T2-6).
+        Semua FLUSH; `ubah_status` yang commit — gagal satu, batal semua."""
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan, PasienRencanaTreatment, StatusRencanaTreatmentEnum
+        from app.services.membership_service import MembershipService
+        k = kunjungan.id_kunjungan
+        _ms = MembershipService(self.db)
+        for t in self.db.execute(select(KunjunganTindakan).where(
+                KunjunganTindakan.id_kunjungan == k,
+                KunjunganTindakan.id_kuota_member.is_not(None))).scalars().all():
+            _ms.decrement_kuota_terpakai(t.id_kuota_member, actor_id_staf=actor_id_staf,
+                                         id_kunjungan=k, id_tindakan=t.id_kunjungan_tindakan,
+                                         request=request)
+        _aktif = (StatusRencanaTreatmentEnum.PENDING, StatusRencanaTreatmentEnum.SCHEDULED)
+        lahir_di_sini = self.db.execute(select(PasienRencanaTreatment).where(
+            PasienRencanaTreatment.id_kunjungan_pembuat == k,
+            PasienRencanaTreatment.status.in_(_aktif))).scalars().all()
+        for r in lahir_di_sini:
+            r.status = StatusRencanaTreatmentEnum.CANCELLED
+            self.audit.log(aksi="BATAL_SERIES_CANCEL", id_staf=actor_id_staf or 0,
+                           tabel_target="pasien_rencana_treatment", id_target=r.id_rencana,
+                           data_baru={"status": "CANCELLED", "trigger": f"batal_kunjungan_{k}"},
+                           request=request)
+        _id_lahir = {r.id_rencana for r in lahir_di_sini}
+        for r in self.db.execute(
+                select(PasienRencanaTreatment)
+                .join(KunjunganTindakan, KunjunganTindakan.id_rencana == PasienRencanaTreatment.id_rencana)
+                .where(KunjunganTindakan.id_kunjungan == k)
+                .where(PasienRencanaTreatment.status == StatusRencanaTreatmentEnum.SCHEDULED)
+        ).scalars().all():
+            if r.id_rencana in _id_lahir:
+                continue
+            r.status = StatusRencanaTreatmentEnum.PENDING
+            self.audit.log(aksi="BATAL_SERIES_KEMBALI", id_staf=actor_id_staf or 0,
+                           tabel_target="pasien_rencana_treatment", id_target=r.id_rencana,
+                           data_lama={"status": "SCHEDULED"},
+                           data_baru={"status": "PENDING", "trigger": f"batal_kunjungan_{k}"},
+                           request=request)
+        self.db.flush()
+
+    def _pagari_selesai_tanpa_serah(self, kunjungan) -> None:
+        """ANTRI_OBAT → COMPLETED lewat menu dulu menelantarkan obat yang sudah lunas
+        (keluar dari antrian apotek, stok tak dipotong). Jalurnya serah / tunda di apotek.
+        Kunjungan di jalur Obat Tertunda (tgl_janji_kirim) tidak lewat sini."""
+        from app.repositories.kasir_repo import KasirRepository
+        if kunjungan.tgl_janji_kirim is not None:
+            return
+        n = KasirRepository(self.db).hitung_obat_dibayar_belum_serah(kunjungan.id_kunjungan)
+        if n:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Masih ada {n} obat yang sudah LUNAS tapi belum diserahkan. "
+                        f"Selesaikan lewat Apotek (serahkan, atau tunda dengan tanggal kirim)."),
+            )
+
     def ubah_status(
         self,
         id_kunjungan: int,
@@ -372,8 +468,19 @@ class KunjunganService:
                 ),
             )
 
+        # Audit T2-5 (2026-10-13) — pagar BATAL & "selesai tanpa serah". Diperiksa SEBELUM
+        # perubahan apa pun; baris kunjungan sudah terkunci di atas.
+        if status_baru_str == "BATAL":
+            self._pagari_batal(kunjungan)
+        if status_sekarang == "ANTRI_OBAT" and status_baru_str == "COMPLETED":
+            self._pagari_selesai_tanpa_serah(kunjungan)
+
         try:
             self.kunjungan_repo.update_status(kunjungan, status_baru_str)
+            if status_baru_str == "BATAL":
+                # Audit T2-5: dulu BATAL hanya mengubah status — kuota yang dipakai saat SOAP
+                # disimpan HILANG, sesi series tersangkut SCHEDULED selamanya.
+                self._bereskan_batal(kunjungan, actor_id_staf, request)
 
             # FO-ASSIGN-DOKTER #329: kalau caller pass dokter assignment, update juga.
             # Berlaku ke semua transition (FO bisa assign / reassign / clear).

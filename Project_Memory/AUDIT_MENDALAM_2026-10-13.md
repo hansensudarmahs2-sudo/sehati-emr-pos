@@ -130,12 +130,12 @@ transaksi, keluar dari antrian kasir, dan gerbang tutup kasir lolos. DEC-015 men
 validasi pra-bayar yang tak pernah dibuat. Daftar transisi juga ditulis DUA kali (route +
 service, "keep in sync") — §4.1.
 
-**T2-5 🟠 BATAL tidak mengembalikan apa pun.** `ubah_status` → BATAL hanya mengubah status.
+**T2-5 ✅ DIPERBAIKI 2026-10-13 (⚠ keputusan kebijakan DITANDAI UNTUK DITINJAU) — BATAL tidak mengembalikan apa pun.** `ubah_status` → BATAL hanya mengubah status.
 Kuota membership sudah dipakai saat SOAP disimpan → **hilang**; sesi series yang sudah
 SCHEDULED → **tersangkut** selamanya (hanya void yang mengembalikannya; tidak ada di daftar
 "Pakai Sesi").
 
-**T2-6 🟠 Sesi 2..N series bisa dipakai GRATIS walau sesi 1 (pembawa harga paket) tak
+**T2-6 🟠 (jalur BATAL tertutup oleh T2-5) Sesi 2..N series bisa dipakai GRATIS walau sesi 1 (pembawa harga paket) tak
 pernah ditagih.** `use_session` hanya cek rencana PENDING; harga sesi > 1 selalu Rp 0.
 Contoh: series 6× dibatalkan sebelum bayar → 5 sesi tetap tersedia gratis.
 
@@ -200,6 +200,23 @@ Pemicu nyata belum ditemukan (field dibatasi), tapi penelanannya pasti.
 - Catatan pemeriksa (BUKAN akibat T2-2): `cek_serah_tanpa_lot` menemukan resep #860
   (pengganti retur TUKAR, 05/10 19:28) tanpa jejak lot — lot Clarolid pertama baru dibuat
   19:56. Stok minus diizinkan (filosofi klinik); data trial run → diabaikan.
+
+### Perbaikan T2-5 — ⚠ DITINJAU dr. Hansen di akhir
+
+dr. Hansen meminta audit diteruskan dan ditinjau di akhir; dua keputusan kebijakan berikut
+diambil dari USULAN yang sudah disampaikan, BUKAN keputusan beliau:
+1. **Kunjungan yang sudah dibayar tidak bisa di-BATAL** — 409 "batalkan lewat VOID
+   transaksinya dulu". Ini sekaligus menutup kasus terbuka T2-4 (ANTRI_OBAT → BATAL
+   menelantarkan obat lunas).
+2. **Kunjungan dengan tindakan SELESAI tidak bisa di-BATAL** — "tagih lewat kasir" (sejalan
+   §7 "void hanya untuk tindakan yang belum selesai").
+
+Yang dikembalikan saat BATAL (`KunjunganService._bereskan_batal`, satu commit bersama
+status): kuota membership tiap tindakan ber-kuota; sesi series yang DIJADWALKAN ke kunjungan
+ini → PENDING; series yang LAHIR di kunjungan ini → CANCELLED (sesi 1 pembawa harga paket
+tak pernah dibayar — menutup jalur utama T2-6). ANTRI_OBAT → COMPLETED lewat menu ditolak
+bila obat lunas belum diserahkan (kecuali jalur Obat Tertunda).
+Uji: 6 test (`test_audit_tahap2.py`), dua arah — 5 suntikan semua tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.
