@@ -64,11 +64,14 @@ def _resep(db, k, staf, detik=0):
     return r
 
 
-def _tindakan_selesai(db, k):
+def _tindakan_selesai(db, k, detik=5):
+    """`detik` > 0: selesai SESUDAH pembayaran sebelumnya (tagihan susulan, T2-1).
+    `detik` < 0: selesai SEBELUM bayar pertama — kalau tidak, kasir menganggapnya baru
+    lagi di tagihan susulan dan menagihnya dua kali (artefak test, bukan perilaku klinik)."""
     tr = db.execute(select(MasterTreatment).where(MasterTreatment.harga > 0).limit(1)).scalar_one()
     db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
                              status_tindakan="SELESAI",
-                             waktu_selesai=datetime.now() + timedelta(seconds=5)))
+                             waktu_selesai=datetime.now() + timedelta(seconds=detik)))
     db.flush()
 
 
@@ -152,3 +155,81 @@ def test_menu_ubah_diturunkan_dari_satu_sumber():
     assert "COMPLETED" not in VALID_TRANSITIONS["ANTRI_BAYAR"]
     for asal, tujuan in VALID_TRANSITIONS.items():
         assert set(tujuan) == _VALID_TRANSITIONS[asal]
+
+
+# ---------------------------------------------------------------- T2-2
+# Split billing: T1 (resep A) + tagihan susulan T2 (resep B) di SATU kunjungan.
+# Dulu void memilih per kunjungan: void T2 membatalkan obat T1 juga.
+def _void(db, trx_id, staf):
+    KasirService(db).void_transaksi(trx_id, "SALAH_INPUT", "uji T2-2", [], staf.id_staf)
+
+
+def _trx_terakhir(db, k):
+    from app.db.models import TransaksiKasir
+    return db.execute(select(TransaksiKasir).where(TransaksiKasir.id_kunjungan == k.id_kunjungan)
+                      .order_by(TransaksiKasir.id_transaksi.desc())).scalars().first()
+
+
+def _split(db):
+    staf, k = _siapkan(db)
+    ra = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    t1 = _trx_terakhir(db, k)
+    rb = _resep(db, k, staf, detik=5)              # ditambah SESUDAH bayar 1
+    k.status_antrian = "ANTRI_BAYAR"; db.flush()
+    _bayar(db, k, staf)
+    t2 = _trx_terakhir(db, k)
+    return staf, k, ra, rb, t1, t2
+
+
+def test_bayar_mencatat_transaksi_di_resep(db):
+    staf, k, ra, rb, t1, t2 = _split(db)
+    db.refresh(ra); db.refresh(rb)
+    assert (ra.id_transaksi, rb.id_transaksi) == (t1.id_transaksi, t2.id_transaksi)
+
+
+def test_void_t2_tidak_membatalkan_obat_t1(db):
+    staf, k, ra, rb, t1, t2 = _split(db)
+    _void(db, t2.id_transaksi, staf)
+    db.refresh(ra); db.refresh(rb); db.refresh(k)
+    assert (V(ra.status_item), V(rb.status_item)) == ("DIBAYAR", "BATAL")
+    assert k.status_antrian == "ANTRI_OBAT"        # obat T1 masih menunggu diserahkan
+
+
+def test_void_t1_tidak_membatalkan_obat_t2(db):
+    staf, k, ra, rb, t1, t2 = _split(db)
+    _void(db, t1.id_transaksi, staf)
+    db.refresh(ra); db.refresh(rb)
+    assert (V(ra.status_item), V(rb.status_item)) == ("BATAL", "DIBAYAR")
+
+
+def test_tindakan_selesai_di_t1_tidak_menghalangi_void_t2_berisi_obat(db):
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-60)
+    _bayar(db, k, staf)                            # T1: tindakan (snapshot F3 ditulis)
+    rb = _resep(db, k, staf, detik=10)
+    k.status_antrian = "ANTRI_BAYAR"; db.flush()
+    _bayar(db, k, staf)                            # T2: obat saja
+    _void(db, _trx_terakhir(db, k).id_transaksi, staf)   # dulu 400: "tindakan sudah selesai"
+    db.refresh(rb)
+    assert V(rb.status_item) == "BATAL"
+
+
+def test_data_lama_ambigu_void_ditolak_tanpa_perubahan(db):
+    staf, k, ra, rb, t1, t2 = _split(db)
+    ra.id_transaksi = None; db.flush()             # = baris lama tanpa penanda
+    with pytest.raises(HTTPException) as e:
+        _void(db, t2.id_transaksi, staf)
+    assert e.value.status_code == 409
+    db.refresh(t2); db.refresh(rb)
+    assert t2.status_transaksi == "BAYAR" and V(rb.status_item) == "DIBAYAR"
+
+
+def test_satu_transaksi_perilaku_lama_utuh(db):
+    staf, k = _siapkan(db)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    r.id_transaksi = None; db.flush()              # data lama: tetap bisa di-void
+    _void(db, _trx_terakhir(db, k).id_transaksi, staf)
+    db.refresh(r); db.refresh(k)
+    assert V(r.status_item) == "BATAL" and k.status_antrian == "COMPLETED"

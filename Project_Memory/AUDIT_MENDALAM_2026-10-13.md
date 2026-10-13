@@ -110,7 +110,7 @@ BARU ditandai saja (`kasir_service.py` "status_baru = ANTRI_OBAT if n_resep_upda
 **COMPLETED**, resep lama tetap DIBAYAR. Hasil: lunas, keluar dari antrian apotek, tak bisa
 diserahkan (`apotek_service` serah menolak selain ANTRI_OBAT), stok tak pernah dipotong.
 
-**T2-2 🔴 Void satu transaksi membatalkan obat transaksi LAIN di kunjungan yang sama.**
+**T2-2 ✅ DIPERBAIKI 2026-10-13 — Void satu transaksi membatalkan obat transaksi LAIN di kunjungan yang sama.**
 Split billing T1 (resep A) + T2 (resep B). Void T2 → **resep A milik T1 ikut BATAL**,
 kunjungan COMPLETED; T1 tetap BAYAR (uangnya dihitung, obatnya tidak akan diserahkan).
 Sebab: pembatal resep/racikan memilih per `id_kunjungan`, bukan per transaksi — padahal
@@ -178,6 +178,28 @@ Pemicu nyata belum ditemukan (field dibatasi), tapi penelanannya pasti.
 - ⚠ Masih terbuka dan SENGAJA tidak disentuh (perlu keputusan, dibahas bersama T2-5):
   ANTRI_OBAT → BATAL / COMPLETED lewat menu masih mungkin untuk kunjungan yang obatnya
   sudah lunas; ON_TREATMENT → COMPLETED tetap ada (DEC-015, keputusan terdokumentasi).
+
+### Perbaikan T2-2 (disetujui dr. Hansen 2026-10-13) — migrasi `20261013_0100`
+
+- Kolom `kunjungan_resep.id_transaksi` (sejajar racikan). Penulis: `mark_resep_dibayar` dan
+  resep pengganti retur TUKAR. Backfill: transaksi BAYAR paling awal dengan
+  `waktu_bayar >= waktu_input` (aturan cutoff susulan kasir) — DB dev: 36/36 baris lunas
+  terpasang.
+- `KasirService._lingkup_void(trx)`: SATU penentu item milik transaksi, dipakai KEDUA jalur
+  void lewat semua pembantunya — pembatal resep/racikan, pengembalian kuota, pembatal series
+  (hanya bila transaksi ini menagih SESI 1), pagar "tindakan selesai" & "obat diserahkan".
+  Satu transaksi → perilaku lama utuh (aman untuk data lama). Beberapa transaksi + item
+  lama tanpa penanda → 409, void TIDAK dijalankan (menolak, bukan menebak).
+- Ikut terbukti & diperbaiki: tindakan SELESAI di T1 dulu MENGHALANGI void T2 yang hanya
+  berisi obat; void dulu selalu memajukan kunjungan ke COMPLETED walau obat transaksi lain
+  masih menunggu → kini tetap ANTRI_OBAT.
+- `trx_dan_nilai_bersih` (retur/refund) kini membaca `id_transaksi` dulu; pencarian lewat
+  waktu tinggal cadangan untuk baris lama.
+- Uji: 6 test baru di `test_audit_tahap2.py` + 1 assert di `test_retur_pasien.py`; dua arah
+  — 6 suntikan, semua tertangkap. Repro: void T2 kini hanya membatalkan resep B.
+- Catatan pemeriksa (BUKAN akibat T2-2): `cek_serah_tanpa_lot` menemukan resep #860
+  (pengganti retur TUKAR, 05/10 19:28) tanpa jejak lot — lot Clarolid pertama baru dibuat
+  19:56. Stok minus diizinkan (filosofi klinik); data trial run → diabaikan.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

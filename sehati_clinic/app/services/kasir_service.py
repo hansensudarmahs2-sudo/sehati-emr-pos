@@ -905,7 +905,7 @@ class KasirService:
                 ))
 
             # 5. Mark resep + racikan DIBAYAR
-            n_resep_updated = self.repo.mark_resep_dibayar(payload.id_kunjungan)
+            n_resep_updated = self.repo.mark_resep_dibayar(payload.id_kunjungan, id_trx_baru)
             n_racikan_updated = self.repo.mark_racikan_dibayar(
                 payload.id_kunjungan, id_trx_baru
             )
@@ -1608,7 +1608,14 @@ class KasirService:
                        TransaksiDetailProduk.id_produk == item.id_produk)
             )
             trx = None
-            if getattr(item, "waktu_input", None) is not None:
+            # Audit T2-2: sejak migrasi 20261013_0100 resep MENYIMPAN transaksi pembayarnya
+            # — itu yang dipakai. Pencarian lewat waktu di bawah tinggal jalur CADANGAN untuk
+            # baris lama tanpa penanda.
+            _tid = getattr(item, "id_transaksi", None)
+            if _tid is not None:
+                trx = self.db.execute(
+                    _q.where(TransaksiKasir.id_transaksi == _tid)).scalars().first()
+            if trx is None and getattr(item, "waktu_input", None) is not None:
                 # Kedua kolom diisi JAM SERVER MySQL (server_default), jadi sebanding.
                 trx = self.db.execute(
                     _q.where(TransaksiKasir.waktu_bayar >= item.waktu_input)
@@ -1856,13 +1863,112 @@ class KasirService:
                 ),
             )
 
-    def _cancel_series_sesi_pending(self, id_kunjungan, actor_id_staf, request):
+    def _lingkup_void(self, trx) -> dict:
+        """Item yang DIBAYAR oleh transaksi INI — dasar SEMUA cascade & pagar void.
+
+        Audit T2-2 (2026-10-13): dulu setiap cascade memilih per `id_kunjungan`. Pada split
+        billing (T1 + tagihan susulan T2 di satu kunjungan) void T2 membatalkan obat T1,
+        mengembalikan kuota tindakan T1, membatalkan series yang dibeli di T1 — dan
+        sebaliknya tindakan SELESAI di T1 menghalangi void T2 yang hanya berisi obat.
+
+        - TUNGGAL (tak ada transaksi BAYAR lain di kunjungan): seluruh kunjungan, persis
+          perilaku lama — benar untuk satu transaksi, dan aman untuk data lama tanpa penanda.
+        - JAMAK: resep lewat `kunjungan_resep.id_transaksi` (migrasi 20261013_0100), racikan
+          lewat `kunjungan_racikan.id_transaksi`, tindakan lewat
+          `transaksi_detail_tindakan.id_kunjungan_tindakan`. Bila ada item lunas yang TIDAK
+          tercatat transaksinya (data lama), 409 — sistem menolak alih-alih menebak.
+        Return {"tunggal", "resep", "racikan", "tindakan", "series_pembuat"} (set id).
+        """
+        from sqlalchemy import func, select
+        from app.db.models import (KunjunganResep, KunjunganTindakan, PasienRencanaTreatment,
+                                   TransaksiDetailTindakan)
+        from app.db.models.racikan import KunjunganRacikan as _KRC
+
+        k = trx.id_kunjungan
+        lain = self.db.execute(
+            select(func.count(TransaksiKasir.id_transaksi))
+            .where(TransaksiKasir.id_kunjungan == k)
+            .where(TransaksiKasir.status_transaksi == "BAYAR")
+            .where(TransaksiKasir.id_transaksi != trx.id_transaksi)
+        ).scalar() or 0
+        if not lain:
+            return {
+                "tunggal": True,
+                "resep": set(self.db.execute(select(KunjunganResep.id_resep)
+                             .where(KunjunganResep.id_kunjungan == k)).scalars()),
+                "racikan": set(self.db.execute(select(_KRC.id_kunjungan_racikan)
+                               .where(_KRC.id_kunjungan == k)).scalars()),
+                "tindakan": set(self.db.execute(select(KunjunganTindakan.id_kunjungan_tindakan)
+                                .where(KunjunganTindakan.id_kunjungan == k)).scalars()),
+                "series_pembuat": True,
+            }
+
+        _lunas = ("DIBAYAR", "DISERAHKAN")
+        tanpa_resep = self.db.execute(
+            select(func.count(KunjunganResep.id_resep))
+            .where(KunjunganResep.id_kunjungan == k)
+            .where(KunjunganResep.status_item.in_(_lunas))
+            .where(KunjunganResep.id_transaksi.is_(None))).scalar() or 0
+        tanpa_racik = self.db.execute(
+            select(func.count(_KRC.id_kunjungan_racikan))
+            .where(_KRC.id_kunjungan == k)
+            .where(_KRC.status_item.in_(_lunas))
+            .where(_KRC.id_transaksi.is_(None))).scalar() or 0
+        # Tindakan pra-F3: kunjungan punya tindakan tapi TAK SATU PUN transaksinya punya
+        # snapshot tindakan (kriteria yang sama dengan PrintService._baris_snapshot).
+        ada_tindakan = self.db.execute(
+            select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
+            .where(KunjunganTindakan.id_kunjungan == k)).scalar() or 0
+        ada_snapshot = self.db.execute(
+            select(func.count(TransaksiDetailTindakan.id_detail_tindakan))
+            .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)
+            .where(TransaksiKasir.id_kunjungan == k)).scalar() or 0
+        if tanpa_resep or tanpa_racik or (ada_tindakan and not ada_snapshot):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Transaksi #{trx.id_transaksi} adalah salah satu dari beberapa "
+                        f"transaksi di kunjungan ini, dan ada item lama yang tidak tercatat "
+                        f"dibayar oleh transaksi mana — sistem tidak bisa memastikan item mana "
+                        f"yang ikut di-void. Void TIDAK dijalankan; hubungi Admin."),
+            )
+
+        tindakan = set(self.db.execute(
+            select(TransaksiDetailTindakan.id_kunjungan_tindakan)
+            .where(TransaksiDetailTindakan.id_transaksi == trx.id_transaksi)
+            .where(TransaksiDetailTindakan.id_kunjungan_tindakan.is_not(None))).scalars())
+        # Series lahir dari kunjungan ini; harga paketnya ditagih bersama tindakan SESI 1.
+        # Rencana series hanya ikut dibatalkan bila transaksi INI yang menagih sesi 1.
+        series_pembuat = False
+        if tindakan:
+            series_pembuat = bool(self.db.execute(
+                select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
+                .join(PasienRencanaTreatment,
+                      PasienRencanaTreatment.id_rencana == KunjunganTindakan.id_rencana)
+                .where(KunjunganTindakan.id_kunjungan_tindakan.in_(tindakan))
+                .where(PasienRencanaTreatment.urutan_sesi == 1)
+                .where(PasienRencanaTreatment.id_kunjungan_pembuat == k)).scalar())
+        return {
+            "tunggal": False,
+            "resep": set(self.db.execute(select(KunjunganResep.id_resep)
+                         .where(KunjunganResep.id_kunjungan == k)
+                         .where(KunjunganResep.id_transaksi == trx.id_transaksi)).scalars()),
+            "racikan": set(self.db.execute(select(_KRC.id_kunjungan_racikan)
+                           .where(_KRC.id_kunjungan == k)
+                           .where(_KRC.id_transaksi == trx.id_transaksi)).scalars()),
+            "tindakan": tindakan,
+            "series_pembuat": series_pembuat,
+        }
+
+    def _cancel_series_sesi_pending(self, trx, actor_id_staf, request):
         """Auto-cancel sesi PENDING/SCHEDULED dari pasien_rencana_treatment
-        yang lahir dari kunjungan ini (Skenario B.1 DEC-063).
+        yang lahir dari kunjungan ini (Skenario B.1 DEC-063) — HANYA bila transaksi
+        ini yang menagih sesi 1 (Audit T2-2, `_lingkup_void`).
         Return count."""
         from app.db.models import PasienRencanaTreatment, StatusRencanaTreatmentEnum
         from sqlalchemy import select
-
+        if not self._lingkup_void(trx)["series_pembuat"]:
+            return 0
+        id_kunjungan = trx.id_kunjungan
         stmt = select(PasienRencanaTreatment).where(
             PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan,
             PasienRencanaTreatment.status.in_([
@@ -2203,7 +2309,7 @@ class KasirService:
         self.db.flush()
         return reversed_count
 
-    def _cascade_void_kunjungan(self, id_kunjungan, actor_id_staf, request):
+    def _cascade_void_kunjungan(self, trx, actor_id_staf, request):
         """DEC-063 Phase 1 (10 Juni 2026): cascade efek void transaksi ke kunjungan.
 
         Logika: void transaksi = pasien batal beli sama sekali. Maka:
@@ -2216,10 +2322,14 @@ class KasirService:
         from app.db.models import KunjunganResep, Kunjungan, StatusItemResepEnum
         from sqlalchemy import select
 
+        id_kunjungan = trx.id_kunjungan
+        lingkup = self._lingkup_void(trx)   # Audit T2-2: hanya item transaksi INI
+
         # Cascade 1: resep DIBAYAR -> BATAL
         stmt = select(KunjunganResep).where(
             KunjunganResep.id_kunjungan == id_kunjungan,
             KunjunganResep.status_item == StatusItemResepEnum.DIBAYAR,
+            KunjunganResep.id_resep.in_(lingkup["resep"]),
         )
         resep_list = list(self.db.execute(stmt).scalars().all())
         cancelled_resep = 0
@@ -2250,6 +2360,7 @@ class KasirService:
             select(_KRC).where(
                 _KRC.id_kunjungan == id_kunjungan,
                 _KRC.status_item == "DIBAYAR",
+                _KRC.id_kunjungan_racikan.in_(lingkup["racikan"]),
             )
         ).scalars().all():
             _old = _rc.status_item
@@ -2271,7 +2382,12 @@ class KasirService:
         # Cascade 2: kunjungan ANTRI_OBAT/ANTRI_BAYAR -> COMPLETED
         kunjungan = self.db.get(Kunjungan, id_kunjungan)
         kunjungan_advanced = False
-        if kunjungan and kunjungan.status_antrian in ("ANTRI_OBAT", "ANTRI_BAYAR"):
+        self.db.flush()
+        # Audit T2-2: obat transaksi LAIN yang masih lunas & belum diserahkan → kunjungan
+        # TETAP di antrian apotek (dulu selalu COMPLETED → obat itu terdampar).
+        _masih_ada_obat = self.repo.hitung_obat_dibayar_belum_serah(id_kunjungan) > 0
+        if (kunjungan and kunjungan.status_antrian in ("ANTRI_OBAT", "ANTRI_BAYAR")
+                and not _masih_ada_obat):
             old_status = kunjungan.status_antrian
             kunjungan.status_antrian = "COMPLETED"
             self.audit.log(
@@ -2291,7 +2407,7 @@ class KasirService:
             "kunjungan_advanced": kunjungan_advanced,
         }
 
-    def _revert_kuota_per_tindakan(self, id_kunjungan, actor_id_staf, request):
+    def _revert_kuota_per_tindakan(self, trx, actor_id_staf, request):
         """Phase 3 (DEC-067 outstanding): saat void transaksi, kembalikan kuota
         member untuk setiap KunjunganTindakan yang pakai benefit (id_kuota_member
         NOT NULL). Call decrement_kuota_terpakai yang sudah tulis audit KUOTA_REVERT
@@ -2303,9 +2419,12 @@ class KasirService:
         from app.db.models import KunjunganTindakan
         from sqlalchemy import select
 
+        id_kunjungan = trx.id_kunjungan
         stmt = select(KunjunganTindakan).where(
             KunjunganTindakan.id_kunjungan == id_kunjungan,
             KunjunganTindakan.id_kuota_member.isnot(None),
+            # Audit T2-2: hanya tindakan yang ditagih transaksi INI
+            KunjunganTindakan.id_kunjungan_tindakan.in_(self._lingkup_void(trx)["tindakan"]),
         )
         tindakan_list = list(self.db.execute(stmt).scalars().all())
         reverted = 0
@@ -2349,6 +2468,9 @@ class KasirService:
             select(KunjunganTindakan).where(
                 KunjunganTindakan.id_kunjungan == trx.id_kunjungan,
                 KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI,
+                # Audit T2-2: hanya tindakan transaksi INI (dulu tindakan T1 menghalangi
+                # void T2 yang hanya berisi obat)
+                KunjunganTindakan.id_kunjungan_tindakan.in_(self._lingkup_void(trx)["tindakan"]),
             )
         ).scalars().all()
         out = []
@@ -2380,11 +2502,13 @@ class KasirService:
         if not trx.id_kunjungan:
             return []
 
+        lingkup = self._lingkup_void(trx)   # Audit T2-2: hanya item transaksi INI
         out = []
         for r in self.db.execute(
             select(KunjunganResep).where(
                 KunjunganResep.id_kunjungan == trx.id_kunjungan,
                 KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
+                KunjunganResep.id_resep.in_(lingkup["resep"]),
             )
         ).scalars().all():
             prod = self.db.get(MasterProduk, r.id_produk)
@@ -2398,6 +2522,7 @@ class KasirService:
             select(_KRC).where(
                 _KRC.id_kunjungan == trx.id_kunjungan,
                 _KRC.status_item == "DISERAHKAN",
+                _KRC.id_kunjungan_racikan.in_(lingkup["racikan"]),
             )
         ).scalars().all():
             out.append({"jenis": "Racikan", "nama": rc.nama_snapshot or "racikan"})
@@ -2596,9 +2721,10 @@ class KasirService:
             cascade_info = {"cancelled_resep": 0, "kunjungan_advanced": False}
             kuota_reverted = 0
             if trx.id_kunjungan:
-                cancelled_series = self._cancel_series_sesi_pending(trx.id_kunjungan, actor_id_staf, request)
-                cascade_info = self._cascade_void_kunjungan(trx.id_kunjungan, actor_id_staf, request)
-                kuota_reverted = self._revert_kuota_per_tindakan(trx.id_kunjungan, actor_id_staf, request)
+                # Audit T2-2: semua cascade PER TRANSAKSI (_lingkup_void), bukan per kunjungan.
+                cancelled_series = self._cancel_series_sesi_pending(trx, actor_id_staf, request)
+                cascade_info = self._cascade_void_kunjungan(trx, actor_id_staf, request)
+                kuota_reverted = self._revert_kuota_per_tindakan(trx, actor_id_staf, request)
 
             # #362E - Revert membership history kalau transaksi mengandung aktivasi.
             # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.
@@ -2728,9 +2854,10 @@ class KasirService:
             cascade_info = {"cancelled_resep": 0, "kunjungan_advanced": False}
             kuota_reverted = 0
             if trx.id_kunjungan:
-                cancelled_series = self._cancel_series_sesi_pending(trx.id_kunjungan, actor_id_staf, request)
-                cascade_info = self._cascade_void_kunjungan(trx.id_kunjungan, actor_id_staf, request)
-                kuota_reverted = self._revert_kuota_per_tindakan(trx.id_kunjungan, actor_id_staf, request)
+                # Audit T2-2: semua cascade PER TRANSAKSI (_lingkup_void), bukan per kunjungan.
+                cancelled_series = self._cancel_series_sesi_pending(trx, actor_id_staf, request)
+                cascade_info = self._cascade_void_kunjungan(trx, actor_id_staf, request)
+                kuota_reverted = self._revert_kuota_per_tindakan(trx, actor_id_staf, request)
 
             # #362E - Revert membership history kalau transaksi mengandung aktivasi.
             # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.

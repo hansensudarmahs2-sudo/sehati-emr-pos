@@ -233,6 +233,7 @@ def test_tukar_lebih_mahal_pasien_bayar_selisih(db):
     assert float(lot_y.qty_sisa) == 4 and float(y.stok_terkini) == 4   # Y keluar FEFO
     ry = db.execute(select(KunjunganResep).where(KunjunganResep.id_produk == y.id_produk)).scalar_one()
     assert ry.status_item.value == "DISERAHKAN"
+    assert ry.id_transaksi == h["id_transaksi_pengganti"]   # Audit T2-2: milik transaksi TUKAR
     assert db.execute(select(KunjunganLotTerpakai).where(
         KunjunganLotTerpakai.id_resep == ry.id_resep)).scalar_one().id_lot == lot_y.id_lot
 

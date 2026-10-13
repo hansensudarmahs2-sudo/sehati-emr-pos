@@ -229,6 +229,13 @@ class KunjunganResep(Base):
     id_staf_serah: Mapped[Optional[int]] = mapped_column(
         ForeignKey("master_staf.id_staf"), nullable=True
     )
+    # Audit T2-2 (2026-10-13, migrasi 20261013_0100): transaksi yang MEMBAYAR baris ini,
+    # sejajar kunjungan_racikan.id_transaksi. Dulu tak ada → void satu transaksi di
+    # split billing membatalkan obat transaksi LAIN di kunjungan yang sama. Penulis:
+    # KasirRepository.mark_resep_dibayar & retur pengganti (TUKAR).
+    id_transaksi: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("transaksi_kasir.id_transaksi", name="fk_kr_transaksi"), nullable=True
+    )
 
     # Tebus lanjut: baris ini SALINAN dari resep lama yang baru ditebus sekarang.
     # Keberadaan salinan = penanda baris asal SUDAH ditebus. Sengaja TIDAK ada kolom

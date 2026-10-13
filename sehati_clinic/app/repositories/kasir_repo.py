@@ -266,7 +266,7 @@ class KasirRepository:
         self.db.flush()
         return pembayaran
 
-    def mark_resep_dibayar(self, id_kunjungan: int) -> int:
+    def mark_resep_dibayar(self, id_kunjungan: int, id_transaksi: Optional[int] = None) -> int:
         """
         Update semua kunjungan_resep PENDING di kunjungan ini → DIBAYAR.
         Return count yang ter-update.
@@ -276,7 +276,9 @@ class KasirRepository:
             update(KunjunganResep)
             .where(KunjunganResep.id_kunjungan == id_kunjungan)
             .where(KunjunganResep.status_item == "PENDING")
-            .values(status_item="DIBAYAR")
+            # Audit T2-2: catat transaksi PEMBAYARNYA (sejajar mark_racikan_dibayar) —
+            # tanpa ini void satu transaksi di split billing membatalkan obat transaksi lain.
+            .values(status_item="DIBAYAR", id_transaksi=id_transaksi)
         )
         result = self.db.execute(stmt)
         return result.rowcount or 0

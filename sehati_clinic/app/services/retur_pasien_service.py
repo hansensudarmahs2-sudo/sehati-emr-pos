@@ -216,6 +216,8 @@ class ReturPasienService:
         )
         self.db.add(t)
         self.db.flush()
+        for r in reseps:                     # Audit T2-2: resep pengganti milik transaksi TUKAR
+            r.id_transaksi = t.id_transaksi
         for produk, q, harga, sub, disk in y_rows:
             self.db.add(TransaksiDetailProduk(id_transaksi=t.id_transaksi,
                                               id_produk=produk.id_produk, qty=float(q),
