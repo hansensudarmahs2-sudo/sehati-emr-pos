@@ -328,3 +328,68 @@ def test_selesai_lewat_menu_boleh_di_jalur_obat_tertunda(db):
     KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
     db.refresh(k)
     assert k.status_antrian == "COMPLETED"
+
+
+# ---------------------------------------------------------------- T2-6
+# Harga paket series ditagih bersama SESI 1; sesi 2..N Rp 0. Dulu sesi 2..N bisa dipakai
+# walau sesi 1 belum dibayar → series gratis.
+def _series(db, staf, k):
+    """Bentuk persis seperti `PemeriksaanService` saat SOAP: rencana sesi 1 SCHEDULED +
+    tindakannya (di sini sudah SELESAI), rencana sesi 2 PENDING."""
+    from app.db.models import PasienRencanaTreatment
+    tr = db.execute(select(MasterTreatment).where(MasterTreatment.harga > 0).limit(1)).scalar_one()
+    s1 = PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=tr.id_treatment, urutan_sesi=1,
+                                nama_tindakan="Uji Series", id_kunjungan_pembuat=k.id_kunjungan,
+                                status="SCHEDULED")
+    s2 = PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=tr.id_treatment, urutan_sesi=2,
+                                nama_tindakan="Uji Series", id_kunjungan_pembuat=k.id_kunjungan,
+                                status="PENDING")
+    db.add_all([s1, s2]); db.flush()
+    db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
+                             id_rencana=s1.id_rencana, status_tindakan="SELESAI",
+                             waktu_selesai=datetime.now() - timedelta(seconds=60)))
+    db.flush()
+    return s2
+
+
+def _kunjungan_baru(db, k, staf):
+    k2 = Kunjungan(id_pasien=k.id_pasien, status_antrian="ANTRI_KONSULTASI",
+                   id_staf_fo=staf.id_staf, nomor_antrean=998)
+    db.add(k2); db.flush()
+    return k2
+
+
+def test_sesi_2_ditolak_bila_sesi_1_belum_dibayar(db):
+    from app.services.series_service import SeriesService
+    staf, k = _siapkan(db)
+    s2 = _series(db, staf, k)
+    k2 = _kunjungan_baru(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
+    assert e.value.status_code == 409 and "SESI 1" in e.value.detail
+
+
+def test_sesi_2_boleh_sesudah_sesi_1_dibayar(db):
+    from app.services.series_service import SeriesService
+    staf, k = _siapkan(db)
+    s2 = _series(db, staf, k)
+    _bayar(db, k, staf)                               # menagih sesi 1 (snapshot tindakan)
+    k2 = _kunjungan_baru(db, k, staf)
+    SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
+    db.refresh(s2)
+    assert V(s2.status) == "SCHEDULED"
+
+
+def test_sesi_2_ditolak_bila_transaksi_sesi_1_sudah_void(db):
+    """Transaksi sesi 1 yang VOID bukan bukti lunas. Void biasa menolak tindakan SELESAI,
+    jadi keadaan ini jarang — tapi pagar tidak boleh bergantung pada pagar lain (suntikan
+    "abaikan status BAYAR" sempat LOLOS sebelum test ini ditambahkan)."""
+    from app.services.series_service import SeriesService
+    staf, k = _siapkan(db)
+    s2 = _series(db, staf, k)
+    _bayar(db, k, staf)
+    _trx_terakhir(db, k).status_transaksi = "VOID"; db.flush()
+    k2 = _kunjungan_baru(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
+    assert e.value.status_code == 409

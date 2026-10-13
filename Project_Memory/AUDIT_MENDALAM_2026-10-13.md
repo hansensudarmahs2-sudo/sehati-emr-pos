@@ -135,7 +135,7 @@ Kuota membership sudah dipakai saat SOAP disimpan → **hilang**; sesi series ya
 SCHEDULED → **tersangkut** selamanya (hanya void yang mengembalikannya; tidak ada di daftar
 "Pakai Sesi").
 
-**T2-6 🟠 (jalur BATAL tertutup oleh T2-5) Sesi 2..N series bisa dipakai GRATIS walau sesi 1 (pembawa harga paket) tak
+**T2-6 ✅ DIPERBAIKI 2026-10-13 — Sesi 2..N series bisa dipakai GRATIS walau sesi 1 (pembawa harga paket) tak
 pernah ditagih.** `use_session` hanya cek rencana PENDING; harga sesi > 1 selalu Rp 0.
 Contoh: series 6× dibatalkan sebelum bayar → 5 sesi tetap tersedia gratis.
 
@@ -217,6 +217,16 @@ ini → PENDING; series yang LAHIR di kunjungan ini → CANCELLED (sesi 1 pembaw
 tak pernah dibayar — menutup jalur utama T2-6). ANTRI_OBAT → COMPLETED lewat menu ditolak
 bila obat lunas belum diserahkan (kecuali jalur Obat Tertunda).
 Uji: 6 test (`test_audit_tahap2.py`), dua arah — 5 suntikan semua tertangkap.
+
+### Perbaikan T2-6
+
+`SeriesService._pagari_sesi_1_lunas` (dipanggil `use_session`): sesi 2..N series DOKTER
+hanya boleh dipakai bila tindakan SESI 1 sudah masuk transaksi BAYAR (snapshot
+`transaksi_detail_tindakan`); data pra-F3 → cukup ada transaksi BAYAR di kunjungan pembuat.
+Tidak dipagari: sesi 1 sendiri, rencana tanpa kunjungan pembuat, rencana yang sesi 1-nya
+tak ditemukan (sumber lain/data lama). Jalur BATAL sudah ditutup T2-5.
+Uji: 3 test; dua arah — 3 suntikan. ⚠ Suntikan "bukti lunas mengabaikan status BAYAR"
+sempat LOLOS (tak ada test sesi 1 yang transaksinya VOID) → test ditambahkan, kini tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

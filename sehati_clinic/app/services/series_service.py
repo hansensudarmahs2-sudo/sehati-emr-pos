@@ -119,6 +119,58 @@ class SeriesService:
     # =========================================================================
     # USE SESSION — FO booking sesi berikutnya ke kunjungan hari ini
     # =========================================================================
+    def _pagari_sesi_1_lunas(self, rencana) -> None:
+        """Sesi 2..N series DOKTER hanya boleh dipakai bila tindakan SESI 1 (pembawa harga
+        paket) sudah masuk transaksi BAYAR — Audit T2-6, 2026-10-13.
+
+        - Bukti utama: snapshot `transaksi_detail_tindakan` tindakan sesi 1 di transaksi BAYAR.
+        - Data pra-F3 (kunjungan pembuat tanpa snapshot tindakan sama sekali): cukup ada
+          transaksi BAYAR di kunjungan pembuat — kriteria sama dengan `_lingkup_void`.
+        - Tidak dipagari: sesi 1 itu sendiri, rencana tanpa kunjungan pembuat, dan rencana
+          yang sesi 1-nya tidak ditemukan (series sumber lain / data lama) — pagar ini
+          menutup satu celah yang terbukti, tidak menebak alur lain.
+        """
+        from sqlalchemy import func
+        from app.db.models import TransaksiDetailTindakan, TransaksiKasir
+        if (rencana.urutan_sesi or 1) <= 1 or not rencana.id_kunjungan_pembuat:
+            return
+        sesi1 = self.db.execute(
+            select(PasienRencanaTreatment)
+            .where(PasienRencanaTreatment.id_pasien == rencana.id_pasien)
+            .where(PasienRencanaTreatment.id_treatment == rencana.id_treatment)
+            .where(PasienRencanaTreatment.id_kunjungan_pembuat == rencana.id_kunjungan_pembuat)
+            .where(PasienRencanaTreatment.urutan_sesi == 1)
+            .limit(1)
+        ).scalar_one_or_none()
+        if sesi1 is None:
+            return
+        k = rencana.id_kunjungan_pembuat
+        lunas = self.db.execute(
+            select(func.count(TransaksiDetailTindakan.id_detail_tindakan))
+            .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)
+            .join(KunjunganTindakan,
+                  KunjunganTindakan.id_kunjungan_tindakan == TransaksiDetailTindakan.id_kunjungan_tindakan)
+            .where(KunjunganTindakan.id_rencana == sesi1.id_rencana)
+            .where(TransaksiKasir.status_transaksi == "BAYAR")
+        ).scalar() or 0
+        if not lunas:
+            ada_snapshot = self.db.execute(
+                select(func.count(TransaksiDetailTindakan.id_detail_tindakan))
+                .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)
+                .where(TransaksiKasir.id_kunjungan == k)).scalar() or 0
+            if not ada_snapshot:
+                lunas = self.db.execute(
+                    select(func.count(TransaksiKasir.id_transaksi))
+                    .where(TransaksiKasir.id_kunjungan == k)
+                    .where(TransaksiKasir.status_transaksi == "BAYAR")).scalar() or 0
+        if not lunas:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Sesi {rencana.urutan_sesi} series '{rencana.nama_tindakan}' belum bisa "
+                        f"dipakai: SESI 1 (yang menagih harga paket) di kunjungan #{k} belum "
+                        f"dibayar. Selesaikan pembayaran sesi 1 di kasir dulu."),
+            )
+
     def use_session(
         self,
         id_rencana: int,
@@ -176,6 +228,11 @@ class SeriesService:
                     f"Hanya status PENDING yang bisa di-pakai."
                 ),
             )
+
+        # Audit T2-6 (2026-10-13): harga PAKET series ditagih bersama tindakan SESI 1
+        # (`KasirService._compute_charge`); sesi 2..N selalu Rp 0. Dulu sesi 2..N bisa
+        # dipakai walau sesi 1 belum pernah dibayar → seluruh series gratis.
+        self._pagari_sesi_1_lunas(rencana)
 
         # Validate kunjungan
         kunjungan: Optional[Kunjungan] = self.db.get(Kunjungan, id_kunjungan)
