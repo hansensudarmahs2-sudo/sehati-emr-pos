@@ -297,3 +297,52 @@ def test_opname_menghidupkan_lot_yang_habis(db):
     db.refresh(lot); db.refresh(p)
     assert (lot.status, float(lot.qty_sisa)) == ("AKTIF", 2.0)          # dulu HABIS / 2
     assert float(p.stok_terkini) == 2.0                                   # dulu 0 — tak terlihat
+
+
+# ---------------------------------------------------------------- T3-6
+# Buku mutasi dulu hanya mencatat barang MASUK. Setiap jalur keluar/kembali kini menulis baris.
+def _mutasi(db, p):
+    from app.db.models import InventoryHistory
+    return db.execute(select(InventoryHistory).where(InventoryHistory.id_produk == p.id_produk)
+                      .order_by(InventoryHistory.id_history)).scalars().all()
+
+
+def test_serah_mencatat_penjualan(db):
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db)
+    p, _ = _produk_dengan_lot(db)
+    _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf)
+    m = _mutasi(db, p)
+    assert [(V(x.jenis_mutasi), float(x.qty_perubahan), float(x.stok_akhir)) for x in m] ==         [("PENJUALAN", -2.0, 8.0)]
+
+
+def test_write_off_mencatat_expired(db):
+    from app.schemas.apotek import WriteOffProdukRequest
+    from app.services.apotek_service import ApotekService
+    staf, _k = _siapkan(db)
+    p, _ = _produk_dengan_lot(db)
+    ApotekService(db).write_off_produk(
+        WriteOffProdukRequest(id_produk=p.id_produk, jenis_mutasi="EXPIRED", qty_dibuang=3,
+                              keterangan="lewat ED"), staf.id_staf)
+    m = _mutasi(db, p)
+    assert [(V(x.jenis_mutasi), float(x.qty_perubahan)) for x in m] == [("EXPIRED", -3.0)]
+
+
+def test_void_jalur_lama_mencatat_barang_kembali(db):
+    """Jalur lama (jejak lot tanpa item DISERAHKAN, kunjungan COMPLETED) — satu-satunya jalur
+    void yang masih mengembalikan stok (di skema per-item pagar menolak void obat diserahkan)."""
+    staf, k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db)
+    r = _resep_produk(db, k, staf, p, 2)
+    _bayar(db, k, staf)
+    lot.qty_sisa = 8; p.stok_terkini = 8
+    db.add(KunjunganLotTerpakai(id_kunjungan=k.id_kunjungan, id_produk=p.id_produk,
+                                id_lot=lot.id_lot, qty=2))          # jejak lama: tanpa id_resep
+    k.status_antrian = "COMPLETED"; db.flush()
+    KasirService(db).void_transaksi(_trx_terakhir(db, k).id_transaksi, "SALAH_INPUT", "uji T3-6",
+                                    [f"PRD:{p.id_produk}"], staf.id_staf)
+    m = _mutasi(db, p)
+    assert [(V(x.jenis_mutasi), float(x.qty_perubahan), float(x.stok_akhir)) for x in m] ==         [("PENYESUAIAN", 2.0, 10.0)]

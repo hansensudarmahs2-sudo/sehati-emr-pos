@@ -88,6 +88,23 @@ class InventoryRepository:
     # =========================================================================
     # Tulis ke buku riwayat
     # =========================================================================
+    def catat_mutasi_produk(self, *, id_staf, id_produk: int, jenis, qty_perubahan: float,
+                            stok_akhir: float, referensi=None, keterangan=None):
+        """Baris buku mutasi untuk PRODUK — Audit T3-6 (2026-10-13).
+
+        Dulu buku ini hanya mencatat barang MASUK (penerimaan, opname, retur): serah obat,
+        write-off, pengembalian void, dan obat pengganti TUKAR tidak menulis baris, padahal
+        `06_business_logic.md` §9 mensyaratkan PENJUALAN & EXPIRED/RUSAK dan DEC-039
+        menjadikannya kartu stok produk. Ekspor Finance `inventory_movements_raw` hanya
+        membaca tabel ini. `qty_perubahan` NEGATIF = keluar. Teks dipotong ke lebar kolom.
+        """
+        return self.add_history(
+            id_staf=id_staf, jenis=jenis, qty_perubahan=qty_perubahan, stok_akhir=stok_akhir,
+            id_produk=id_produk, tipe_item="PRODUK",
+            referensi=(str(referensi)[:100] if referensi else None),
+            keterangan=(str(keterangan)[:255] if keterangan else None),
+        )
+
     def add_history(
         self,
         id_staf: int,

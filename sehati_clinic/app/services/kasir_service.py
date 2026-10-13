@@ -2206,6 +2206,14 @@ class KasirService:
             new_stok = old_stok + qty
             produk.stok_terkini = new_stok
             detail.void_reverse_stok = True
+            # Audit T3-6: buku mutasi — barang kembali ke rak karena VOID
+            from app.repositories.inventory_repo import InventoryRepository as _InvR
+            from app.db.models._enums import JenisMutasiEnum as _JM
+            _InvR(self.db).catat_mutasi_produk(
+                id_staf=actor_id_staf, id_produk=produk.id_produk, jenis=_JM.PENYESUAIAN,
+                qty_perubahan=qty, stok_akhir=new_stok,
+                referensi=f"VOID-TRX-{transaksi.id_transaksi}",
+                keterangan="Kembali dari void transaksi")
 
             # --- Kembalikan ke lot ---
             # H2/P0-1 (AUDIT_SEHATI_2026-07-10): prioritaskan jejak lot ASLI

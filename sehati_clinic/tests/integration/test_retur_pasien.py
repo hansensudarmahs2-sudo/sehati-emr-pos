@@ -234,6 +234,10 @@ def test_tukar_lebih_mahal_pasien_bayar_selisih(db):
     ry = db.execute(select(KunjunganResep).where(KunjunganResep.id_produk == y.id_produk)).scalar_one()
     assert ry.status_item.value == "DISERAHKAN"
     assert ry.id_transaksi == h["id_transaksi_pengganti"]   # Audit T2-2: milik transaksi TUKAR
+    from app.db.models import InventoryHistory   # Audit T3-6: pengganti keluar tercatat PENJUALAN
+    mut = db.execute(select(InventoryHistory).where(InventoryHistory.id_produk == y.id_produk)).scalars().all()
+    assert [(m.jenis_mutasi.value if hasattr(m.jenis_mutasi, "value") else m.jenis_mutasi,
+             float(m.qty_perubahan)) for m in mut] == [("PENJUALAN", -1.0)]
     assert db.execute(select(KunjunganLotTerpakai).where(
         KunjunganLotTerpakai.id_resep == ry.id_resep)).scalar_one().id_lot == lot_y.id_lot
 

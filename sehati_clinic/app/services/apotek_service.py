@@ -513,6 +513,14 @@ class ApotekService:
                 qty = float(resep.qty or 0)
                 stok_sebelum = float(produk.stok_terkini or 0)
                 stok_sesudah = self.repo.update_stok_produk(produk, delta=-qty)
+                # Audit T3-6: buku mutasi — PENJUALAN (06_business_logic §9)
+                from app.repositories.inventory_repo import InventoryRepository as _InvR
+                from app.db.models._enums import JenisMutasiEnum as _JM
+                _InvR(self.db).catat_mutasi_produk(
+                    id_staf=id_staf_apoteker, id_produk=produk.id_produk, jenis=_JM.PENJUALAN,
+                    qty_perubahan=-qty, stok_akhir=stok_sesudah,
+                    referensi=f"KJ-{payload.id_kunjungan}",
+                    keterangan=f"Serah resep #{resep.id_resep}")
                 if stok_sesudah < 0:
                     shortfall_warnings.append(f"{produk.nama_produk}: stok jadi minus ({stok_sesudah:g})")
                 # P-L5: potong lot FEFO (RETAIL) — ED terdekat keluar dulu
@@ -553,6 +561,14 @@ class ApotekService:
                         continue
                     _stok_sebelum_b = float(_produk_b.stok_terkini or 0)
                     _stok_sesudah_b = self.repo.update_stok_produk(_produk_b, delta=-_qty_b)
+                    # Audit T3-6: bahan racikan juga keluar dari rak — PENJUALAN
+                    from app.repositories.inventory_repo import InventoryRepository as _InvR
+                    from app.db.models._enums import JenisMutasiEnum as _JM
+                    _InvR(self.db).catat_mutasi_produk(
+                        id_staf=id_staf_apoteker, id_produk=_produk_b.id_produk,
+                        jenis=_JM.PENJUALAN, qty_perubahan=-_qty_b, stok_akhir=_stok_sesudah_b,
+                        referensi=f"KJ-{payload.id_kunjungan}",
+                        keterangan=f"Bahan racikan {_head.nama_snapshot} (#{_head.id_kunjungan_racikan})")
                     if _stok_sesudah_b < 0:
                         shortfall_warnings.append(
                             f"{_produk_b.nama_produk} (racikan {_head.nama_snapshot}): "
@@ -711,6 +727,16 @@ class ApotekService:
                 f"{c['qty']}x batch {c['batch_no'] or '-'}" + (f" ED {c['tgl_ed']}" if c['tgl_ed'] else "")
                 for c in _fefo["consumed"]
             )
+
+            # Audit T3-6: buku mutasi — EXPIRED / RUSAK / PENYESUAIAN (jenis sama dengan form).
+            # Catatan audit di bawah TETAP: laporan write-off membacanya.
+            from app.repositories.inventory_repo import InventoryRepository as _InvR
+            from app.db.models._enums import JenisMutasiEnum as _JM
+            _InvR(self.db).catat_mutasi_produk(
+                id_staf=id_staf_apoteker, id_produk=produk.id_produk, jenis=_JM(jenis_upper),
+                qty_perubahan=-float(payload.qty_dibuang), stok_akhir=stok_sesudah,
+                referensi="WRITE-OFF",
+                keterangan=(f"{payload.keterangan}" + (f" | {_batch_trace}" if _batch_trace else "")))
 
             # AUDIT — pakai aksi spesifik supaya gampang filter rekap
             self.audit.log(

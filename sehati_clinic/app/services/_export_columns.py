@@ -227,7 +227,7 @@ COLUMNS_METADATA: dict[str, dict] = {
             {"name": "nama_produk", "type": "str | null", "description": "Nama produk (kalau tipe_item=PRODUK)."},
             {"name": "id_bahan", "type": "int | null", "description": "FK inventory_stok. XOR dengan id_produk."},
             {"name": "nama_bahan", "type": "str | null", "description": "Nama bahan (kalau tipe_item=BAHAN)."},
-            {"name": "jenis_mutasi", "type": "str", "description": "PEMBELIAN / TINDAKAN / PENJUALAN / PENYESUAIAN / WRITE_OFF / RETUR."},
+            {"name": "jenis_mutasi", "type": "str", "description": "RESTOCK (penerimaan PO) / TINDAKAN (BHP) / PENJUALAN (serah obat & bahan racikan, obat pengganti retur) / EXPIRED / RUSAK / PENYESUAIAN (opname, retur ke distributor, kembali dari VOID) / RETUR_PASIEN. Nilai SAMA dengan enum DB — dulu kamus menyebut PEMBELIAN/WRITE_OFF/RETUR yang tidak pernah ada. Mutasi keluar produk tercatat sejak 2026-10-13 (Audit T3-6); sebelum itu hanya mutasi masuk."},
             {"name": "qty_perubahan", "type": "float", "description": "Delta stok. Negatif = keluar, positif = masuk."},
             {"name": "stok_akhir", "type": "float", "description": "Snapshot stok setelah mutasi (cumulative)."},
             {"name": "id_staf", "type": "int | null", "description": "FK staff yang trigger mutasi."},

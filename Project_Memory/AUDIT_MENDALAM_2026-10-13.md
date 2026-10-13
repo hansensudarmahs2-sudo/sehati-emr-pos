@@ -375,11 +375,20 @@ cache & FEFO hanya membaca lot AKTIF. Void & retur pasien mengaktifkan ulang; op
 selisih positif ke lot HABIS → lot diaktifkan kembali (sejajar void & retur pasien). Test
 ditulis DULU, GAGAL di kode lama (HABIS / 2 unit, cache 0); kini AKTIF / 2, cache 2.
 
-**T3-6 Buku mutasi stok (`inventory_history`) hanya mencatat barang MASUK.** Serah obat
+**T3-6 ✅ DIPERBAIKI 2026-10-13 — Buku mutasi stok (`inventory_history`) hanya mencatat barang MASUK.** Serah obat
 (PENJUALAN), write-off (EXPIRED/RUSAK), pengembalian void, obat pengganti TUKAR, dan stok awal
 produk TIDAK menulis baris. `06_business_logic.md` §9 MENSYARATKAN PENJUALAN & EXPIRED/RUSAK;
 DEC-039 memperluas buku ini untuk produk. Dev: RESTOCK 38 · PENYESUAIAN 120 · RETUR_PASIEN 4 ·
 PENJUALAN 0. Ekspor Finance `inventory_movements_raw` hanya membaca tabel ini.
+ Perbaikan:
+satu pintu `InventoryRepository.catat_mutasi_produk`; ditulis oleh serah resep & bahan
+racikan (PENJUALAN), write-off (EXPIRED/RUSAK/PENYESUAIAN — catatan audit TETAP, laporan
+write-off membacanya), kembali dari void (PENYESUAIAN +), obat pengganti TUKAR (PENJUALAN).
+Kamus data Finance disamakan dengan enum DB (dulu PEMBELIAN/WRITE_OFF/RETUR yang tak ada) dan
+mencatat bahwa mutasi keluar baru tercatat sejak 2026-10-13. Stok awal → T3-7.
+Uji: 4 test (serah, write-off, void jalur lama, TUKAR); dua arah — 4 suntikan per titik
+tertangkap. ⚠ Titik bahan racikan TIDAK punya test sendiri (pola identik dengan serah resep).
+Data lama tidak di-backfill (trial run).
 
 **T3-7 Dua cara menulis cache stok.** Serah/penerimaan/void menulis SELISIH (stok boleh minus
 — filosofi klinik); opname & retur supplier MENIMPA dengan Σ lot. Stok awal produk baru masuk

@@ -201,7 +201,13 @@ class ReturPasienService:
         self.db.flush()
         for r, (produk, q, harga, sub, disk) in zip(reseps, y_rows):
             p_lock = repo.get_produk_for_update(produk.id_produk)
-            repo.update_stok_produk(p_lock, delta=-float(q))      # boleh minus (filosofi klinik)
+            _stok_akhir = repo.update_stok_produk(p_lock, delta=-float(q))   # boleh minus (filosofi klinik)
+            # Audit T3-6: buku mutasi — obat pengganti keluar ke pasien. Arah MASUK retur ini
+            # sudah dicatat (RETUR_PASIEN); arah keluarnya dulu tidak — modul yang sama, asimetris.
+            InventoryRepository(self.db).catat_mutasi_produk(
+                id_staf=actor_id_staf, id_produk=produk.id_produk, jenis=JenisMutasiEnum.PENJUALAN,
+                qty_perubahan=-float(q), stok_akhir=_stok_akhir,
+                referensi=f"TUKAR {label}", keterangan=f"Pengganti retur (resep #{r.id_resep})")
             fefo = lot_svc.consume_fefo(tipe_item="PRODUK", lokasi="RETAIL", qty=float(q),
                                         id_produk=produk.id_produk)
             apotek._simpan_lot_terpakai(trx.id_kunjungan, produk.id_produk, fefo["consumed"],
