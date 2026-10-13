@@ -913,6 +913,29 @@ class MembershipService:
     # =========================================================================
     # P2-#1 — Kuota helpers (lazy-create + sisa lookup)
     # =========================================================================
+    def pakai_kuota_bila_ada(self, *, id_pasien: int, id_treatment: int, actor_id_staf,
+                             id_kunjungan: int, request=None):
+        """Pakai 1 kuota membership untuk tindakan ini bila tersedia → id_kuota, atau None.
+
+        SATU jalur untuk SEMUA penulis `kunjungan_tindakan` yang menagih tindakan single:
+        SOAP dokter (`PemeriksaanService`) dan upsell perawat (`UpsellService`). Audit T2-11
+        (2026-10-13): dulu upsell menulis tindakan TANPA kuota — pasien VIP berkuota ditagih
+        harga penuh lewat upsell, Rp 0 lewat SOAP (dua penulis, CLAUDE.md §4.1).
+
+        Graceful (perilaku asli SOAP): kegagalan cek kuota → None, tindakan tetap tercatat
+        dengan harga normal. `increment_kuota_terpakai` mengunci baris kuota.
+        """
+        try:
+            info = self.get_or_create_kuota_for_treatment(
+                id_pasien=id_pasien, id_treatment=id_treatment)
+            if info is not None and info.get("sisa", 0) > 0:
+                if self.increment_kuota_terpakai(info["id_kuota"], actor_id_staf=actor_id_staf,
+                                                 id_kunjungan=id_kunjungan, request=request):
+                    return info["id_kuota"]
+        except Exception:
+            return None
+        return None
+
     def get_or_create_kuota_for_treatment(
         self,
         id_pasien: int,

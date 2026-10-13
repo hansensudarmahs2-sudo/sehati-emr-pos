@@ -556,3 +556,90 @@ def test_route_setujui_memeriksa_role_sebelum_menyentuh_draf():
     from app.web.routes import dokter
     src = inspect.getsource(dokter.dokter_draf_soap_setujui)
     assert src.index("bisa_menyetujui_draf(user)") < src.index("db.get(PemeriksaanKlinis")
+
+
+# ---------------------------------------------------------------- T2-11
+# Upsell perawat = penulis kedua kunjungan_tindakan. Dulu: tanpa kuota, tanpa batas reopen.
+def _treatment_tanpa_otorisasi(db):
+    return db.execute(select(MasterTreatment).where(MasterTreatment.harga > 0)
+                      .where((MasterTreatment.butuh_otorisasi.is_(None))
+                             | (MasterTreatment.butuh_otorisasi.is_(False))).limit(1)).scalar_one()
+
+
+def _kuota_untuk(db, k, tr, terpakai=0):
+    from app.db.models import MasterMembership, PasienMembershipHistory, PasienMembershipKuota
+    m = db.execute(select(MasterMembership).limit(1)).scalar_one()
+    h = PasienMembershipHistory(id_pasien=k.id_pasien, id_membership=m.id_membership,
+                                tgl_aktif=date.today(), tgl_expired=date.today() + timedelta(days=30),
+                                harga_bayar=0, is_active=True, status_aktivasi="ACTIVE",
+                                id_transaksi_aktivasi=None)
+    db.add(h); db.flush()
+    q = PasienMembershipKuota(id_pasien=k.id_pasien, id_membership_history=h.id_history,
+                              id_treatment=tr.id_treatment, periode_kuota="TOTAL_PAKET",
+                              kuota_total=3, kuota_terpakai=terpakai, is_active=True,
+                              expired_at=datetime.now() + timedelta(days=30))
+    db.add(q); db.flush()
+    return q
+
+
+def _upsell(db, k, staf, tr):
+    from app.schemas.treatment import UpsellRequest
+    from app.services.upsell_service import UpsellService
+    return UpsellService(db).submit_upsell(
+        UpsellRequest(id_kunjungan=k.id_kunjungan, tipe_item="TREATMENT", id_item=tr.id_treatment),
+        staf.id_staf)
+
+
+def test_upsell_memakai_kuota_lewat_jalur_yang_sama_dengan_soap(db, monkeypatch):
+    """Upsell harus memanggil SATU fungsi kuota yang sama dengan SOAP dokter."""
+    from app.services.membership_service import MembershipService
+    dipanggil = {}
+    def palsu(self, **kw):
+        dipanggil.update(kw)
+        return None
+    monkeypatch.setattr(MembershipService, "pakai_kuota_bila_ada", palsu)
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    tr = _treatment_tanpa_otorisasi(db)
+    _upsell(db, k, staf, tr)
+    assert dipanggil.get("id_treatment") == tr.id_treatment
+    assert dipanggil.get("id_kunjungan") == k.id_kunjungan
+
+
+def test_upsell_ditolak_sesudah_dua_transaksi(db):
+    from app.db.models import TransaksiKasir
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    for _ in range(2):
+        db.add(TransaksiKasir(id_kunjungan=k.id_kunjungan, id_pasien=k.id_pasien,
+                              id_staf_kasir=staf.id_staf, rincian_tagihan="uji", subtotal=0,
+                              nominal_diskon=0, total_tagihan=0, status_transaksi="BAYAR"))
+    db.flush()
+    with pytest.raises(HTTPException) as e:
+        _upsell(db, k, staf, _treatment_tanpa_otorisasi(db))
+    assert e.value.status_code == 400 and "2x dibayar" in e.value.detail
+
+
+def test_pakai_kuota_bila_ada_menaikkan_terpakai(db):
+    """Fungsi bersama: kuota tersedia → id_kuota dikembalikan, terpakai naik 1."""
+    from app.services.membership_service import MembershipService
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    tr = _treatment_tanpa_otorisasi(db)
+    q = _kuota_untuk(db, k, tr)
+    from unittest import mock
+    with mock.patch.object(MembershipService, "get_or_create_kuota_for_treatment",
+                           return_value={"id_kuota": q.id_kuota, "sisa": 3}):
+        hasil = MembershipService(db).pakai_kuota_bila_ada(
+            id_pasien=k.id_pasien, id_treatment=tr.id_treatment, actor_id_staf=staf.id_staf,
+            id_kunjungan=k.id_kunjungan)
+    db.refresh(q)
+    assert hasil == q.id_kuota and q.kuota_terpakai == 1
+
+
+def test_soap_dokter_memakai_fungsi_kuota_bersama():
+    """Jalur SOAP dokter tak punya test kuota sendiri (input_medis_lengkap) — logikanya
+    dipindah ke pakai_kuota_bila_ada (Audit T2-11). Ini menjaga tidak ada yang menulis
+    ulang logika kuota di sana lagi (dua penulis = dua perilaku, §4.1)."""
+    import inspect
+    from app.services import pemeriksaan_service
+    src = inspect.getsource(pemeriksaan_service.PemeriksaanService)
+    assert "pakai_kuota_bila_ada(" in src
+    assert "increment_kuota_terpakai(" not in src

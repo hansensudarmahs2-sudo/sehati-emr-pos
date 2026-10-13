@@ -154,7 +154,7 @@ sebagai susulan (`racikan_service` "perlakukan sebagai kartu baru").
 **T2-10 ✅ DIPERBAIKI 2026-10-13 (⚠ DITINJAU) — Admin/Superadmin bisa menyetujui draf SOAP apoteker dan tercatat sebagai dokter
 penulis.** Pagar "hanya dokter yang dituju" hanya berlaku untuk role DOKTER.
 
-**T2-11 🟡 Upsell TREATMENT mengabaikan kuota membership & batas 2 transaksi** — penulis
+**T2-11 ✅ DIPERBAIKI 2026-10-13 (⚠ DITINJAU) — Upsell TREATMENT mengabaikan kuota membership & batas 2 transaksi** — penulis
 kedua `kunjungan_tindakan` (§4.1). Pasien VIP berkuota ditagih penuh lewat upsell, Rp 0
 lewat SOAP dokter. Bisa jadi kebijakan — perlu keputusan.
 
@@ -264,6 +264,17 @@ kepadanya. `dokter.bisa_menyetujui_draf`, diperiksa SEBELUM draf disentuh; tombo
 untuk Admin. Sengaja TIDAK memakai `_dokter_can_edit_medrec` — himpunan itu mengizinkan Admin
 untuk MENYUNTING (alergi dll.), artinya beda dengan MENULIS rekam medis (§4.1).
 Uji: 7 test; suntikan "Admin dibolehkan lagi" tertangkap.
+
+### Perbaikan T2-11 — ⚠ DITINJAU dr. Hansen di akhir
+
+Keputusan dari usulan (belum keputusan beliau): upsell tindakan diperlakukan SAMA dengan
+tindakan dari SOAP dokter — memakai kuota bila tersedia, tunduk pada batas 2 transaksi
+per kunjungan (DEC-051). Logika kuota dikeluarkan menjadi SATU fungsi
+`MembershipService.pakai_kuota_bila_ada`, dipakai SOAP dan upsell (dulu hanya ada di SOAP,
+inline). Pemindahan di jalur SOAP diperiksa baris per baris (setara; satu-satunya beda:
+`import` kini di luar try). ⚠ Jalur SOAP dokter TIDAK punya test kuota sendiri — pengamannya
+test sumber yang memastikan ia memanggil fungsi bersama dan tidak menulis ulang logikanya.
+Uji: 4 test; dua arah — 2 suntikan tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

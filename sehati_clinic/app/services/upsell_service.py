@@ -187,10 +187,34 @@ class UpsellService:
         id_record_baru: int
         try:
             if tipe_item == "TREATMENT":
+                # Audit T2-11 (2026-10-13): upsell = penulis KEDUA kunjungan_tindakan, dan dulu
+                # mengabaikan dua aturan jalur SOAP dokter. ⚠ DITANDAI UNTUK DITINJAU dr. Hansen.
+                # (1) Batas 2 transaksi per kunjungan (DEC-051, pemeriksaan_service).
+                from sqlalchemy import func as _func, select as _sel
+                from app.db.models import TransaksiKasir as _TK
+                _n_trx = self.db.execute(
+                    _sel(_func.count(_TK.id_transaksi))
+                    .where(_TK.id_kunjungan == payload.id_kunjungan)).scalar() or 0
+                if _n_trx >= 2:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(f"Kunjungan ini sudah {_n_trx}x dibayar. Untuk tindakan "
+                                f"tambahan, daftarkan kunjungan baru via FO — maksimal 1x "
+                                f"reopen per kunjungan (sama dengan jalur SOAP dokter)."),
+                    )
+                # (2) Kuota membership dipakai bila tersedia — dulu pasien VIP berkuota ditagih
+                # penuh lewat upsell tapi Rp 0 lewat SOAP. Satu fungsi bersama SOAP.
+                from app.services.membership_service import MembershipService as _MShip
+                _id_kuota = _MShip(self.db).pakai_kuota_bila_ada(
+                    id_pasien=kunjungan.id_pasien, id_treatment=payload.id_item,
+                    actor_id_staf=id_staf_pengusul, id_kunjungan=payload.id_kunjungan,
+                    request=request,
+                )
                 tindakan = KunjunganTindakan(
                     id_kunjungan=payload.id_kunjungan,
                     id_treatment=payload.id_item,
                     id_staf_pelaksana=id_staf_pengusul,
+                    id_kuota_member=_id_kuota,
                 )
                 self.db.add(tindakan)
                 self.db.flush()

@@ -302,28 +302,14 @@ class PemeriksaanService:
                     jumlah_series += max(0, t.jumlah_sesi - 1)
                 else:
                     # SINGLE: 1 row ke kunjungan_tindakan untuk perawat eksekusi
-                    # P2-#3 - Auto-use kuota membership kalau tersedia
-                    _id_kuota_used = None
-                    try:
-                        from app.services.membership_service import MembershipService as _MShipSvc
-                        _mship = _MShipSvc(self.db)
-                        _kuota_info = _mship.get_or_create_kuota_for_treatment(
-                            id_pasien=kunjungan.id_pasien,
-                            id_treatment=t.id_treatment,
-                        )
-                        if _kuota_info is not None and _kuota_info.get("sisa", 0) > 0:
-                            # Increment kuota_terpakai atomically; only set id_kuota_member kalau sukses
-                            # LOG-1: pass actor + kunjungan context untuk audit KUOTA_PAKAI
-                            if _mship.increment_kuota_terpakai(
-                                _kuota_info["id_kuota"],
-                                actor_id_staf=id_staf_dokter,
-                                id_kunjungan=payload.id_kunjungan,
-                                request=request,
-                            ):
-                                _id_kuota_used = _kuota_info["id_kuota"]
-                    except Exception:
-                        # Graceful fallback — kalau kuota check gagal, tetap insert tindakan normal
-                        _id_kuota_used = None
+                    # P2-#3 - Auto-use kuota membership kalau tersedia. Satu fungsi bersama
+                    # upsell perawat (Audit T2-11) — jangan tulis ulang logikanya di sini.
+                    from app.services.membership_service import MembershipService as _MShipSvc
+                    _id_kuota_used = _MShipSvc(self.db).pakai_kuota_bila_ada(
+                        id_pasien=kunjungan.id_pasien, id_treatment=t.id_treatment,
+                        actor_id_staf=id_staf_dokter, id_kunjungan=payload.id_kunjungan,
+                        request=request,
+                    )
                     tindakan = KunjunganTindakan(
                         id_kunjungan=payload.id_kunjungan,
                         id_treatment=t.id_treatment,
