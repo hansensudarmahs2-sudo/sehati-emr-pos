@@ -715,14 +715,10 @@ class RacikanService:
 
         n = 0
         for asal in asal_rows:
-            # Sudah pernah disalin? Jangan ditebus dua kali.
-            sudah = self.db.execute(
-                select(KunjunganRacikan.id_kunjungan_racikan)
-                .where(KunjunganRacikan.id_kunjungan_racikan_asal
-                       == asal.id_kunjungan_racikan)
-                .limit(1)
-            ).scalar_one_or_none()
-            if sudah is not None:
+            # Sudah ditebus (salinan yang MASIH HIDUP)? Jangan ditebus dua kali.
+            # Audit T2-7: satu definisi bersama daftar tebus — app/services/_tebus.py.
+            from app.services._tebus import racikan_sudah_ditebus
+            if racikan_sudah_ditebus(self.db, asal.id_kunjungan_racikan):
                 continue
 
             bahan_lama = self.db.execute(

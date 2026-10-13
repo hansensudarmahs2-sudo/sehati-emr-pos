@@ -139,7 +139,7 @@ SCHEDULED → **tersangkut** selamanya (hanya void yang mengembalikannya; tidak 
 pernah ditagih.** `use_session` hanya cek rencana PENDING; harga sesi > 1 selalu Rp 0.
 Contoh: series 6× dibatalkan sebelum bayar → 5 sesi tetap tersedia gratis.
 
-**T2-7 🟠 Penanda "sudah ditebus" = ada salinan, APA PUN statusnya.** Salinan tebus yang
+**T2-7 ✅ DIPERBAIKI 2026-10-13 — Penanda "sudah ditebus" = ada salinan, APA PUN statusnya.** Salinan tebus yang
 ditunda / di-void / dibatalkan membuat resep & racikan asli **hilang permanen** dari daftar
 tebus (`apotek_service` `sudah_ditebus = exists(...)`). Satu kolom, dua arti (§4.1).
 
@@ -227,6 +227,14 @@ Tidak dipagari: sesi 1 sendiri, rencana tanpa kunjungan pembuat, rencana yang se
 tak ditemukan (sumber lain/data lama). Jalur BATAL sudah ditutup T2-5.
 Uji: 3 test; dua arah — 3 suntikan. ⚠ Suntikan "bukti lunas mengabaikan status BAYAR"
 sempat LOLOS (tak ada test sesi 1 yang transaksinya VOID) → test ditambahkan, kini tertangkap.
+
+### Perbaikan T2-7
+
+SATU definisi di `app/services/_tebus.py`: sudah ditebus = ada salinan yang MASIH HIDUP
+(PENDING / DIBAYAR / DISERAHKAN) di kunjungan yang TIDAK dibatalkan. Dipakai daftar tebus
+resep, daftar tebus racikan, dan penyalin racikan (dulu tiga potongan kode, tiga definisi
+"salinan apa pun"). Salinan PENDING tetap menyembunyikan aslinya — mencegah tebus ganda.
+Uji: 8 test (6 status salinan resep + 2 racikan); dua arah — 2 suntikan tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

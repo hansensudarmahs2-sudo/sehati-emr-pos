@@ -393,3 +393,63 @@ def test_sesi_2_ditolak_bila_transaksi_sesi_1_sudah_void(db):
     with pytest.raises(HTTPException) as e:
         SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
     assert e.value.status_code == 409
+
+
+# ---------------------------------------------------------------- T2-7
+# Penanda "sudah ditebus" dulu = ADA salinan, apa pun statusnya → salinan yang ditunda /
+# di-void / kunjungannya batal menyembunyikan resep asli selamanya.
+def _tebus_setup(db, status_salinan, status_kunj_tebus="ANTRI_BAYAR"):
+    staf, k = _siapkan(db, "COMPLETED")
+    asal = _resep(db, k, staf)                       # PENDING: pasien pulang tanpa bayar
+    k2 = Kunjungan(id_pasien=k.id_pasien, status_antrian=status_kunj_tebus,
+                   id_staf_fo=staf.id_staf, nomor_antrean=997)
+    db.add(k2); db.flush()
+    db.add(KunjunganResep(id_kunjungan=k2.id_kunjungan, id_produk=asal.id_produk, qty=1,
+                          status_item=status_salinan, id_staf_input=staf.id_staf,
+                          id_resep_asal=asal.id_resep))
+    db.flush()
+    return k, asal
+
+
+def _ditawarkan(db, k, asal):
+    from app.services.apotek_service import ApotekService
+    rows = ApotekService(db).list_resep_belum_ditebus(k.id_pasien)
+    return any((r.get("id_resep") if isinstance(r, dict) else getattr(r, "id_resep", None))
+               == asal.id_resep for r in rows)
+
+
+@pytest.mark.parametrize("status_salinan, kunj, ditawarkan", [
+    ("PENDING", "ANTRI_BAYAR", False),   # sedang ditebus → disembunyikan (anti tebus ganda)
+    ("DIBAYAR", "ANTRI_OBAT", False),
+    ("DISERAHKAN", "COMPLETED", False),
+    ("DITUNDA", "COMPLETED", True),      # dulu: hilang selamanya
+    ("BATAL", "COMPLETED", True),        # dulu: hilang selamanya
+    ("PENDING", "BATAL", True),          # kunjungan tebus dibatalkan — dulu hilang
+])
+def test_penanda_tebus_hanya_salinan_hidup(db, status_salinan, kunj, ditawarkan):
+    k, asal = _tebus_setup(db, status_salinan, kunj)
+    assert _ditawarkan(db, k, asal) is ditawarkan
+
+
+@pytest.mark.parametrize("status_salinan, ditawarkan", [("PENDING", False), ("DITUNDA", True)])
+def test_penanda_tebus_racikan_sama(db, status_salinan, ditawarkan):
+    """Racikan memakai definisi yang SAMA (app/services/_tebus.py) — termasuk penyalinnya."""
+    from app.db.models.racikan import KunjunganRacikan
+    from app.services.apotek_service import ApotekService
+    from app.services.racikan_service import RacikanService
+    staf, k = _siapkan(db, "COMPLETED")
+    asal = KunjunganRacikan(id_kunjungan=k.id_kunjungan, nama_snapshot="ZZ Racik Asal",
+                            jenis_racik="PUYER", jumlah_unit=10, status_item="PENDING")
+    db.add(asal); db.flush()
+    k2 = Kunjungan(id_pasien=k.id_pasien, status_antrian="COMPLETED",
+                   id_staf_fo=staf.id_staf, nomor_antrean=996)
+    db.add(k2); db.flush()
+    db.add(KunjunganRacikan(id_kunjungan=k2.id_kunjungan, nama_snapshot="ZZ Racik Salinan",
+                            jenis_racik="PUYER", jumlah_unit=10, status_item=status_salinan,
+                            id_kunjungan_racikan_asal=asal.id_kunjungan_racikan))
+    db.flush()
+    rows = ApotekService(db).list_racikan_belum_ditebus(k.id_pasien)
+    ids = [(r.get("id_kunjungan_racikan") if isinstance(r, dict) else None) for r in rows]
+    assert (asal.id_kunjungan_racikan in ids) is ditawarkan
+    from app.services._tebus import racikan_sudah_ditebus
+    assert racikan_sudah_ditebus(db, asal.id_kunjungan_racikan) is (not ditawarkan)

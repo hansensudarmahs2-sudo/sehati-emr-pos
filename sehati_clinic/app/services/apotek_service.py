@@ -249,7 +249,7 @@ class ApotekService:
     def list_resep_belum_ditebus(self, id_pasien: int) -> list[dict]:
         """Resep PENDING milik pasien dari kunjungan LAMA yang belum pernah ditebus.
 
-        "Belum ditebus" ditentukan dari **tidak adanya salinan** yang menunjuk ke baris
+        "Belum ditebus" = tidak ada salinan yang MASIH HIDUP (app/services/_tebus.py, Audit T2-7) yang menunjuk ke baris
         ini (`kunjungan_resep.id_resep_asal`). Sengaja tidak ada kolom "sudah_ditebus"
         di baris asal: dua penanda untuk satu fakta bisa berselisih, dan yang berselisih
         diam-diam adalah yang paling mahal (lihat pelajaran task #54).
@@ -266,13 +266,10 @@ class ApotekService:
             StatusItemResepEnum as _ST,
         )
 
-        # Sudah ditebus = ADA baris LAIN yang `id_resep_asal`-nya menunjuk baris ini.
-        _salinan = _aliased(_KR)
-        sudah_ditebus = (
-            _sel(_salinan.id_resep)
-            .where(_salinan.id_resep_asal == _KR.id_resep)
-            .exists()
-        )
+        # Sudah ditebus = ada salinan yang MASIH HIDUP (Audit T2-7 — dulu salinan APA PUN,
+        # sehingga salinan yang ditunda/di-void menyembunyikan resep asli selamanya).
+        from app.services._tebus import resep_sudah_ditebus_expr
+        sudah_ditebus = resep_sudah_ditebus_expr(_KR.id_resep)
 
         rows = self.db.execute(
             _sel(_KR, _MP, _K)
@@ -330,12 +327,9 @@ class ApotekService:
             KunjunganRacikan as _KRC, KunjunganRacikanBahan as _KRCB,
         )
 
-        _salinan = _aliased(_KRC)
-        sudah_ditebus = (
-            _sel(_salinan.id_kunjungan_racikan)
-            .where(_salinan.id_kunjungan_racikan_asal == _KRC.id_kunjungan_racikan)
-            .exists()
-        )
+        # Audit T2-7: satu definisi bersama resep — app/services/_tebus.py.
+        from app.services._tebus import racikan_sudah_ditebus_expr
+        sudah_ditebus = racikan_sudah_ditebus_expr(_KRC.id_kunjungan_racikan)
 
         rows = self.db.execute(
             _sel(_KRC, _K)
