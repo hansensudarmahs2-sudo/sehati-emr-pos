@@ -2047,22 +2047,27 @@ class KasirService:
         ).first()
         return not ada_jejak
 
-    def _qty_produk_diserahkan(self, id_kunjungan, id_produk) -> float:
+    def _qty_produk_diserahkan(self, id_kunjungan, id_produk, id_resep_scope=None) -> float:
         """Total qty produk ini yang BENAR-BENAR sudah diserahkan di kunjungan tsb.
 
         Dijumlahkan, bukan diambil satu, karena satu produk bisa muncul di lebih dari
         satu baris resep — dan hanya sebagian yang sudah diserahkan.
+
+        `id_resep_scope` (Audit T3-1): batasi ke resep milik SATU transaksi
+        (`_lingkup_void(trx)["resep"]`). Tanpa itu, void transaksi susulan menghitung obat
+        yang diserahkan lewat transaksi LAIN sebagai jatah pengembalian → stok hantu.
         """
         from sqlalchemy import select, func as _func
         from app.db.models import KunjunganResep, StatusItemResepEnum
 
-        return float(self.db.execute(
-            select(_func.coalesce(_func.sum(KunjunganResep.qty), 0)).where(
-                KunjunganResep.id_kunjungan == id_kunjungan,
-                KunjunganResep.id_produk == id_produk,
-                KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
-            )
-        ).scalar() or 0)
+        q = select(_func.coalesce(_func.sum(KunjunganResep.qty), 0)).where(
+            KunjunganResep.id_kunjungan == id_kunjungan,
+            KunjunganResep.id_produk == id_produk,
+            KunjunganResep.status_item == StatusItemResepEnum.DISERAHKAN,
+        )
+        if id_resep_scope is not None:
+            q = q.where(KunjunganResep.id_resep.in_(id_resep_scope))
+        return float(self.db.execute(q).scalar() or 0)
 
     def _reverse_stok_per_item(self, transaksi, items_reverse, actor_id_staf, request, lot_map=None):
         """Reverse stok produk untuk items_reverse yang dichecklist user.
@@ -2085,6 +2090,11 @@ class KasirService:
         if not per_item and not self._produk_stok_sudah_dipotong(transaksi):
             return 0
         lot_map = lot_map or {}
+        # Audit T3-1 (2026-10-13): jatah & jejak lot PER TRANSAKSI. Saat T2-2 semua cascade
+        # void dipindah ke `_lingkup_void`, tapi pembantu stok ini TERLEWAT (kesalahan sendiri,
+        # tertangkap audit tahap 3) — void susulan T2 "mengembalikan" stok obat T1 yang sudah
+        # diserahkan: stok hantu, dan jejak lot T1 ikut ditandai reversed.
+        _lk = self._lingkup_void(transaksi) if transaksi.id_kunjungan else None
 
         # Token ber-namespace supaya produk & racikan tidak saling tertukar:
         #   "PRD:<id_produk>"            → baris produk di transaksi ini
@@ -2166,7 +2176,9 @@ class KasirService:
             # masih DIBAYAR (tertunda, belum diambil pasien) stoknya tidak pernah keluar.
             if per_item:
                 if _id_racik is None:
-                    _jatah = self._qty_produk_diserahkan(transaksi.id_kunjungan, produk.id_produk)
+                    _jatah = self._qty_produk_diserahkan(
+                        transaksi.id_kunjungan, produk.id_produk,
+                        id_resep_scope=(None if (_lk is None or _lk["tunggal"]) else _lk["resep"]))
                     _sisa_jatah = _jatah - _terpakai.get(produk.id_produk, 0.0)
                     qty = min(qty, max(_sisa_jatah, 0.0))
                 else:
@@ -2201,6 +2213,10 @@ class KasirService:
                 from sqlalchemy import and_ as _and, or_ as _or2
                 if _id_racik is None:
                     _scope = KunjunganLotTerpakai.id_kunjungan_racikan.is_(None)
+                    if _lk is not None and not _lk["tunggal"]:
+                        # Audit T3-1: hanya jejak resep transaksi INI (beberapa transaksi di
+                        # kunjungan → `_lingkup_void` sudah menolak data lama tanpa penanda).
+                        _scope = KunjunganLotTerpakai.id_resep.in_(_lk["resep"])
                 else:
                     _scope = _or2(
                         KunjunganLotTerpakai.id_kunjungan_racikan == _id_racik,

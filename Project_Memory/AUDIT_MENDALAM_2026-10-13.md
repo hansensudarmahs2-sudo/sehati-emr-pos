@@ -12,7 +12,7 @@ usulan membereskan data lama.
 |---|---|---|
 | 1 | Identitas pasien: daftar → cari → edit → nonaktif → gabung | **selesai 2026-10-13** |
 | 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **selesai 2026-10-13 — 12/12 diperbaiki (T2-5, T2-10, T2-11 ⚠ ditinjau)** |
-| 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | belum |
+| 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | **diperbaiki bertahap (keputusan dr. Hansen 2026-10-13: setuju semua)** |
 | 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | belum |
 | 5 | Laporan & ekspor: omzet, apotek, Finance, paket klinis | belum |
 | 6 | Akses & keamanan: role, CSRF, audit log, PHI | belum |
@@ -295,3 +295,72 @@ Kunci kuota/series/serah; pagar void tindakan SELESAI; komisi anti-dobel per `id
 snapshot `transaksi_detail_tindakan` + sisa pembulatan; cutoff susulan satu jam (DB);
 harga racikan terkunci; pagar SOAP basi untuk diagnosa & racikan PENDING; draf apoteker
 dikecualikan dari SOAP terakhir; pagar alergi sebelum persetujuan draf.
+
+
+---
+
+## Tahap 3 — Apotek & stok (diaudit 2026-10-13)
+
+Tiga agen pembaca (serah+lot · pengadaan+retur supplier · opname+buku mutasi+BHP); setiap
+kandidat diperiksa ulang dari kode. Percobaan nyata akan ditulis sebagai TEST yang harus
+GAGAL di kode lama sebelum perbaikan (dua arah).
+
+### 🔴 Berat
+
+**T3-1 ✅ DIPERBAIKI 2026-10-13 — Void mengembalikan STOK milik transaksi lain — perbaikan T2-2 saya BELUM TUNTAS.**
+`_reverse_stok_per_item` menghitung jatah lewat `_qty_produk_diserahkan(id_kunjungan, …)` dan
+memulihkan jejak lot per kunjungan (tanpa `id_resep`/transaksi). Saat T2-2 saya memindahkan
+pembatal obat/kuota/series dan kedua pagar ke `_lingkup_void`, tapi MELEWATKAN pembantu ini.
+Skenario: T1 obat A ×3 sudah diserahkan; susulan T2 obat B ×2 belum; void T2 + centang
+"produk masih utuh" → stok +2 HANTU, dan jejak lot A ditandai reversed (retur A kelak ditolak).
+
+**T3-2 Serah obat menulis LOT dari potret lama tanpa kunci → serah ganda / pemotongan hilang.**
+Hanya baris produk yang dikunci; `consume_fefo` membaca lot dengan SELECT biasa lalu menulis
+nilai absolut. REPEATABLE-READ + klik ganda / dua apoteker → cache dipotong dua kali, lot sekali
+(atau sebaliknya), dua jejak lot untuk satu resep. Pola sama: opname approve & retur supplier
+(lot dibaca `db.get` tanpa kunci); void & refund obat tertunda membaca resep tanpa kunci (bisa
+VOID atas item yang baru saja DISERAHKAN); anti-dobel refund = cek-lalu-insert tanpa indeks unik.
+
+**T3-3 Penerimaan barang bisa ganda — kunci membaca salinan basi.** Route memuat item PO lebih
+dulu; `get_item_for_update` tanpa `populate_existing` mengembalikan `qty_diterima` lama → pagar
+"melebihi sisa" lolos → stok +20, dua lot, dua faktur untuk pesanan 10. Pola yang SAMA dengan
+T2-3 (diperbaiki untuk kunjungan saja).
+
+Perbaikan: `_reverse_stok_per_item` kini memakai `_lingkup_void` — jatah lewat
+`_qty_produk_diserahkan(…, id_resep_scope)` dan jejak lot hanya `id_resep` transaksi ini
+(beberapa transaksi). Satu transaksi → perilaku lama. Test ditulis DULU dan GAGAL di kode
+lama dengan stok 9/9 (fisik 7); sesudah perbaikan 7/7 dan jejak T1 utuh. Catatan: di mode
+per-item pagar void sudah menolak item transaksi ini yang DISERAHKAN, jadi jatah yang sah
+memang 0 — pembatasan jejak lot adalah pengaman lapis kedua.
+
+### 🟠 Sedang
+
+**T3-4 Total faktur menjumlah item yang GAGAL diterima.** Kepala faktur dihitung dari semua
+item yang dicentang dan disimpan SEBELUM penerimaan; item gagal hanya dicatat di pesan →
+faktur tercetak lebih besar dari barang yang masuk; item itu kelak tertagih di faktur kedua.
+
+**T3-5 Opname: lot HABIS mendapat stok tapi tetap HABIS → stok tak terlihat.** Selisih positif
+ditambahkan ke lot yang sudah HABIS (dipakai serah sesudah draf dibuat) tanpa mengaktifkannya;
+cache & FEFO hanya membaca lot AKTIF. Void & retur pasien mengaktifkan ulang; opname tidak.
+
+**T3-6 Buku mutasi stok (`inventory_history`) hanya mencatat barang MASUK.** Serah obat
+(PENJUALAN), write-off (EXPIRED/RUSAK), pengembalian void, obat pengganti TUKAR, dan stok awal
+produk TIDAK menulis baris. `06_business_logic.md` §9 MENSYARATKAN PENJUALAN & EXPIRED/RUSAK;
+DEC-039 memperluas buku ini untuk produk. Dev: RESTOCK 38 · PENYESUAIAN 120 · RETUR_PASIEN 4 ·
+PENJUALAN 0. Ekspor Finance `inventory_movements_raw` hanya membaca tabel ini.
+
+**T3-7 Dua cara menulis cache stok.** Serah/penerimaan/void menulis SELISIH (stok boleh minus
+— filosofi klinik); opname & retur supplier MENIMPA dengan Σ lot. Stok awal produk baru masuk
+cache TANPA lot → opname berikutnya menghapusnya diam-diam (buku mencatat "−1", cache turun 51).
+
+### 🟡 Ringan / laten
+- **T3-8** Selesai tindakan memotong BHP tanpa mengunci status tindakan → klik ganda memotong
+  dua kali (laten: `treatment_komponen` kosong di dev).
+- **T3-9** Nota tukar retur supplier: dua submit bisa membuat lot pengganti dua kali.
+- Endpoint API `PATCH /produk/{id}/restock` memanggil fungsi yang tidak ada (500; tampak mati).
+
+### Diperiksa — BERSIH
+Kunci produk saat serah; jaga `n_sisa`/`tgl_janji_kirim`; jejak lot asal; jalur tanpa lot
+hantu (T30); retur pasien (kunci produk & lot, batas jejak, mutasi RETUR_PASIEN); pengganti
+TUKAR; transisi status PO & hak approve; pagar sisa per item (kecuali T3-3); FK lot→terima→
+faktur; delta opname = fisik − potret; kunci approve/reject opname (T20).
