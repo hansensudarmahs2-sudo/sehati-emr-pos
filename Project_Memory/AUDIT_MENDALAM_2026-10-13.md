@@ -390,9 +390,20 @@ Uji: 4 test (serah, write-off, void jalur lama, TUKAR); dua arah — 4 suntikan 
 tertangkap. ⚠ Titik bahan racikan TIDAK punya test sendiri (pola identik dengan serah resep).
 Data lama tidak di-backfill (trial run).
 
-**T3-7 Dua cara menulis cache stok.** Serah/penerimaan/void menulis SELISIH (stok boleh minus
+**T3-7 ✅ DIPERBAIKI 2026-10-13 — Dua cara menulis cache stok.** Serah/penerimaan/void menulis SELISIH (stok boleh minus
 — filosofi klinik); opname & retur supplier MENIMPA dengan Σ lot. Stok awal produk baru masuk
 cache TANPA lot → opname berikutnya menghapusnya diam-diam (buku mencatat "−1", cache turun 51).
+ Perbaikan (keputusan dr. Hansen: lot untuk stok awal, selisih untuk semua penulis):
+- `create_produk`: stok awal > 0 → lot RETAIL `batch_no=STOK-AWAL` (harga = HPP) + mutasi
+  RESTOCK. Stok awal 0 → tanpa lot, tanpa baris.
+- Opname approve: cache += selisih yang BENAR-BENAR diterapkan ke lot (lot tak pernah di bawah 0;
+  baris mutasi memakai angka yang sama). Lot baru "batch ditemukan": += selisih.
+- Retur supplier: `_recompute_produk_cache` diganti `_geser_cache_produk(id, delta)` — berkunci,
+  −qty saat approve, +qty saat nota tukar.
+Uji: 5 test (stok awal ada/tidak, opname, retur approve, nota tukar) — 4 ditulis DULU dan GAGAL
+di kode lama (lot kosong; opname −1 → cache 9 bukan 6; retur 4 → cache 6 bukan 3; tukar → 10
+bukan 7). ⚠ Cache yang SUDAH berselisih dengan Σ lot di data lama tidak disamakan (trial run);
+perbaikan ini hanya berhenti MEMPERBESAR selisih lewat dua jalur itu.
 
 ### 🟡 Ringan / laten
 - **T3-8** Selesai tindakan memotong BHP tanpa mengunci status tindakan → klik ganda memotong

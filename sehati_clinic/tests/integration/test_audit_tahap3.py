@@ -346,3 +346,81 @@ def test_void_jalur_lama_mencatat_barang_kembali(db):
                                     [f"PRD:{p.id_produk}"], staf.id_staf)
     m = _mutasi(db, p)
     assert [(V(x.jenis_mutasi), float(x.qty_perubahan), float(x.stok_akhir)) for x in m] ==         [("PENYESUAIAN", 2.0, 10.0)]
+
+
+# ---------------------------------------------------------------- T3-7
+# Cache stok dulu punya dua penulis dengan dua cara: serah/penerimaan/void menulis SELISIH,
+# opname & retur supplier MENIMPA dengan Σ lot. Begitu cache ≠ Σ lot (stok awal tanpa lot,
+# serah tanpa lot — stok boleh minus), opname −1 bisa MENAIKKAN stok, retur −4 hanya −1.
+def test_produk_baru_dengan_stok_awal_mendapat_lot_dan_mutasi(db):
+    from app.schemas.master_produk import MasterProdukCreate
+    from app.services.master_produk_service import MasterProdukService
+    staf, _k = _siapkan(db)
+    db.commit = db.flush
+    p = MasterProdukService(db).create_produk(
+        MasterProdukCreate(kode_produk=f"T7{random.randint(10000, 99999)}", nama_produk="ZZ Uji T3-7",
+                           tipe_produk="RETAIL", satuan="pcs", stok_terkini=50,
+                           hpp_per_unit=Decimal("4000")), staf.id_staf)
+    lots = db.execute(select(StokLot).where(StokLot.id_produk == p.id_produk)).scalars().all()
+    assert [(l.lokasi, l.status, float(l.qty_sisa)) for l in lots] == [("RETAIL", "AKTIF", 50.0)]
+    m = _mutasi(db, p)
+    assert [(float(x.qty_perubahan), float(x.stok_akhir)) for x in m] == [(50.0, 50.0)]
+
+
+def test_produk_baru_tanpa_stok_awal_tanpa_lot(db):
+    from app.schemas.master_produk import MasterProdukCreate
+    from app.services.master_produk_service import MasterProdukService
+    staf, _k = _siapkan(db)
+    db.commit = db.flush
+    p = MasterProdukService(db).create_produk(
+        MasterProdukCreate(kode_produk=f"T7{random.randint(10000, 99999)}", nama_produk="ZZ Uji T3-7b",
+                           tipe_produk="RETAIL", satuan="pcs", stok_terkini=0), staf.id_staf)
+    assert db.execute(select(StokLot).where(StokLot.id_produk == p.id_produk)).first() is None
+    assert _mutasi(db, p) == []
+
+
+def test_opname_menulis_selisih_bukan_menimpa(db):
+    from app.db.models._enums import StafRoleEnum
+    from app.services.opname_service import OpnameService
+    staf, _k = _siapkan(db)
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    p, lot = _produk_dengan_lot(db, qty_lot=10)
+    p.stok_terkini = 7; db.flush()                       # 3 keluar tanpa jejak lot (boleh minus)
+    op = _opname_lot(db, staf, p, lot, 9)                # lot 10 → fisik 9: selisih −1
+    OpnameService(db).approve(op.id_opname, actor=staf)
+    db.refresh(p)
+    assert float(p.stok_terkini) == 6.0                  # dulu 9 — opname −1 MENAIKKAN stok
+    assert float(_mutasi(db, p)[-1].stok_akhir) == 6.0
+
+
+def _retur_lot(db, staf, lot, qty):
+    from app.db.models._enums import StafRoleEnum
+    from app.services.retur_service import ReturService
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    svc = ReturService(db)
+    r = svc.create_retur(None, "uji T3-7", [{"id_lot": lot.id_lot, "qty": qty}], staf)
+    svc.approve_retur(r.id_retur, staf)
+    return svc, r
+
+
+def test_retur_supplier_menulis_selisih_bukan_menimpa(db):
+    staf, _k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db, qty_lot=10)
+    p.stok_terkini = 7; db.flush()
+    _retur_lot(db, staf, lot, 4)
+    db.refresh(p)
+    assert float(p.stok_terkini) == 3.0                  # dulu 6 (Σ lot)
+    assert float(_mutasi(db, p)[-1].stok_akhir) == 3.0
+
+
+def test_nota_tukar_menulis_selisih_bukan_menimpa(db):
+    staf, _k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db, qty_lot=10)
+    p.stok_terkini = 7; db.flush()
+    svc, r = _retur_lot(db, staf, lot, 4)                # cache 3
+    svc.input_nota_tukar(r.id_retur, "NT-UJI", date.today(),
+                         [{"id_produk": p.id_produk, "qty": 4, "batch": "GANTI", "ed": date(2029, 1, 1)}],
+                         staf)
+    db.refresh(p)
+    assert float(p.stok_terkini) == 7.0                  # dulu 10 (Σ lot 6 + 4)
+    assert float(_mutasi(db, p)[-1].stok_akhir) == 7.0

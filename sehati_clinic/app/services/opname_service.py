@@ -25,7 +25,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -237,7 +237,8 @@ class OpnameService:
                         ).scalar_one_or_none()
                         if lot is None:
                             continue
-                        lot.qty_sisa = float(lot.qty_sisa or 0) + selisih
+                        _lot_sebelum = float(lot.qty_sisa or 0)
+                        lot.qty_sisa = _lot_sebelum + selisih
                         if lot.qty_sisa <= 1e-6:
                             lot.qty_sisa = 0
                             lot.status = "HABIS"
@@ -247,6 +248,8 @@ class OpnameService:
                             # cache & FEFO hanya membaca AKTIF: stok ada tapi tak terlihat dan
                             # tak pernah diserahkan. Void & retur pasien sudah mengaktifkan ulang.
                             lot.status = "AKTIF"
+                        # Yang BENAR-BENAR diterapkan ke lot (lot tak pernah di bawah 0).
+                        delta_cache = float(lot.qty_sisa) - _lot_sebelum
                     else:
                         # "batch baru ditemukan": hanya buat lot kalau fisik (selisih) > 0
                         if selisih <= 1e-6:
@@ -263,29 +266,25 @@ class OpnameService:
                             tgl_masuk=date.today(),
                         )
                         self.db.add(lot)
+                        delta_cache = selisih
                     self.db.flush()
-                    # Recompute cache = Σ qty_sisa lot AKTIF produk (lokasi RETAIL)
+                    # Audit T3-7 (2026-10-13): cache digeser SELISIH, tidak ditimpa Σ lot.
+                    # Dulu ditimpa: begitu cache ≠ Σ lot (serah tanpa lot — stok boleh minus,
+                    # stok awal tanpa lot), opname −1 bisa MENAIKKAN stok. Serah, penerimaan,
+                    # void sudah menulis selisih; kini semua penulis cache satu cara.
                     produk = self.repo.get_produk_for_update(it.id_produk)
                     if produk is None:
                         continue
                     stok_sebelum = float(produk.stok_terkini or 0)
-                    new_total = float(self.db.execute(
-                        select(func.coalesce(func.sum(StokLot.qty_sisa), 0)).where(
-                            StokLot.tipe_item == "PRODUK",
-                            StokLot.id_produk == it.id_produk,
-                            StokLot.lokasi == "RETAIL",
-                            StokLot.status == "AKTIF",
-                        )
-                    ).scalar() or 0)
-                    produk.stok_terkini = new_total
-                    stok_sesudah = new_total
+                    produk.stok_terkini = stok_sebelum + delta_cache
+                    stok_sesudah = float(produk.stok_terkini)
                     self.db.flush()
                     self.inv_repo.add_history(
                         tipe_item="PRODUK",
                         id_produk=it.id_produk,
                         id_staf=actor.id_staf,
                         jenis=JenisMutasiEnum.PENYESUAIAN,
-                        qty_perubahan=selisih,
+                        qty_perubahan=delta_cache,
                         stok_akhir=stok_sesudah,
                         referensi=opname.nomor_opname,
                         keterangan=(

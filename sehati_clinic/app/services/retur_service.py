@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -49,18 +49,22 @@ class ReturService:
                 n = 1
         return f"{prefix}{n:03d}"
 
-    def _recompute_produk_cache(self, id_produk: int) -> float:
-        total = float(self.db.execute(
-            select(func.coalesce(func.sum(StokLot.qty_sisa), 0)).where(
-                StokLot.tipe_item == "PRODUK", StokLot.id_produk == id_produk,
-                StokLot.lokasi == "RETAIL", StokLot.status == "AKTIF",
-            )
-        ).scalar() or 0)
-        produk = self.db.get(MasterProduk, id_produk)
-        if produk is not None:
-            produk.stok_terkini = total
-            self.db.flush()
-        return total
+    def _geser_cache_produk(self, id_produk: int, delta: float) -> float:
+        """stok_terkini += delta (berkunci) → stok akhir.
+
+        Audit T3-7 (2026-10-13): dulu `_recompute_produk_cache` MENIMPA cache dengan Σ lot,
+        sedangkan serah/penerimaan/void menulis SELISIH. Begitu keduanya berbeda (stok boleh
+        minus, stok awal tanpa lot), retur 4 bisa hanya mengurangi 1. Satu cara sekarang.
+        """
+        produk = self.db.execute(
+            select(MasterProduk).where(MasterProduk.id_produk == id_produk)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if produk is None:
+            return 0.0
+        produk.stok_terkini = float(produk.stok_terkini or 0) + float(delta)
+        self.db.flush()
+        return float(produk.stok_terkini)
 
     # -------------------------------------------------------------------------
     def create_retur(self, id_distributor: Optional[int], alasan: Optional[str],
@@ -169,7 +173,7 @@ class ReturService:
                     lot.status = "HABIS"
                 self.db.flush()
                 if lot.id_produk:
-                    new_total = self._recompute_produk_cache(lot.id_produk)
+                    new_total = self._geser_cache_produk(lot.id_produk, -qty)
                     self.inv_repo.add_history(
                         tipe_item="PRODUK", id_produk=lot.id_produk, id_staf=actor.id_staf,
                         jenis=JenisMutasiEnum.PENYESUAIAN, qty_perubahan=-qty, stok_akhir=new_total,
@@ -250,7 +254,7 @@ class ReturService:
                 )
                 self.db.add(lot)
                 self.db.flush()
-                new_total = self._recompute_produk_cache(int(id_produk))
+                new_total = self._geser_cache_produk(int(id_produk), qty)
                 self.inv_repo.add_history(
                     tipe_item="PRODUK", id_produk=int(id_produk), id_staf=actor.id_staf,
                     jenis=JenisMutasiEnum.RESTOCK, qty_perubahan=qty, stok_akhir=new_total,

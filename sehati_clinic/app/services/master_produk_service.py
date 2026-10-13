@@ -222,6 +222,28 @@ class MasterProdukService:
             )
             self.repo.create(produk)
 
+            # Audit T3-7 (2026-10-13): stok awal dulu HANYA mengisi cache — tanpa lot, tanpa
+            # baris mutasi. Serah memotong lot lewat FEFO (tak ada → jejak lot kosong), opname
+            # melihat lot 0, dan buku mutasi tak tahu asal 50 unit itu. Kini sama dengan
+            # penerimaan PO: lot RETAIL + baris RESTOCK.
+            if float(payload.stok_terkini or 0) > 0:
+                from datetime import date as _date
+                from app.db.models import StokLot
+                from app.db.models._enums import JenisMutasiEnum
+                from app.repositories.inventory_repo import InventoryRepository
+                _qty = float(payload.stok_terkini)
+                self.db.add(StokLot(
+                    tipe_item="PRODUK", id_produk=produk.id_produk, lokasi="RETAIL",
+                    batch_no="STOK-AWAL", qty_masuk=_qty, qty_sisa=_qty,
+                    harga_terima=(produk.hpp_per_unit or None), status="AKTIF",
+                    tgl_masuk=_date.today(),
+                ))
+                self.db.flush()
+                InventoryRepository(self.db).catat_mutasi_produk(
+                    id_staf=actor_id_staf, id_produk=produk.id_produk,
+                    jenis=JenisMutasiEnum.RESTOCK, qty_perubahan=_qty, stok_akhir=_qty,
+                    referensi="STOK-AWAL", keterangan="Stok awal saat produk didaftarkan")
+
             self.audit.log_create(
                 id_staf=actor_id_staf,
                 tabel="master_produk",
