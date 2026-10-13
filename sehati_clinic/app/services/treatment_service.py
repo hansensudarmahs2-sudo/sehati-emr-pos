@@ -278,7 +278,10 @@ class TreatmentService:
         id_staf_pelaksana: int,
         request: Optional[Request] = None,
     ) -> dict:
-        tindakan = self.treatment_repo.get_tindakan_by_id(id_kunjungan_tindakan)
+        # Audit T3-8 (2026-10-13): BERKUNCI. Langkah 2 memotong BHP; dulu pagar PROSES di
+        # bawah membaca tanpa kunci, jadi klik ganda yang tiba bersamaan sama-sama lolos dan
+        # memotong BHP dua kali (laten: treatment_komponen masih kosong di dev).
+        tindakan = self.treatment_repo.get_tindakan_for_update(id_kunjungan_tindakan)
         if tindakan is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

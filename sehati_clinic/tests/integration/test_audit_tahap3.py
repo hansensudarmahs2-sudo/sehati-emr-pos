@@ -424,3 +424,64 @@ def test_nota_tukar_menulis_selisih_bukan_menimpa(db):
     db.refresh(p)
     assert float(p.stok_terkini) == 7.0                  # dulu 10 (Σ lot 6 + 4)
     assert float(_mutasi(db, p)[-1].stok_akhir) == 7.0
+
+
+# ---------------------------------------------------------------- T3-8
+# Selesai tindakan memotong BHP. Pagar `status == PROSES` dulu membaca tanpa kunci (db.get →
+# objek di sesi): klik ganda yang tiba bersamaan sama-sama lolos dan memotong BHP dua kali.
+def _tindakan_proses(db, k):
+    from app.db.models import KunjunganTindakan, MasterTreatment
+    tr = db.execute(select(MasterTreatment).limit(1)).scalar_one()
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
+                          status_tindakan="PROSES", waktu_mulai=datetime.now())
+    db.add(t); db.flush()
+    return t
+
+
+def test_selesai_tindakan_membaca_status_berkunci(db):
+    from app.services.treatment_service import TreatmentService
+    staf, k = _siapkan(db)
+    t = _tindakan_proses(db, k)
+    with _rekam_sql(db) as q:
+        TreatmentService(db).end_tindakan(t.id_kunjungan_tindakan, staf.id_staf)
+    assert _berkunci(q, "kunjungan_tindakan")
+
+
+def test_selesai_tindakan_kedua_ditolak_walau_objek_di_sesi_basi(db):
+    """Permintaan lain sudah menyelesaikannya (UPDATE langsung); objek di sesi ini masih PROSES."""
+    from sqlalchemy import text
+    from app.services.treatment_service import TreatmentService
+    staf, k = _siapkan(db)
+    t = _tindakan_proses(db, k)
+    db.execute(text("UPDATE kunjungan_tindakan SET status_tindakan=\x27SELESAI\x27 "
+                    "WHERE id_kunjungan_tindakan=:i"), {"i": t.id_kunjungan_tindakan})
+    with pytest.raises(HTTPException) as e:
+        TreatmentService(db).end_tindakan(t.id_kunjungan_tindakan, staf.id_staf)
+    assert e.value.status_code == 400
+
+
+# ---------------------------------------------------------------- T3-9
+# Nota tukar membuat lot pengganti. Pagar `status == APPROVED` dulu membaca tanpa kunci:
+# dua submit bersamaan sama-sama lolos → lot pengganti DUA kali, stok bertambah ganda.
+def test_nota_retur_membaca_status_berkunci(db):
+    staf, _k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db, qty_lot=10)
+    svc, r = _retur_lot(db, staf, lot, 4)
+    with _rekam_sql(db) as q:
+        svc.input_nota_tukar(r.id_retur, "NT-UJI", date.today(),
+                             [{"id_produk": p.id_produk, "qty": 4}], staf)
+    assert _berkunci(q, "retur_produk")
+
+
+def test_nota_tukar_kedua_ditolak_walau_objek_di_sesi_basi(db):
+    from sqlalchemy import text
+    staf, _k = _siapkan(db)
+    p, lot = _produk_dengan_lot(db, qty_lot=10)
+    svc, r = _retur_lot(db, staf, lot, 4)
+    db.execute(text("UPDATE retur_produk SET status=\x27SELESAI\x27 WHERE id_retur=:i"),
+               {"i": r.id_retur})                         # permintaan lain sudah menutupnya
+    with pytest.raises(HTTPException) as e:
+        svc.input_nota_tukar(r.id_retur, "NT-UJI", date.today(),
+                             [{"id_produk": p.id_produk, "qty": 4}], staf)
+    assert e.value.status_code == 400
+    assert len(db.execute(select(StokLot).where(StokLot.id_produk == p.id_produk)).all()) == 1

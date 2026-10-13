@@ -85,6 +85,15 @@ class TreatmentRepository:
     def get_tindakan_by_id(self, id_kunjungan_tindakan: int) -> Optional[KunjunganTindakan]:
         return self.db.get(KunjunganTindakan, id_kunjungan_tindakan)
 
+    def get_tindakan_for_update(self, id_kunjungan_tindakan: int) -> Optional[KunjunganTindakan]:
+        """Baris tindakan BERKUNCI & segar (populate_existing: objek basi di sesi ditimpa)."""
+        from sqlalchemy import select as _select
+        return self.db.execute(
+            _select(KunjunganTindakan)
+            .where(KunjunganTindakan.id_kunjungan_tindakan == id_kunjungan_tindakan)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+
     def update_status_tindakan(
         self,
         tindakan: KunjunganTindakan,

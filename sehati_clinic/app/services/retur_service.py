@@ -201,7 +201,13 @@ class ReturService:
     # RT-L3 — input NOTA RETUR (respon distributor)
     # -------------------------------------------------------------------------
     def _validate_for_nota(self, id_retur: int) -> "ReturProduk":
-        r = self.db.get(ReturProduk, id_retur)
+        # Audit T3-9 (2026-10-13): BERKUNCI & segar. Dulu `db.get` biasa: dua submit nota
+        # tukar bersamaan sama-sama lolos pagar APPROVED dan membuat lot pengganti DUA kali
+        # (stok bertambah ganda). Berlaku juga untuk nota refund — fungsi bersama.
+        r = self.db.execute(
+            select(ReturProduk).where(ReturProduk.id_retur == id_retur)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if r is None:
             raise HTTPException(404, f"Retur {id_retur} tidak ditemukan.")
         if r.status != "APPROVED":

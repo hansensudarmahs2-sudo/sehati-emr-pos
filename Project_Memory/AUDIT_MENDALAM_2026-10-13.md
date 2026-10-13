@@ -12,7 +12,7 @@ usulan membereskan data lama.
 |---|---|---|
 | 1 | Identitas pasien: daftar → cari → edit → nonaktif → gabung | **selesai 2026-10-13** |
 | 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **selesai 2026-10-13 — 12/12 diperbaiki (T2-5, T2-10, T2-11 ⚠ ditinjau)** |
-| 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | **diperbaiki bertahap (keputusan dr. Hansen 2026-10-13: setuju semua)** |
+| 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | **selesai — 9/9 diperbaiki 2026-10-13** |
 | 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | belum |
 | 5 | Laporan & ekspor: omzet, apotek, Finance, paket klinis | belum |
 | 6 | Akses & keamanan: role, CSRF, audit log, PHI | belum |
@@ -406,9 +406,15 @@ bukan 7). ⚠ Cache yang SUDAH berselisih dengan Σ lot di data lama tidak disam
 perbaikan ini hanya berhenti MEMPERBESAR selisih lewat dua jalur itu.
 
 ### 🟡 Ringan / laten
-- **T3-8** Selesai tindakan memotong BHP tanpa mengunci status tindakan → klik ganda memotong
-  dua kali (laten: `treatment_komponen` kosong di dev).
-- **T3-9** Nota tukar retur supplier: dua submit bisa membuat lot pengganti dua kali.
+- **T3-8 ✅ DIPERBAIKI 2026-10-13** Selesai tindakan memotong BHP tanpa mengunci status tindakan → klik ganda memotong
+  dua kali (laten: `treatment_komponen` kosong di dev). Kini `end_tindakan` membaca lewat
+  `TreatmentRepository.get_tindakan_for_update` (FOR UPDATE + populate_existing). Uji: 2 test
+  (SQL berkunci; permintaan kedua dengan objek basi di sesi ditolak 400) — keduanya GAGAL di
+  kode lama. ⚠ `start_tindakan` tetap tanpa kunci: tidak memotong apa pun.
+- **T3-9 ✅ DIPERBAIKI 2026-10-13** Nota tukar retur supplier: dua submit bisa membuat lot pengganti dua kali.
+  Kini `_validate_for_nota` (dipakai nota tukar DAN nota refund) membaca retur berkunci & segar.
+  Uji: 2 test (SQL berkunci; submit kedua dengan objek basi ditolak 400, tak ada lot kedua) —
+  keduanya GAGAL di kode lama.
 - Endpoint API `PATCH /produk/{id}/restock` memanggil fungsi yang tidak ada (500; tampak mati).
 
 ### Diperiksa — BERSIH
