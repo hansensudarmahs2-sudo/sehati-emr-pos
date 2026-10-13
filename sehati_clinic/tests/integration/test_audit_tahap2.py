@@ -537,3 +537,22 @@ def test_kartu_basi_racikan_yang_sudah_diproses_dilewati(db, status_sekarang):
                    ).scalars().all()
     assert len(n) == 1                                    # dulu: lahir baris PENDING kembar
     assert hasil["sudah_diproses"] == ["ZZ Racik Basi"] and hasil["baru"] == 0
+
+
+# ---------------------------------------------------------------- T2-10
+# Menyetujui draf apoteker = menjadi PENULIS catatan medis. Dulu Admin lolos.
+@pytest.mark.parametrize("role, boleh", [
+    ("Dokter", True), ("Superadmin", True), ("Owner", True),   # Superadmin = akun dr. Hansen
+    ("Admin", False), ("Apoteker", False), ("Kasir", False),
+])
+def test_siapa_boleh_menyetujui_draf(role, boleh):
+    from types import SimpleNamespace
+    from app.web.routes.dokter import bisa_menyetujui_draf
+    assert bisa_menyetujui_draf(SimpleNamespace(role=role)) is boleh
+
+
+def test_route_setujui_memeriksa_role_sebelum_menyentuh_draf():
+    import inspect
+    from app.web.routes import dokter
+    src = inspect.getsource(dokter.dokter_draf_soap_setujui)
+    assert src.index("bisa_menyetujui_draf(user)") < src.index("db.get(PemeriksaanKlinis")

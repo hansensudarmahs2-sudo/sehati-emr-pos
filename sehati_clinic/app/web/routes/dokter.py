@@ -47,6 +47,14 @@ router = APIRouter(tags=["Web Dokter"])
 # lalu MENYETUJUINYA jadi SOAP miliknya. Nama apoteker penyusun TIDAK dihapus:
 # rantai asal-usulnya tetap terbaca, dan itu justru melindungi dokter.
 # =============================================================================
+def bisa_menyetujui_draf(user) -> bool:
+    """Audit T2-10: role yang boleh menjadi PENULIS catatan medis lewat persetujuan draf
+    apoteker. Admin tidak. Role Dokter tetap dibatasi ke draf yang ditujukan kepadanya
+    (diperiksa terpisah di route persetujuan)."""
+    role = (user.role.value if hasattr(user.role, "value") else str(user.role)).upper()
+    return role in {"DOKTER", "OWNER", "SUPERADMIN"}
+
+
 @router.get("/dokter/draf-soap", response_class=HTMLResponse)
 def dokter_draf_soap(request: Request, db: DbSession):
     user = get_user_from_cookie(request, db)
@@ -111,6 +119,18 @@ async def dokter_draf_soap_setujui(id_pemeriksaan: int, request: Request, db: Db
     from urllib.parse import quote
     from app.db.models import PemeriksaanKlinis
     from app.services.audit_service import AuditService
+
+    # Audit T2-10 (2026-10-13): menyetujui draf = menjadi PENULIS catatan medis
+    # (`soap.id_staf_dokter = user`). Dulu Admin — akun non-dokter — lolos karena pagar
+    # "dokter yang dituju" hanya berlaku untuk role Dokter. Superadmin/Owner TETAP boleh:
+    # dr. Hansen (dokter + pemilik) hanya punya akun Superadmin (diperiksa di dev & mini PC).
+    # ⚠ Keputusan diambil dari usulan audit — DITANDAI UNTUK DITINJAU dr. Hansen.
+    # SENGAJA tidak memakai `_dokter_can_edit_medrec`: himpunan itu mengizinkan Admin
+    # untuk MENYUNTING (alergi dll.), artinya beda dengan MENULIS rekam medis (§4.1).
+    if not bisa_menyetujui_draf(user):
+        return RedirectResponse(
+            url=f"/web/dokter/draf-soap?err={quote('Akun Admin tidak bisa menyetujui catatan medis — persetujuan menjadikan Anda penulisnya. Minta dokter yang dituju.')}",
+            status_code=status.HTTP_303_SEE_OTHER)
 
     soap = db.get(PemeriksaanKlinis, id_pemeriksaan)
     if soap is None or soap.status_soap != "DRAFT_APOTEK":

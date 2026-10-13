@@ -151,7 +151,7 @@ ganda; halaman basi bisa menyalin resep yang sudah DIBAYAR.
 racikan non-PENDING diperlakukan sebagai kartu BARU → baris PENDING kembar, ditagih lagi
 sebagai susulan (`racikan_service` "perlakukan sebagai kartu baru").
 
-**T2-10 🟡 Admin/Superadmin bisa menyetujui draf SOAP apoteker dan tercatat sebagai dokter
+**T2-10 ✅ DIPERBAIKI 2026-10-13 (⚠ DITINJAU) — Admin/Superadmin bisa menyetujui draf SOAP apoteker dan tercatat sebagai dokter
 penulis.** Pagar "hanya dokter yang dituju" hanya berlaku untuk role DOKTER.
 
 **T2-11 🟡 Upsell TREATMENT mengabaikan kuota membership & batas 2 transaksi** — penulis
@@ -253,6 +253,17 @@ DILEWATI dan dilaporkan (`sudah_diproses`); route dokter menambahkan pesan "Raci
 dibayar/ditunda sejak halaman ini dibuka — TIDAK diubah dan TIDAK dibuat ulang" ke
 pemberitahuan yang sudah ada. Kartu ber-id milik kunjungan LAIN tetap = kartu baru (perilaku
 lama). Uji: 2 test (DIBAYAR, DITUNDA); suntikan perilaku lama tertangkap; cek_soap_basi 11/11.
+
+### Perbaikan T2-10 — ⚠ DITINJAU dr. Hansen di akhir
+
+Diperiksa dulu: dr. Hansen (dokter + pemilik) HANYA punya akun **Superadmin** di dev maupun
+mini PC, dan daftar "dokter dituju" hanya memuat role Dokter. Membatasi persetujuan ke role
+Dokter akan mengunci beliau sendiri. Keputusan (usulan, belum keputusan beliau): **Admin
+diblokir**; Superadmin & Owner tetap boleh; role Dokter tetap hanya draf yang ditujukan
+kepadanya. `dokter.bisa_menyetujui_draf`, diperiksa SEBELUM draf disentuh; tombol disembunyikan
+untuk Admin. Sengaja TIDAK memakai `_dokter_can_edit_medrec` — himpunan itu mengizinkan Admin
+untuk MENYUNTING (alergi dll.), artinya beda dengan MENULIS rekam medis (§4.1).
+Uji: 7 test; suntikan "Admin dibolehkan lagi" tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.
