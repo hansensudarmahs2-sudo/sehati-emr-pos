@@ -162,3 +162,62 @@ def test_refund_tertunda_membaca_item_dan_anti_dobel_berkunci(db):
     assert _berkunci(q, "kunjungan_resep") and _berkunci(q, "transaksi_refund")
     db.refresh(r)
     assert V(r.status_item) == "BATAL"
+
+
+# ---------------------------------------------------------------- T3-3
+# Penerimaan barang: route memuat item PO lebih dulu; kunci `get_item_for_update` tanpa
+# populate_existing mengembalikan salinan LAMA → pagar "melebihi sisa" dihitung dari angka
+# basi → pesanan 10 diterima 20.
+def _po_produk(db, staf, p, qty=10):
+    from app.db.models import Pemesanan, PemesananItem
+    from app.db.models._enums import StatusPemesananEnum
+    po = Pemesanan(nomor_po=f"PO-UJI-{random.randint(10**6, 10**7)}", tgl_pemesanan=datetime.now(),
+                   status=StatusPemesananEnum.ORDERED, id_staf_pemesan=staf.id_staf)
+    db.add(po); db.flush()
+    it = PemesananItem(id_pemesanan=po.id_pemesanan, tipe_item="PRODUK", id_produk=p.id_produk,
+                       nama_snapshot=p.nama_produk, qty_dipesan=qty, qty_diterima=0)
+    db.add(it); db.flush()
+    return po, it
+
+
+def _terima(db, staf, po, it, qty):
+    from app.schemas.pengadaan import ReceiveItemRequest
+    from app.services.pemesanan_service import PemesananService
+    return PemesananService(db).receive_item(
+        id_pemesanan=po.id_pemesanan,
+        payload=ReceiveItemRequest(id_pemesanan_item=it.id_item, qty_diterima=qty,
+                                   batch_no="UJI-T33", tgl_ed=date(2028, 1, 1),
+                                   harga_terima=Decimal("4000")),
+        actor=staf)
+
+
+def test_terima_ganda_ditolak_walau_item_di_sesi_basi(db):
+    from sqlalchemy import text
+    from app.db.models._enums import StafRoleEnum
+    from app.repositories.pemesanan_repo import PemesananRepository
+    staf, _k = _siapkan(db)
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    p, _ = _produk_dengan_lot(db, qty_lot=0)
+    po, it = _po_produk(db, staf, p)
+    PemesananRepository(db).get_items_by_po(po.id_pemesanan)        # seperti route: item dimuat
+    db.execute(text("UPDATE pemesanan_item SET qty_diterima = 10 WHERE id_item = :i"),
+               {"i": it.id_item})                                    # permintaan lain sudah terima
+    assert float(it.qty_diterima) == 0                                # salinan di sesi masih lama
+    with pytest.raises(HTTPException) as e:
+        _terima(db, staf, po, it, 10)
+    assert e.value.status_code == 400 and "melebihi sisa" in e.value.detail
+
+
+def test_terima_bertahap_normal_lalu_kelebihan_ditolak(db):
+    """Jalur biasa tetap utuh: 6 + 4 diterima (stok & lot naik), unit ke-11 ditolak."""
+    from app.db.models._enums import StafRoleEnum
+    staf, _k = _siapkan(db)
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    p, _ = _produk_dengan_lot(db, qty_lot=0)
+    po, it = _po_produk(db, staf, p)
+    _terima(db, staf, po, it, 6)
+    _terima(db, staf, po, it, 4)
+    db.refresh(it); db.refresh(p)
+    assert float(it.qty_diterima) == 10 and float(p.stok_terkini) == 10
+    with pytest.raises(HTTPException):
+        _terima(db, staf, po, it, 1)

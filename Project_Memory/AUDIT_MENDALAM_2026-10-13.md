@@ -340,7 +340,7 @@ kunci kunjungan" sempat LOLOS — diperketat. ⚠ Balapan SUNGGUHAN (dua koneksi
 — itu menulis permanen ke DB dev; kunci opname & retur supplier diuji lewat test lama yang
 menjalankan jalurnya (`test_opname_lot`, `test_retur`), bukan perekam SQL.
 
-**T3-3 Penerimaan barang bisa ganda — kunci membaca salinan basi.** Route memuat item PO lebih
+**T3-3 ✅ DIPERBAIKI 2026-10-13 — Penerimaan barang bisa ganda — kunci membaca salinan basi.** Route memuat item PO lebih
 dulu; `get_item_for_update` tanpa `populate_existing` mengembalikan `qty_diterima` lama → pagar
 "melebihi sisa" lolos → stok +20, dua lot, dua faktur untuk pesanan 10. Pola yang SAMA dengan
 T2-3 (diperbaiki untuk kunjungan saja).
@@ -351,6 +351,10 @@ Perbaikan: `_reverse_stok_per_item` kini memakai `_lingkup_void` — jatah lewat
 lama dengan stok 9/9 (fisik 7); sesudah perbaikan 7/7 dan jejak T1 utuh. Catatan: di mode
 per-item pagar void sudah menolak item transaksi ini yang DISERAHKAN, jadi jatah yang sah
 memang 0 — pembatasan jejak lot adalah pengaman lapis kedua.
+
+Perbaikan T3-3: keempat pembacaan berkunci di `pemesanan_repo` (item, kepala PO, produk,
+bahan) kini `populate_existing`. Test ditulis DULU dan GAGAL di kode lama ("DID NOT RAISE":
+item yang sudah diterima penuh diterima lagi); + test jalur normal (6 + 4, unit ke-11 ditolak).
 
 ### 🟠 Sedang
 

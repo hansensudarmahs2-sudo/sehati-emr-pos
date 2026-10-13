@@ -50,6 +50,10 @@ class PemesananRepository:
             select(PemesananItem)
             .where(PemesananItem.id_item == id_item)
             .with_for_update()
+            # Audit T3-3 (2026-10-13): baca SEGAR. Route memuat item PO lebih dulu; tanpa
+            # ini kunci mengembalikan salinan LAMA dari sesi → pagar "melebihi sisa"
+            # dihitung dari qty_diterima basi → barang diterima dua kali.
+            .execution_options(populate_existing=True)
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
@@ -97,6 +101,10 @@ class PemesananRepository:
             select(Pemesanan)
             .where(Pemesanan.nomor_po.like(f"{prefix_full}%"))
             .with_for_update()
+            # Audit T3-3 (2026-10-13): baca SEGAR. Route memuat item PO lebih dulu; tanpa
+            # ini kunci mengembalikan salinan LAMA dari sesi → pagar "melebihi sisa"
+            # dihitung dari qty_diterima basi → barang diterima dua kali.
+            .execution_options(populate_existing=True)
         )
         rows = list(self.db.execute(stmt).scalars().all())
 
@@ -255,6 +263,10 @@ class PemesananRepository:
             select(MasterProduk)
             .where(MasterProduk.id_produk == id_produk)
             .with_for_update()
+            # Audit T3-3 (2026-10-13): baca SEGAR. Route memuat item PO lebih dulu; tanpa
+            # ini kunci mengembalikan salinan LAMA dari sesi → pagar "melebihi sisa"
+            # dihitung dari qty_diterima basi → barang diterima dua kali.
+            .execution_options(populate_existing=True)
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
@@ -263,6 +275,10 @@ class PemesananRepository:
             select(InventoryStok)
             .where(InventoryStok.id_bahan == id_bahan)
             .with_for_update()
+            # Audit T3-3 (2026-10-13): baca SEGAR. Route memuat item PO lebih dulu; tanpa
+            # ini kunci mengembalikan salinan LAMA dari sesi → pagar "melebihi sisa"
+            # dihitung dari qty_diterima basi → barang diterima dua kali.
+            .execution_options(populate_existing=True)
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
