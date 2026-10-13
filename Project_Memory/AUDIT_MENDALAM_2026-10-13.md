@@ -11,7 +11,7 @@ usulan membereskan data lama.
 | Tahap | Alur | Status |
 |---|---|---|
 | 1 | Identitas pasien: daftar → cari → edit → nonaktif → gabung | **selesai 2026-10-13** |
-| 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **diaudit 2026-10-13 — menunggu keputusan perbaikan** |
+| 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **selesai 2026-10-13 — 12/12 diperbaiki (T2-5, T2-10, T2-11 ⚠ ditinjau)** |
 | 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | belum |
 | 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | belum |
 | 5 | Laporan & ekspor: omzet, apotek, Finance, paket klinis | belum |
@@ -158,7 +158,7 @@ penulis.** Pagar "hanya dokter yang dituju" hanya berlaku untuk role DOKTER.
 kedua `kunjungan_tindakan` (§4.1). Pasien VIP berkuota ditagih penuh lewat upsell, Rp 0
 lewat SOAP dokter. Bisa jadi kebijakan — perlu keputusan.
 
-**T2-12 🟡 Simpan SOAP: kegagalan blok racikan/diagnosa/kontrol ditelan diam-diam.**
+**T2-12 ✅ DIPERBAIKI 2026-10-13 — Simpan SOAP: kegagalan blok racikan/diagnosa/kontrol ditelan diam-diam.**
 SOAP+resep+status sudah di-commit; blok kedua gagal → rollback, redirect normal tanpa pesan.
 Pemicu nyata belum ditemukan (field dibatasi), tapi penelanannya pasti.
 
@@ -275,6 +275,15 @@ inline). Pemindahan di jalur SOAP diperiksa baris per baris (setara; satu-satuny
 `import` kini di luar try). ⚠ Jalur SOAP dokter TIDAK punya test kuota sendiri — pengamannya
 test sumber yang memastikan ia memanggil fungsi bersama dan tidak menulis ulang logikanya.
 Uji: 4 test; dua arah — 2 suntikan tertangkap.
+
+### Perbaikan T2-12
+
+Blok kedua simpan SOAP gagal → redirect membawa `err` "SOAP & resep TERSIMPAN, tapi racikan /
+diagnosa terkode / jadwal kontrol GAGAL disimpan…". ⚠ Tertangkap saat memeriksa: halaman
+antrian dokter dulu HANYA meneruskan `ok` — pesan galat pun akan hilang diam-diam; kini
+`err` diteruskan dan ditampilkan (banner merah). Pemicu kegagalan tak bisa dibuat dari luar
+tanpa merusak DB → dua sisi diuji terpisah (sumber: except menandai gagal & redirect ber-err;
+halaman: banner tampil). Suntikan "err tak diteruskan" tertangkap.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

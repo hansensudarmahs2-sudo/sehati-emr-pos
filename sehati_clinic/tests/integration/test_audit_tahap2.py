@@ -643,3 +643,35 @@ def test_soap_dokter_memakai_fungsi_kuota_bersama():
     src = inspect.getsource(pemeriksaan_service.PemeriksaanService)
     assert "pakai_kuota_bila_ada(" in src
     assert "increment_kuota_terpakai(" not in src
+
+
+# ---------------------------------------------------------------- T2-12
+# Simpan SOAP: blok kedua (racikan/diagnosa/kontrol) gagal → dulu redirect NORMAL tanpa
+# pesan. Pemicunya tak bisa dibuat dari luar tanpa merusak DB, jadi dua sisi diuji terpisah.
+def test_kegagalan_blok_kedua_soap_tidak_lagi_ditelan():
+    import inspect
+    from app.web.routes import dokter
+    src = inspect.getsource(dokter)
+    blok = src[src.index("GAGAL simpan blok kontrol/diagnosa/racikan"):]
+    blok = blok[:blok.index("return RedirectResponse")]
+    assert "_gagal_blok2 = True" in blok and "?err=" in blok
+
+
+def test_halaman_antrian_dokter_menampilkan_err():
+    """Tanpa ini pesan galat ikut hilang: halaman antrian dulu hanya meneruskan `ok`."""
+    import os, re
+    from fastapi.testclient import TestClient
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+    c = TestClient(app)
+    hal = c.get("/web/login")
+    data = {"username": os.environ["TEST_USERNAME"], "password": os.environ["TEST_PASSWORD"]}
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', hal.text)
+    if m:
+        data["csrf_token"] = m.group(1)
+    c.post("/web/login", data=data)
+    r = c.get("/web/dokter/antrian?err=ZZ-GAGAL-UJI-T212")
+    if r.status_code == 403:
+        pytest.skip("akun uji bukan role antrian dokter")
+    assert "ZZ-GAGAL-UJI-T212" in r.text

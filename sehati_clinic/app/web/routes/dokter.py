@@ -212,6 +212,9 @@ def dokter_antrian_page(request: Request, db: DbSession):
         # #51: halaman ini tujuan redirect setelah simpan SOAP. Tanpa meneruskan `ok`,
         # peringatan "racikan dari layar lain dipertahankan" hilang diam-diam.
         ok=request.query_params.get("ok"),
+        # Audit T2-12: galat simpan SOAP (blok racikan/diagnosa/kontrol) — tanpa ini
+        # pesannya ikut hilang diam-diam, persis masalah yang diperbaiki.
+        err=request.query_params.get("err"),
     )
     return templates.TemplateResponse(request, "dokter_antrian.html", ctx)
 
@@ -895,10 +898,20 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
         )
         db.rollback()
         _pesan_racik_selamat = None
+        # Audit T2-12 (2026-10-13): dulu redirect NORMAL tanpa pesan — dokter mengira
+        # semuanya tersimpan, padahal racikan / diagnosa terkode / kontrol HILANG (SOAP,
+        # resep, dan status sudah ter-commit di blok pertama). Kini dokter diberi tahu.
+        _gagal_blok2 = True
+    else:
+        _gagal_blok2 = False
 
     _url = "/web/dokter/antrian"
-    if _pesan_racik_selamat:
-        from urllib.parse import quote as _q
+    from urllib.parse import quote as _q
+    if _gagal_blok2:
+        _url += "?err=" + _q(
+            "SOAP & resep TERSIMPAN, tapi racikan / diagnosa terkode / jadwal kontrol GAGAL "
+            "disimpan. Buka kembali SOAP kunjungan ini dan isi ulang bagian itu.")
+    elif _pesan_racik_selamat:
         _url += f"?ok={_q(_pesan_racik_selamat)}"
     return RedirectResponse(url=_url, status_code=status.HTTP_303_SEE_OTHER)
 

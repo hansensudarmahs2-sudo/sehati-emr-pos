@@ -12,6 +12,12 @@
         ⚠ {{ ok }}
     </div>
     {% endif %}
+    {# Audit T2-12: simpan SOAP sebagian gagal — dulu ditelan diam-diam. #}
+    {% if err %}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+        ✗ {{ err }}
+    </div>
+    {% endif %}
 
     {# Info bar — penjelasan filter #}
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-800">
