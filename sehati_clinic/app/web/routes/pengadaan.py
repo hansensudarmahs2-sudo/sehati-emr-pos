@@ -921,7 +921,14 @@ async def pemesanan_faktur_submit(id_pemesanan: int, request: Request, db: DbSes
                                 status_code=status.HTTP_303_SEE_OTHER)
     ok = f"{n_ok} item diterima & lot dibuat (faktur {nomor_pengiriman_str})."
     if errors:
-        ok += " Sebagian gagal: " + " | ".join(errors)
+        # Audit T3-4: kepala faktur dihitung ulang dari item yang BENAR-BENAR diterima —
+        # dulu tetap menjumlah item yang gagal (faktur lebih besar dari barang masuk).
+        _baru = svc.hitung_ulang_faktur(id_faktur_val)
+        db.commit()
+        ok += (" Sebagian gagal: " + " | ".join(errors)
+               + f" — TOTAL FAKTUR DIHITUNG ULANG dari item yang diterima: "
+                 f"Rp {_baru['total_ditagih']:,.0f}".replace(",", ".")
+               + " (total tagihan distributor yang diisi tidak dipakai; periksa faktur fisiknya).")
     return RedirectResponse(url=f"/web/pengadaan/faktur/{id_faktur_val}/cetak?ok={quote(ok)}",
                             status_code=status.HTTP_303_SEE_OTHER)
 

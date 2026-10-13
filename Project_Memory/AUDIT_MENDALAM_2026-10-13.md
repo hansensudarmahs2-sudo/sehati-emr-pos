@@ -358,9 +358,15 @@ item yang sudah diterima penuh diterima lagi); + test jalur normal (6 + 4, unit 
 
 ### 🟠 Sedang
 
-**T3-4 Total faktur menjumlah item yang GAGAL diterima.** Kepala faktur dihitung dari semua
+**T3-4 ✅ DIPERBAIKI 2026-10-13 — Total faktur menjumlah item yang GAGAL diterima.** Kepala faktur dihitung dari semua
 item yang dicentang dan disimpan SEBELUM penerimaan; item gagal hanya dicatat di pesan →
 faktur tercetak lebih besar dari barang yang masuk; item itu kelak tertagih di faktur kedua.
+ Perbaikan:
+`PemesananService.hitung_ulang_faktur` — kepala dihitung ulang dari baris penerimaan yang
+TERSIMPAN (rumus sama dengan route); dipanggil route bila ada item gagal, pesan memberi tahu
+total baru & bahwa total tagihan distributor yang diisi tidak dipakai. Semua item lolos →
+perilaku lama (termasuk extra_diskon dari total distributor). Uji: 2 test; suntikan "hitung
+dari qty pesanan" sempat LOLOS (item diterima penuh) → test diubah ke penerimaan sebagian.
 
 **T3-5 Opname: lot HABIS mendapat stok tapi tetap HABIS → stok tak terlihat.** Selisih positif
 ditambahkan ke lot yang sudah HABIS (dipakai serah sesudah draf dibuat) tanpa mengaktifkannya;

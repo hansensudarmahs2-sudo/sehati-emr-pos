@@ -221,3 +221,50 @@ def test_terima_bertahap_normal_lalu_kelebihan_ditolak(db):
     assert float(it.qty_diterima) == 10 and float(p.stok_terkini) == 10
     with pytest.raises(HTTPException):
         _terima(db, staf, po, it, 1)
+
+
+# ---------------------------------------------------------------- T3-4
+# Kepala faktur dulu menjumlah SEMUA item yang dicentang, termasuk yang GAGAL diterima.
+def test_kepala_faktur_dihitung_ulang_dari_item_yang_diterima(db):
+    from app.db.models import FakturPenerimaan, PemesananItem
+    from app.db.models._enums import StafRoleEnum
+    from app.schemas.pengadaan import ReceiveItemRequest
+    from app.services.pemesanan_service import PemesananService
+    staf, _k = _siapkan(db)
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    pa, _ = _produk_dengan_lot(db, qty_lot=0)
+    pb, _ = _produk_dengan_lot(db, qty_lot=0)
+    po, ia = _po_produk(db, staf, pa)
+    ia.harga_satuan = Decimal("50000")
+    ib = PemesananItem(id_pemesanan=po.id_pemesanan, tipe_item="PRODUK", id_produk=pb.id_produk,
+                       nama_snapshot=pb.nama_produk, qty_dipesan=2, qty_diterima=0,
+                       harga_satuan=Decimal("1000000"))
+    db.add(ib); db.flush()
+    # Kepala seperti yang ditulis route: dari KEDUA item (2.500.000 × 1,11 = 2.775.000)
+    fak = FakturPenerimaan(id_pemesanan=po.id_pemesanan, nomor_faktur="F-UJI-T34",
+                           ppn_persen=Decimal("11"), id_staf_penerima=staf.id_staf,
+                           subtotal_order=Decimal("2500000"), subtotal_setelah_diskon=Decimal("2500000"),
+                           diskon_persen=Decimal("0"), extra_diskon=Decimal("0"),
+                           total_ditagih=Decimal("2775000"))
+    db.add(fak); db.flush()
+    # Hanya 6 dari 10 unit A yang masuk; B "gagal". Sebagian (bukan penuh) supaya rumus yang
+    # salah memakai qty PESANAN ikut ketahuan — suntikan itu sempat LOLOS saat A diterima penuh.
+    PemesananService(db).receive_item(
+        id_pemesanan=po.id_pemesanan,
+        payload=ReceiveItemRequest(id_pemesanan_item=ia.id_item, qty_diterima=6, batch_no="T34",
+                                   tgl_ed=date(2028, 1, 1), harga_terima=Decimal("50000"),
+                                   id_faktur=fak.id_faktur),
+        actor=staf)
+    hasil = PemesananService(db).hitung_ulang_faktur(fak.id_faktur)
+    db.refresh(fak)
+    assert hasil["total_ditagih"] == Decimal("333000.00") == fak.total_ditagih   # 300.000 × 1,11
+    assert fak.subtotal_order == Decimal("300000.00")
+
+
+def test_route_faktur_menghitung_ulang_bila_ada_item_gagal():
+    import inspect
+    from app.web.routes import pengadaan
+    src = inspect.getsource(pengadaan)
+    blok = src[src.index('ok = f"{n_ok} item diterima'):]
+    blok = blok[:blok.index("return RedirectResponse")]
+    assert "if errors:" in blok and "hitung_ulang_faktur(" in blok and "db.commit()" in blok

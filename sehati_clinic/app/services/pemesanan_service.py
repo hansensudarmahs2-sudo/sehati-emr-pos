@@ -364,6 +364,46 @@ class PemesananService:
     # =========================================================================
     # RECEIVE ITEM — atomic + audit + state transition
     # =========================================================================
+    def hitung_ulang_faktur(self, id_faktur: int) -> dict:
+        """Hitung ulang KEPALA faktur dari baris penerimaan yang BENAR-BENAR tersimpan.
+
+        Audit T3-4 (2026-10-13): route faktur menghitung kepala (subtotal, diskon, total
+        ditagih) dari SEMUA item yang dicentang lalu menyimpannya SEBELUM penerimaan; item
+        yang gagal (mis. 403 role, melebihi sisa) hanya dicatat di pesan → faktur tercetak
+        lebih besar dari barang yang masuk, dan item itu kelak tertagih di faktur kedua.
+
+        Rumus sama dengan route: X = Σ harga pesan × qty, S = Σ harga terima × qty,
+        total = S × (1 + PPN). Total tagihan distributor yang diisi tangan (Y) TIDAK berlaku
+        lagi bila sebagian item gagal — ia menyangkut seluruh faktur — jadi extra_diskon = 0.
+        FLUSH; pemanggil yang commit.
+        """
+        from app.db.models import FakturPenerimaan, PemesananItem, PemesananReceive
+        from sqlalchemy import select
+        fak = self.db.get(FakturPenerimaan, id_faktur)
+        if fak is None:
+            raise HTTPException(404, f"Faktur {id_faktur} tidak ditemukan.")
+        q2 = Decimal("0.01")
+        X = S = Decimal(0)
+        for rcv, it in self.db.execute(
+            select(PemesananReceive, PemesananItem)
+            .join(PemesananItem, PemesananItem.id_item == PemesananReceive.id_pemesanan_item)
+            .where(PemesananReceive.id_faktur == id_faktur)
+        ).all():
+            qty = Decimal(str(rcv.qty_diterima or 0))
+            h_pesan = Decimal(str(it.harga_satuan or 0))
+            h_terima = Decimal(str(rcv.harga_terima)) if rcv.harga_terima is not None else h_pesan
+            X += h_pesan * qty
+            S += h_terima * qty
+        ppn = Decimal(str(fak.ppn_persen or 0)) / Decimal(100)
+        fak.subtotal_order = X.quantize(q2)
+        fak.subtotal_setelah_diskon = S.quantize(q2)
+        fak.diskon_persen = (((Decimal(1) - S / X) * Decimal(100)).quantize(q2)
+                             if X > 0 else Decimal("0.00"))
+        fak.extra_diskon = Decimal("0.00")
+        fak.total_ditagih = (S * (Decimal(1) + ppn)).quantize(q2)
+        self.db.flush()
+        return {"subtotal_order": fak.subtotal_order, "total_ditagih": fak.total_ditagih}
+
     def receive_item(
         self,
         id_pemesanan: int,
