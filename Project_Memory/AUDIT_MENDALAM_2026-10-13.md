@@ -13,7 +13,7 @@ usulan membereskan data lama.
 | 1 | Identitas pasien: daftar → cari → edit → nonaktif → gabung | **selesai 2026-10-13** |
 | 2 | Klinis: antrian → SOAP → diagnosa → tindakan → resep/racikan → draf apoteker | **selesai 2026-10-13 — 12/12 diperbaiki (T2-5, T2-10, T2-11 ⚠ ditinjau)** |
 | 3 | Apotek & stok: serah → lot/FEFO → retur supplier → opname → pengadaan | **selesai — 9/9 diperbaiki 2026-10-13** |
-| 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | belum |
+| 4 | Kasir & uang: tagihan → bayar → void → refund → retur → tutup kasir | **diaudit 2026-10-13 — 11 temuan + 3 keputusan, menunggu persetujuan** |
 | 5 | Laporan & ekspor: omzet, apotek, Finance, paket klinis | belum |
 | 6 | Akses & keamanan: role, CSRF, audit log, PHI | belum |
 
@@ -422,3 +422,115 @@ Kunci produk saat serah; jaga `n_sisa`/`tgl_janji_kirim`; jejak lot asal; jalur 
 hantu (T30); retur pasien (kunci produk & lot, batas jejak, mutasi RETUR_PASIEN); pengganti
 TUKAR; transisi status PO & hak approve; pagar sisa per item (kecuali T3-3); FK lot→terima→
 faktur; delta opname = fisik − potret; kunci approve/reject opname (T20).
+
+---
+
+## Tahap 4 — Kasir & uang (diaudit 2026-10-13)
+
+Tiga agen pembaca (tagihan→bayar · void/refund/retur · tutup kasir/komisi/membership/nota).
+Setiap temuan di bawah DIPERIKSA ULANG di kode sebelum dicatat. Yang sudah diketahui tidak
+dihitung ulang: T31 kembalian, T33 doc_number, T34 IntegrityError generik, T35 pembulatan diskon.
+Prinsip yang sama dengan T3-2: di REPEATABLE-READ, `get_user_from_cookie` (SELECT pertama
+setiap permintaan) menetapkan POTRET; SELECT biasa sesudah menunggu kunci tetap membaca potret
+itu. Hanya pembacaan berkunci/UPDATE yang melihat data terbaru.
+
+### 🔴 Berat
+
+**T4-1 Bayar: pagar P0-2 tidak mencegah tagihan ganda, dan obat bisa lunas tanpa ditagih.**
+`proses_bayar` mengunci kunjungan (`kasir_service.py:721`), lalu `get_tagihan`, transaksi
+terakhir, resep/racikan/tindakan PENDING, dan anti-dobel komisi dibaca SELECT biasa = potret.
+Komentar di :717 ("submit kedua melihat item yang sudah ter-billing") TIDAK benar di RR.
+(a) Kasir + Admin (kunci idempotensi berbeda) menekan Bayar bersamaan → transaksi KEDUA penuh,
+detail, pembayaran & komisi ganda; UPDATE tanda DIBAYAR mengenai 0 baris → status COMPLETED
+menimpa ANTRI_OBAT, obat lunas hilang dari antrian apotek.
+(b) `mark_resep_dibayar`/`mark_racikan_dibayar` menandai SEMUA PENDING saat UPDATE, bukan yang
+ditagih: resep/racikan yang masuk (SOAP/upsell) SELAMA pembayaran ikut DIBAYAR tanpa ditagih
+→ diserahkan gratis.
+
+**T4-2 Retur dari pasien bisa dibayar DUA kali + stok hantu.** Baris item dikunci
+(`retur_pasien_service.py:489`), tapi retur tidak mengubah baris itu (tetap DISERAHKAN);
+pagar sebenarnya `_sudah_diretur` (:91) dan `_lot_tersedia_untuk_kembali` (:97) = SELECT biasa.
+Klik ganda / dua petugas → permintaan kedua melihat "belum diretur", refund kedua penuh, stok
++2×q, `is_sebagian` dari potret → tanpa PIN. TUKAR: dua transaksi tukar, dua potong FEFO.
+Docstring :35 mengklaim kunci mencegah ini.
+
+**T4-3 Void perpanjangan/upgrade membership menghapus membership LAMA yang sudah dibayar.**
+Aktivasi menonaktifkan SEMUA history aktif lain (`membership_service.py:609`, termasuk
+RENEWAL); RENEWAL memindahkan baris kuota lama ke history baru dan menambah totalnya
+(`kasir_service.py:688-694`). Void → `revert_active_to_pending` (:737) menonaktifkan semua
+kuota history itu (termasuk saldo lama) dan mencari history aktif lain (tidak ada — sudah
+EXPIRED) → pasien jadi REGULAR, kuota lama hilang. Bertentangan dengan
+`MEMBERSHIP_AKTIVASI_CS_DESIGN.md:112`. Kedua jalur void sama.
+
+### 🟠 Sedang
+
+**T4-4 Bayar saat masih ada tindakan PENDING/PROSES → tindakan tertinggal selamanya.**
+Satu-satunya pagar status = BATAL (:726); tagihan hanya SELESAI (`kasir_repo.py:143`); status
+jadi COMPLETED/ANTRI_OBAT. Halaman tagihan basi + dokter menambah tindakan (ANTRI_TREATMENT) →
+tindakan B lenyap dari antrian perawat, SOAP ditolak (COMPLETED), kuota yang terpakai hilang.
+
+**T4-5 Refund obat tertunda vs void bersamaan → uang yang sama keluar dua kali.**
+`refund_item_tertunda` mengunci item saja; `_pagari_void_sudah_refund` (:2641) membaca
+`transaksi_refund` tanpa kunci. Void yang menunggu kunci item tak melihat refund baru → VOID.
+Refund atas transaksi VOID tak dihitung `_refund_bukuan._dasar` → laci kurang tanpa jejak.
+
+**T4-6 Buka Kasir ganda.** Cek "sudah ada sesi" (`kasir_closing_service.py:206, 219`) tanpa
+kunci, indeks tidak unik → dua sesi OPEN satu tanggal; satu tertinggal OPEN memblokir esok
+hari, laporan tutup kasir menghitung hari itu dua kali.
+
+**T4-7 Nota: diskon member TINDAKAN dikurangkan dua kali.** `transaksi_detail_tindakan.subtotal`
+= BERSIH (`kasir_service.py:894`), produk & racikan di nota = KOTOR. Nota menjumlah baris jadi
+"Subtotal" lalu mengurangi `nominal_diskon` lagi (`print_service.py:271-273`): baris 450.000,
+Subtotal 450.000, Diskon −50.000, Total 450.000 — hitungan di kertas salah.
+`test_nota_snapshot` hanya menguji diskon 0.
+
+**T4-8 Metode bayar/refund tidak divalidasi server.** `metode_bayar: str` bebas
+(`schemas/kasir.py:198`), route hanya `.upper()`. Tutup kasir hanya menghitung
+`METODE_KANONIK`. POST rakitan `metode=TUKAR`/`GRATIS` → omzet naik, laci tidak mengharapkan
+uangnya. Retur jenis REFUND dengan metode TUKAR juga lolos.
+
+**T4-9 Bayar & aktivasi membership tanpa kunci.** `bayar_membership` (:466) dan
+`activate_membership` (:571) cek-lalu-tulis dengan `db.get`. Klik ganda "Aktifkan" pada
+perpanjangan/upgrade → baris kuota DUA kali (tak ada indeks unik), carry-over ditambah dua kali.
+Bayar ganda → transaksi pertama yatim.
+
+**T4-10 Diskon member produk berlaku untuk SEMUA produk.** `06_business_logic.md:77,146`:
+hanya `eligible_member_discount=1`. `get_tagihan` (:570) mengenakan persen ke seluruh
+subtotal produk; satu-satunya pembaca tanda itu = harga pengganti TUKAR (`retur_pasien_service:170`).
+DB dev: 80 produk aktif bertanda berhak, 267 tidak. Akibat lain: tukar produk tak berhak dengan
+produk yang SAMA membuat pasien membayar "selisih". ⚠ Butuh keputusan (mengubah harga 267 produk).
+
+**T4-11 Harga sesi 1 series menghitung SEMUA rencana dengan kunci (pasien, treatment,
+kunjungan pembuat)** (`_compute_charge` :319), tanpa status/kelompok. Series kedua untuk
+treatment sama di kunjungan sama (reopen) → sesi 1 baru ditagih N1+N2 sesi.
+
+### ⚖ Perlu keputusan kebijakan (bukan bug murni)
+
+- **K4-1 Void hari lampau:** hanya mengubah status — tanpa baris uang keluar di tanggal void.
+  Laci hari void tidak berkurang (kalau uang dikembalikan tunai, kasir tampak kurang); omzet hari
+  ASAL berubah sesudah ditutup & diekspor (pergeseran yang dihapus T32 untuk refund). Void
+  hari lampau juga tanpa penyetuju kedua, refund hari lampau dengan PIN (DEC-063 "self-acc").
+- **K4-2 Rantai tukar→refund:** X ditukar Y (komisi X tetap, keputusan 3), lalu Y dikembalikan
+  uang → komisi X tetap AKTIF. Setiap tukar memulai ulang batas 7 hari (`waktu_serah=now`).
+- **K4-3 Kuota BULANAN** mulai penuh lagi saat perpanjangan/upgrade di tengah bulan.
+
+### 🟡 Ringan
+- Cari Transaksi: transaksi MEMBERSHIP (tanpa kunjungan) tampil "-" dan tak tersaring No. RM
+  (`kasir_repo.py:321`, padahal `transaksi_kasir.id_pasien` ada).
+- Nota cetak ulang pra-F3 ("direkonstruksi") melewatkan obat yang sudah DISERAHKAN
+  (`print_service.py:209`, filter DIBAYAR). Hanya data lama.
+- Layar Tutup Kasir memeriksa antrian HARI INI, bukan tanggal sesi; laporan tutup kasir
+  menyaring tanggal `shift_tutup` bukan tanggal sesi.
+- Tagihan menampilkan "SUDAH DI-VOID" bila transaksi susulan T2 di-void walau T1 sah (tampilan).
+- API `rekap-shift`: daftar transaksi melewatkan MEMBERSHIP, rekap per metode memasukkannya.
+- Ekspor `transaction_items_raw`: `subtotal` produk kotor, tindakan bersih; racikan tidak
+  diekspor → TAHAP 5.
+
+### Diperiksa — BERSIH (dari laporan agen)
+Total dihitung server (klien hanya kirim pembayaran); pagar bayar-kurang & Rp 0. Kedua jalur
+void kini selangkah demi selangkah sama (kunci, 3 pagar, stok, series, kuota, membership,
+komisi). Refund obat tertunda: item berkunci, anti-dobel berkunci, PIN penyetuju ≠ pemroses,
+header utuh. Retur vs void: void tertahan DISERAHKAN. Nilai refund/retur dari `trx_dan_nilai_bersih`.
+Pembukuan TUKAR saling meniadakan. `_refund_bukuan` satu modul. Komisi: satu penulis, RESEP_LUAR
+dilewati, void/retur penuh/sebagian sesuai keputusan 3. Sesi tutup kasir CLOSED tidak bisa diubah.
+Zona waktu MySQL & container sama (WIB).
