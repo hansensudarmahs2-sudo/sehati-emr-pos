@@ -453,3 +453,57 @@ def test_penanda_tebus_racikan_sama(db, status_salinan, ditawarkan):
     assert (asal.id_kunjungan_racikan in ids) is ditawarkan
     from app.services._tebus import racikan_sudah_ditebus
     assert racikan_sudah_ditebus(db, asal.id_kunjungan_racikan) is (not ditawarkan)
+
+
+# ---------------------------------------------------------------- T2-8
+# Tebus resep dulu menyalin baris lama TANPA pemeriksaan (racikan sudah diperiksa).
+def _pagar_tebus(db, model, id_baris, id_pasien):
+    from app.web.routes.apotek import _asal_tebus_atau_tolak
+    return _asal_tebus_atau_tolak(db, model, id_baris, id_pasien)
+
+
+def test_tebus_resep_sah_diterima(db):
+    staf, k = _siapkan(db, "COMPLETED")
+    r = _resep(db, k, staf)
+    assert _pagar_tebus(db, KunjunganResep, r.id_resep, k.id_pasien) is r
+
+
+def test_tebus_resep_pasien_lain_ditolak(db):
+    staf, k = _siapkan(db, "COMPLETED")
+    _, k_lain = _siapkan(db, "COMPLETED")
+    r = _resep(db, k, staf)
+    assert "bukan resep pasien ini" in _pagar_tebus(db, KunjunganResep, r.id_resep, k_lain.id_pasien)
+
+
+def test_tebus_resep_yang_sudah_dibayar_ditolak(db):
+    staf, k = _siapkan(db, "COMPLETED")
+    r = _resep(db, k, staf)
+    r.status_item = StatusItemResepEnum.DIBAYAR; db.flush()
+    assert "sudah DIBAYAR" in _pagar_tebus(db, KunjunganResep, r.id_resep, k.id_pasien)
+
+
+def test_tebus_ganda_ditolak(db):
+    """Klik ganda / dua apoteker: permintaan kedua melihat salinan permintaan pertama."""
+    k, asal = _tebus_setup(db, "PENDING")
+    assert "sedang/sudah ditebus" in _pagar_tebus(db, KunjunganResep, asal.id_resep, k.id_pasien)
+
+
+def test_tebus_racikan_pasien_lain_ditolak(db):
+    from app.db.models.racikan import KunjunganRacikan
+    staf, k = _siapkan(db, "COMPLETED")
+    _, k_lain = _siapkan(db, "COMPLETED")
+    rc = KunjunganRacikan(id_kunjungan=k.id_kunjungan, nama_snapshot="ZZ Racik",
+                          jenis_racik="PUYER", jumlah_unit=10, status_item="PENDING")
+    db.add(rc); db.flush()
+    assert "bukan resep pasien ini" in _pagar_tebus(db, KunjunganRacikan, rc.id_kunjungan_racikan,
+                                                     k_lain.id_pasien)
+
+
+def test_route_tebus_memanggil_pagar_untuk_resep_dan_racikan():
+    """Test di atas menguji PAGARNYA; ini menjaga route tetap memanggilnya (uji lewat route
+    sungguhan akan commit ke DB dev). Lemah tapi jujur: menangkap pagar yang dicabut."""
+    import inspect
+    from app.web.routes import apotek
+    src = inspect.getsource(apotek.apotek_tebus_resep_simpan)
+    assert src.count("_asal_tebus_atau_tolak(") == 2
+    assert "db.get(KunjunganResep, _rid)" not in src

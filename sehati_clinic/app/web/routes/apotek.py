@@ -196,6 +196,35 @@ async def apotek_tebus_pasien_baru(request: Request, db: DbSession):
         status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _asal_tebus_atau_tolak(db, model, id_baris: int, id_pasien: int):
+    """Baris resep/racikan LAMA yang boleh ditebus (DIKUNCI), None bila tak ada, atau
+    TEKS alasan penolakan — Audit T2-8. Definisi "sudah ditebus" = app/services/_tebus.py."""
+    from sqlalchemy import select
+    from app.db.models import Kunjungan, KunjunganResep
+    from app.services._tebus import racikan_sudah_ditebus, resep_sudah_ditebus
+    pk = model.id_resep if model is KunjunganResep else model.id_kunjungan_racikan
+    baris = db.execute(select(model).where(pk == id_baris).with_for_update()).scalar_one_or_none()
+    if baris is None:
+        return None
+    if model is KunjunganResep:
+        from app.db.models import MasterProduk
+        _p = db.get(MasterProduk, baris.id_produk)
+        nama = _p.nama_produk if _p else f"resep #{id_baris}"
+        asal_kol, sudah = baris.id_resep_asal, resep_sudah_ditebus(db, id_baris)
+    else:
+        nama = baris.nama_snapshot or f"racikan #{id_baris}"
+        asal_kol, sudah = baris.id_kunjungan_racikan_asal, racikan_sudah_ditebus(db, id_baris)
+    st = getattr(baris.status_item, "value", baris.status_item)
+    kj = db.get(Kunjungan, baris.id_kunjungan)
+    if kj is None or kj.id_pasien != id_pasien:
+        return f"{nama}: bukan resep pasien ini — tidak ditebus."
+    if st not in ("PENDING", "DITUNDA") or asal_kol is not None:
+        return f"{nama}: sudah {st} — tidak bisa ditebus lagi. Muat ulang halaman."
+    if sudah:
+        return f"{nama}: sedang/sudah ditebus di kunjungan lain. Muat ulang halaman."
+    return baris
+
+
 @router.post("/apotek/tebus-resep/simpan", response_class=HTMLResponse)
 async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
     user = get_user_from_cookie(request, db)
@@ -227,7 +256,15 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
                 _rid = int(str(raw).strip())
             except (TypeError, ValueError):
                 continue
-            asal = db.get(KunjunganResep, _rid)
+            # Audit T2-8 (2026-10-13): dulu baris disalin TANPA pemeriksaan apa pun (racikan
+            # sudah diperiksa) — klik ganda / dua apoteker = tebus ganda; halaman basi bisa
+            # menyalin resep yang sudah DIBAYAR; form palsu bisa menyalin resep pasien lain.
+            # Baris DIKUNCI: permintaan kedua menunggu yang pertama commit, lalu melihat
+            # salinannya dan ditolak.
+            asal = _asal_tebus_atau_tolak(db, KunjunganResep, _rid, id_pasien)
+            if isinstance(asal, str):
+                return RedirectResponse(url=f"{_kembali}&err={quote(asal)}",
+                                        status_code=status.HTTP_303_SEE_OTHER)
             if asal is None:
                 continue
             produk_list.append({
@@ -239,11 +276,18 @@ async def apotek_tebus_resep_simpan(request: Request, db: DbSession):
         # R8: racikan lama yang dicentang. Disalin SETELAH kunjungan dibuat (butuh
         # id_kunjungan baru), tapi id kunjungan asal diambil sekarang supaya penebusan
         # yang HANYA berisi racikan tetap tertaut ke kunjungan aslinya.
+        from app.db.models.racikan import KunjunganRacikan as _KRCt
         for raw in f.getlist("id_racikan_asal"):
             try:
-                _racik_asal_ids.append(int(str(raw).strip()))
+                _id_rc = int(str(raw).strip())
             except (TypeError, ValueError):
                 continue
+            _rc = _asal_tebus_atau_tolak(db, _KRCt, _id_rc, id_pasien)   # Audit T2-8
+            if isinstance(_rc, str):
+                return RedirectResponse(url=f"{_kembali}&err={quote(_rc)}",
+                                        status_code=status.HTTP_303_SEE_OTHER)
+            if _rc is not None:
+                _racik_asal_ids.append(_id_rc)
         if _racik_asal_ids and id_kunjungan_asal is None:
             from app.db.models.racikan import KunjunganRacikan as _KRC0
             _rc0 = db.get(_KRC0, _racik_asal_ids[0])

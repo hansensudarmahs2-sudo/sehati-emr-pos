@@ -143,7 +143,7 @@ Contoh: series 6× dibatalkan sebelum bayar → 5 sesi tetap tersedia gratis.
 ditunda / di-void / dibatalkan membuat resep & racikan asli **hilang permanen** dari daftar
 tebus (`apotek_service` `sudah_ditebus = exists(...)`). Satu kolom, dua arti (§4.1).
 
-**T2-8 🟠 Tebus resep tanpa validasi** (racikan memvalidasi): baris resep lama disalin
+**T2-8 ✅ DIPERBAIKI 2026-10-13 — Tebus resep tanpa validasi** (racikan memvalidasi): baris resep lama disalin
 tanpa cek status, salinan yang sudah ada, atau pemilik → klik ganda / dua apoteker = tebus
 ganda; halaman basi bisa menyalin resep yang sudah DIBAYAR.
 
@@ -235,6 +235,16 @@ SATU definisi di `app/services/_tebus.py`: sudah ditebus = ada salinan yang MASI
 resep, daftar tebus racikan, dan penyalin racikan (dulu tiga potongan kode, tiga definisi
 "salinan apa pun"). Salinan PENDING tetap menyembunyikan aslinya — mencegah tebus ganda.
 Uji: 8 test (6 status salinan resep + 2 racikan); dua arah — 2 suntikan tertangkap.
+
+### Perbaikan T2-8
+
+`apotek._asal_tebus_atau_tolak` dipanggil untuk setiap baris resep DAN racikan lama yang
+dicentang: baris DIKUNCI (permintaan kedua menunggu, lalu melihat salinan pertama), harus
+milik pasien yang dilayani, PENDING/DITUNDA, bukan salinan, belum ditebus (definisi T2-7).
+Satu baris gagal → seluruh permintaan ditolak dengan nama obatnya (bukan dilewati diam-diam).
+Uji: 6 test; dua arah — 3 suntikan tertangkap. ⚠ Test menguji PAGARNYA, bukan route lewat
+HTTP (akan commit ke DB dev); pengaman pengganti = test yang memastikan route memanggilnya
+dua kali. U60 di daftar uji layar.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

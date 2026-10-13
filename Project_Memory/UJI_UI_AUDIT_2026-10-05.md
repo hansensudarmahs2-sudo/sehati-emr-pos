@@ -141,6 +141,7 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | U57 | Audit T2-2: satu kunjungan, bayar obat A → (belum diserahkan) dokter tambah obat B → bayar susulan → **void transaksi kedua** | Hanya obat B batal; obat A tetap di antrian apotek dan bisa diserahkan | — | 🤖 diuji otomatis 13/10 |
 | U58 | Audit T2-5: Batal antrian untuk kunjungan yang (a) sudah dibayar, (b) tindakannya sudah selesai | (a) ditolak "…sudah DIBAYAR … Batalkan lewat VOID"; (b) ditolak "…SUDAH SELESAI … Tagih lewat kasir" | — | 🤖 diuji otomatis 13/10 |
 | U59 | Audit T2-5: pasien VIP berkuota → dokter tulis SOAP (kuota terpakai) → FO Batal antrian sebelum ditindak | Sisa kuota di halaman Membership kembali seperti sebelum SOAP | — | 🤖 diuji otomatis 13/10 |
+| U60 | Audit T2-7/T2-8: Apotek → Tebus Resep pasien dengan resep lama → centang → **klik Simpan dua kali cepat** (atau dua tab) | Hanya SATU kunjungan tebus terbentuk; yang kedua ditolak "…sedang/sudah ditebus…". Lalu di kasir "Sisakan" seluruh item tebus itu → resep lama MUNCUL LAGI di daftar tebus (dulu hilang selamanya) | — | 🤖 diuji otomatis (pagar) 13/10 — route lewat layar belum |
 
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 
