@@ -268,3 +268,32 @@ def test_route_faktur_menghitung_ulang_bila_ada_item_gagal():
     blok = src[src.index('ok = f"{n_ok} item diterima'):]
     blok = blok[:blok.index("return RedirectResponse")]
     assert "if errors:" in blok and "hitung_ulang_faktur(" in blok and "db.commit()" in blok
+
+
+# ---------------------------------------------------------------- T3-5
+# Opname disetujui SESUDAH lot habis dipakai serah: selisih positif ditambahkan ke lot
+# tapi status tetap HABIS → cache & FEFO (hanya AKTIF) tak melihatnya: stok tak terlihat.
+def _opname_lot(db, staf, p, lot, qty_fisik):
+    from app.db.models._enums import LokasiOpnameEnum
+    from app.schemas.pengadaan import StockOpnameCreateRequest, StockOpnameItemInput
+    from app.services.opname_service import OpnameService
+    return OpnameService(db).create_opname(
+        payload=StockOpnameCreateRequest(
+            lokasi=LokasiOpnameEnum.RETAIL, catatan="uji T3-5",
+            items=[StockOpnameItemInput(tipe_item="PRODUK", id_produk=p.id_produk,
+                                        id_lot=lot.id_lot, qty_fisik=qty_fisik)]),
+        actor=staf)
+
+
+def test_opname_menghidupkan_lot_yang_habis(db):
+    from app.db.models._enums import StafRoleEnum
+    from app.services.opname_service import OpnameService
+    staf, _k = _siapkan(db)
+    staf.role = StafRoleEnum.SUPERADMIN; db.flush()
+    p, lot = _produk_dengan_lot(db, qty_lot=5)
+    op = _opname_lot(db, staf, p, lot, 7)                    # potret 5, fisik 7 → +2
+    lot.qty_sisa = 0; lot.status = "HABIS"; p.stok_terkini = 0; db.flush()   # serah sesudah draf
+    OpnameService(db).approve(op.id_opname, actor=staf)
+    db.refresh(lot); db.refresh(p)
+    assert (lot.status, float(lot.qty_sisa)) == ("AKTIF", 2.0)          # dulu HABIS / 2
+    assert float(p.stok_terkini) == 2.0                                   # dulu 0 — tak terlihat

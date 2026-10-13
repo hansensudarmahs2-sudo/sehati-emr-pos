@@ -368,9 +368,12 @@ total baru & bahwa total tagihan distributor yang diisi tidak dipakai. Semua ite
 perilaku lama (termasuk extra_diskon dari total distributor). Uji: 2 test; suntikan "hitung
 dari qty pesanan" sempat LOLOS (item diterima penuh) → test diubah ke penerimaan sebagian.
 
-**T3-5 Opname: lot HABIS mendapat stok tapi tetap HABIS → stok tak terlihat.** Selisih positif
+**T3-5 ✅ DIPERBAIKI 2026-10-13 — Opname: lot HABIS mendapat stok tapi tetap HABIS → stok tak terlihat.** Selisih positif
 ditambahkan ke lot yang sudah HABIS (dipakai serah sesudah draf dibuat) tanpa mengaktifkannya;
 cache & FEFO hanya membaca lot AKTIF. Void & retur pasien mengaktifkan ulang; opname tidak.
+ Perbaikan:
+selisih positif ke lot HABIS → lot diaktifkan kembali (sejajar void & retur pasien). Test
+ditulis DULU, GAGAL di kode lama (HABIS / 2 unit, cache 0); kini AKTIF / 2, cache 2.
 
 **T3-6 Buku mutasi stok (`inventory_history`) hanya mencatat barang MASUK.** Serah obat
 (PENJUALAN), write-off (EXPIRED/RUSAK), pengembalian void, obat pengganti TUKAR, dan stok awal

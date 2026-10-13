@@ -241,6 +241,12 @@ class OpnameService:
                         if lot.qty_sisa <= 1e-6:
                             lot.qty_sisa = 0
                             lot.status = "HABIS"
+                        elif lot.status == "HABIS":
+                            # Audit T3-5 (2026-10-13): lot habis dipakai serah SESUDAH draf
+                            # dibuat lalu mendapat selisih positif → dulu tetap HABIS, padahal
+                            # cache & FEFO hanya membaca AKTIF: stok ada tapi tak terlihat dan
+                            # tak pernah diserahkan. Void & retur pasien sudah mengaktifkan ulang.
+                            lot.status = "AKTIF"
                     else:
                         # "batch baru ditemukan": hanya buat lot kalau fisik (selisih) > 0
                         if selisih <= 1e-6:
