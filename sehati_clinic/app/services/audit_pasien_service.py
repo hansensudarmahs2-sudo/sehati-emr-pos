@@ -72,6 +72,13 @@ TABEL_DIKECUALIKAN: dict[str, str] = {
         "saat penggabungan — kalau dibiarkan, pasangan yang sudah digabung bisa "
         "muncul kembali sebagai kandidat duplikat."
     ),
+    "pasien_pseudonim": (
+        "pid paket klinis per id_pasien, SENGAJA tidak dipindah: pid tidak pernah "
+        "diubah (pid berubah = riwayat longitudinal di data_analyst terputus tanpa "
+        "gejala). Duplikat dipetakan ke pasien yang bertahan saat EKSPOR lewat "
+        "digabung_ke_id_pasien — ClinicalExportService._peta_gabung. Memindahkan "
+        "barisnya justru merusak: yang bertahan bisa mendapat pid duplikat."
+    ),
 }
 
 # Ambang kemiripan nama (0..1). 0.85 menangkap typo 1-2 huruf pada nama biasa
@@ -718,6 +725,16 @@ class AuditPasienService:
             "SELECT id_transaksi FROM transaksi_kasir WHERE id_pasien = :i "
             "ORDER BY id_transaksi"), {"i": id_duplikat}).all()]
 
+        # Salinan tier (`pasien.tipe_membership`) — Audit T1-B, keputusan dr. Hansen
+        # 2026-10-13. Diskon kasir membaca RIWAYAT membership (ikut pindah di bawah),
+        # tapi gerbang booking & lencana layar membaca SALINAN ini. Dulu salinannya
+        # tertinggal: duplikat nonaktif tetap "VIP" (muncul di booking), yang bertahan
+        # tetap "REGULAR" (ditolak booking). Dibaca SEBELUM riwayatnya dipindah.
+        dup_punya_membership = bool(self.db.execute(text(
+            "SELECT COUNT(*) FROM pasien_membership_history "
+            "WHERE id_pasien = :i AND is_active = 1"), {"i": id_duplikat}).scalar())
+        tier_dup_lama, tier_srv_lama = dup.tipe_membership, srv.tipe_membership
+
         try:
             dipindah: dict[str, int] = {}
             for tabel, _label in TABEL_PINDAH:
@@ -751,6 +768,12 @@ class AuditPasienService:
             # No. RM Omnicare PINDAH ke yang bertahan (pagar sudah menolak bila keduanya
             # punya). Duplikat dikosongkan & di-flush DULU — kalau tidak, dua baris
             # memegang nomor yang sama sesaat dan unique index menolak.
+            # Pagar membership ganda menjamin yang bertahan TIDAK punya membership aktif
+            # bila duplikat punya — jadi salinan tier duplikat aman dipindahkan.
+            if dup_punya_membership:
+                srv.tipe_membership = tier_dup_lama
+            dup.tipe_membership = "REGULAR"
+
             omni_pindah = None
             if dup.no_rm_omnicare and not srv.no_rm_omnicare:
                 omni_pindah = dup.no_rm_omnicare
@@ -790,6 +813,8 @@ class AuditPasienService:
                     "id_transaksi_pindah": id_trx,
                     "no_nota_pindah": nota,
                     "no_rm_omnicare_pindah": omni_pindah,
+                    "tier_duplikat": f"{tier_dup_lama} -> REGULAR",
+                    "tier_bertahan": f"{tier_srv_lama} -> {srv.tipe_membership}",
                     "alasan": dup.nonaktif_alasan,
                     "satu_arah": True,
                 },

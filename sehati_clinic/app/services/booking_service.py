@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.db.models import JadwalBooking, MasterStaf, Pasien
 from app.db.models._enums import MembershipTierEnum, StatusBookingEnum
 from app.services.audit_service import AuditService
+from app.services._pasien_aktif import pastikan_pasien_aktif
 
 # Tier yang boleh booking (TERKUNCI: VIP + VVIP)
 MEMBERSHIP_TIERS = {"VIP", "VVIP"}
@@ -60,6 +61,9 @@ class BookingService:
         pasien = self.db.get(Pasien, id_pasien)
         if pasien is None:
             raise HTTPException(404, f"Pasien {id_pasien} tidak ditemukan.")
+        # Audit T1-B: dulu pasien yang sudah DIGABUNG (salinan tier-nya masih VIP) lolos
+        # gerbang ini, dan check-in membuat kunjungan di ID duplikat.
+        pastikan_pasien_aktif(self.db, pasien)
         if _tier_of(pasien) not in MEMBERSHIP_TIERS:
             raise HTTPException(
                 400,
@@ -117,6 +121,7 @@ class BookingService:
         rows = self.db.execute(
             select(Pasien)
             .where(Pasien.tipe_membership.in_([MembershipTierEnum.VIP, MembershipTierEnum.VVIP]))
+            .where(Pasien.is_active.is_(True))   # Audit T1-B: duplikat yang digabung
             .order_by(Pasien.nama)
         ).scalars().all()
         return [

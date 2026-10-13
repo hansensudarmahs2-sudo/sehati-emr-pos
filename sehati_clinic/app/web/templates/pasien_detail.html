@@ -12,6 +12,18 @@
         <span class="text-slate-700">{{ pasien.nama }}</span>
     </div>
 
+    {# Audit T1-B (2026-10-13): pasien NONAKTIF dulu tampil persis seperti pasien biasa
+       (halaman ini bisa dibuka dari halaman audit). Kunjungan/booking baru untuknya kini
+       ditolak di server (_pasien_aktif.py); pita ini memberi tahu SEBELUM petugas mencoba. #}
+    {% if pasien.is_active == false %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+        ⚠ Pasien ini <b>NONAKTIF</b>{% if pasien_bertahan %} — sudah digabung ke
+        <a href="/web/pasien/{{ pasien_bertahan.id_pasien }}" class="underline font-semibold">{{ pasien_bertahan.nama }} ({{ pasien_bertahan.no_rm }})</a>.
+        Riwayat & kunjungan baru ada di sana{% endif %}.
+        Kunjungan, booking, dan transaksi baru tidak bisa dibuat untuk pasien ini.
+    </div>
+    {% endif %}
+
     {# Header card — identitas #}
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
         <div class="flex items-start justify-between">

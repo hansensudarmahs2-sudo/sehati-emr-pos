@@ -148,6 +148,17 @@ def pasien_search_partial(
             "dokter_list": get_dokter_aktif_list(db),
         },
     )
+def _pasien_bertahan(db, id_pasien: int):
+    """Pasien tujuan penggabungan untuk pasien NONAKTIF ini (None bila aktif / tidak
+    digabung). Hanya identitas ringkas untuk pita peringatan di halaman detail."""
+    from app.db.models import Pasien as _P
+    p = db.get(_P, id_pasien)
+    if p is None or p.is_active or not p.digabung_ke_id_pasien:
+        return None
+    t = db.get(_P, p.digabung_ke_id_pasien)
+    return {"id_pasien": t.id_pasien, "no_rm": t.no_rm, "nama": t.nama} if t else None
+
+
 # =============================================================================
 # GET /web/pasien/{id}/omnicare — data polos untuk disalin ke Omnicare
 # =============================================================================
@@ -343,6 +354,9 @@ def pasien_detail_page(
         db=db,
         current_path="/web/pasien",
         pasien=pasien_dict,
+        # Audit T1-B: pasien NONAKTIF dulu tampil persis seperti pasien biasa. Bila hasil
+        # penggabungan, tampilkan pasien yang BERTAHAN supaya petugas pindah ke sana.
+        pasien_bertahan=_pasien_bertahan(db, id_pasien),
         rm_tertinggi=PasienService(db).rm_omnicare_tertinggi(),
         antropometri=antropometri,
         antro_laporan=AntroReportService().laporan_by_rm(pasien_dict.get("no_rm")),

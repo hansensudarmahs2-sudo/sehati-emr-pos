@@ -126,6 +126,9 @@ class PasienResponse(BaseModel):
     status_verifikasi: Optional[VerifikasiEnum] = None
     tgl_verifikasi: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    # Audit T1-B: halaman detail perlu tahu pasien NONAKTIF (hasil penggabungan) —
+    # tanpa field ini pasien nonaktif tampil persis seperti pasien biasa.
+    is_active: Optional[bool] = None
 
 
 class PasienDetailResponse(PasienResponse):

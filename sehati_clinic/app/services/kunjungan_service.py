@@ -29,6 +29,7 @@ from app.schemas.kunjungan import (
     KunjunganLamaRequest,
 )
 from app.services.audit_service import AuditService
+from app.services._pasien_aktif import pastikan_pasien_aktif
 
 
 # =============================================================================
@@ -72,6 +73,8 @@ class KunjunganService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Pasien dengan ID {payload.id_pasien} tidak ditemukan.",
             )
+        # Audit T1-B: pasien yang sudah digabung tak boleh mendapat kunjungan baru.
+        pastikan_pasien_aktif(self.db, pasien)
 
         # 1b. Guard duplicate — pasien sama tidak boleh diantrikan 2x hari ini
         existing = self.kunjungan_repo.get_active_kunjungan_today(payload.id_pasien)
@@ -472,6 +475,7 @@ class KunjunganService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Pasien dengan ID {id_pasien} tidak ditemukan.",
             )
+        pastikan_pasien_aktif(self.db, pasien)   # Audit T1-B
 
         _JENIS_TEBUS = {"RESEP_LUAR", "RESEP_ONLINE", "TEBUS_LANJUT"}
         jenis_kunjungan = (jenis_kunjungan or "KLINIS").upper()
