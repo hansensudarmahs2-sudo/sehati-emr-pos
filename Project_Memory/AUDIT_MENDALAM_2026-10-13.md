@@ -147,7 +147,7 @@ tebus (`apotek_service` `sudah_ditebus = exists(...)`). Satu kolom, dua arti (§
 tanpa cek status, salinan yang sudah ada, atau pemilik → klik ganda / dua apoteker = tebus
 ganda; halaman basi bisa menyalin resep yang sudah DIBAYAR.
 
-**T2-9 🟠 Halaman SOAP basi menggandakan racikan yang sudah dibayar/ditunda.** Kartu ber-id
+**T2-9 ✅ DIPERBAIKI 2026-10-13 — Halaman SOAP basi menggandakan racikan yang sudah dibayar/ditunda.** Kartu ber-id
 racikan non-PENDING diperlakukan sebagai kartu BARU → baris PENDING kembar, ditagih lagi
 sebagai susulan (`racikan_service` "perlakukan sebagai kartu baru").
 
@@ -245,6 +245,14 @@ Satu baris gagal → seluruh permintaan ditolak dengan nama obatnya (bukan dilew
 Uji: 6 test; dua arah — 3 suntikan tertangkap. ⚠ Test menguji PAGARNYA, bukan route lewat
 HTTP (akan commit ke DB dev); pengaman pengganti = test yang memastikan route memanggilnya
 dua kali. U60 di daftar uji layar.
+
+### Perbaikan T2-9
+
+`save_kunjungan_racikan`: kartu ber-id racikan KUNJUNGAN INI yang sudah tidak PENDING →
+DILEWATI dan dilaporkan (`sudah_diproses`); route dokter menambahkan pesan "Racikan X sudah
+dibayar/ditunda sejak halaman ini dibuka — TIDAK diubah dan TIDAK dibuat ulang" ke
+pemberitahuan yang sudah ada. Kartu ber-id milik kunjungan LAIN tetap = kartu baru (perilaku
+lama). Uji: 2 test (DIBAYAR, DITUNDA); suntikan perilaku lama tertangkap; cek_soap_basi 11/11.
 
 ### Kandidat — belum dibuktikan
 - Series treatment sama dua kali di satu kunjungan → sesi 1 menagih jumlah gabungan.

@@ -849,6 +849,13 @@ async def dokter_soap_form_submit(id_kunjungan: int, request: Request, db: DbSes
                 id_kunjungan, _racik_selamat, _dx_selamat)
         else:
             _pesan_racik_selamat = None
+        # Audit T2-9: kartu basi untuk racikan yang sudah dibayar/ditunda DILEWATI — dokter
+        # perlu tahu kenapa perubahannya pada racikan itu tidak tersimpan.
+        _sudah_proses = list(_hasil_racik.get("sudah_diproses") or [])
+        if _sudah_proses:
+            _pesan_racik_selamat = ((_pesan_racik_selamat + " ") if _pesan_racik_selamat else "") + (
+                f"Racikan {', '.join(_sudah_proses)} sudah dibayar/ditunda sejak halaman ini "
+                f"dibuka — TIDAK diubah dan TIDAK dibuat ulang.")
         # Auto-fill tgl kontrol dari diagnosa primer bila dokter tidak mengisi manual
         if _tgl_kontrol is None and _primary_kontrol:
             from datetime import timedelta as _td

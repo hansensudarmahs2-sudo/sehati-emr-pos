@@ -507,3 +507,33 @@ def test_route_tebus_memanggil_pagar_untuk_resep_dan_racikan():
     src = inspect.getsource(apotek.apotek_tebus_resep_simpan)
     assert src.count("_asal_tebus_atau_tolak(") == 2
     assert "db.get(KunjunganResep, _rid)" not in src
+
+
+# ---------------------------------------------------------------- T2-9
+# Halaman SOAP basi: kartu ber-id racikan yang SUDAH dibayar/ditunda dulu dianggap kartu
+# BARU → racikan PENDING kembar → ditagih lagi sebagai susulan.
+def _kartu_racik(id_kr, pid, nama="ZZ Racik Basi"):
+    return {"id_kunjungan_racikan": id_kr, "id_racikan": None, "nama": nama,
+            "jenis_racik": "KAPSUL", "jumlah_unit": 10, "aturan_pakai": "uji",
+            "bahan": [{"id_produk": pid, "dosis": 10, "satuan": "mg"}]}
+
+
+@pytest.mark.parametrize("status_sekarang", ["DIBAYAR", "DITUNDA"])
+def test_kartu_basi_racikan_yang_sudah_diproses_dilewati(db, status_sekarang):
+    from app.db.models.racikan import KunjunganRacikan
+    from app.services.racikan_service import RacikanService
+    pid = db.execute(text("SELECT id_produk FROM master_produk WHERE is_active=1 AND harga_jual>0 "
+                          "AND kekuatan_nilai IS NOT NULL LIMIT 1")).scalar()
+    staf, k = _siapkan(db, "ANTRI_OBAT")
+    svc = RacikanService(db)
+    svc.save_kunjungan_racikan(k.id_kunjungan, [_kartu_racik(None, pid)], loaded_ids=[])
+    rc = db.execute(select(KunjunganRacikan).where(KunjunganRacikan.id_kunjungan == k.id_kunjungan)
+                    ).scalar_one()
+    loaded = [rc.id_kunjungan_racikan]                     # halaman dimuat saat masih PENDING
+    rc.status_item = status_sekarang; db.flush()           # lalu kasir membayar / menunda
+    hasil = svc.save_kunjungan_racikan(k.id_kunjungan, [_kartu_racik(rc.id_kunjungan_racikan, pid)],
+                                       loaded_ids=loaded)  # dokter menyimpan halaman basi
+    n = db.execute(select(KunjunganRacikan).where(KunjunganRacikan.id_kunjungan == k.id_kunjungan)
+                   ).scalars().all()
+    assert len(n) == 1                                    # dulu: lahir baris PENDING kembar
+    assert hasil["sudah_diproses"] == ["ZZ Racik Basi"] and hasil["baru"] == 0

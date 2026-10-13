@@ -494,6 +494,7 @@ class RacikanService:
             self.db.flush()
 
         n_baru = n_ubah = 0
+        sudah_diproses = []   # Audit T2-9: kartu basi untuk racikan yang sudah dibayar/ditunda
         for r in racikan_list:
             bahan = r.get("bahan") or []
             if not bahan:
@@ -516,9 +517,17 @@ class RacikanService:
             if _id_lama:
                 head = self.db.get(KunjunganRacikan, int(_id_lama))
                 # Jangan percaya id dari form begitu saja: ia harus milik kunjungan ini
-                # DAN masih PENDING. Kalau tidak, perlakukan sebagai kartu baru.
-                if head is not None and (head.id_kunjungan != id_kunjungan
-                                         or head.status_item != "PENDING"):
+                # DAN masih PENDING. Milik kunjungan lain → kartu baru; milik kunjungan ini
+                # tapi sudah tidak PENDING → DILEWATI (Audit T2-9, di bawah).
+                # Audit T2-9 (2026-10-13): kartu ber-id racikan KUNJUNGAN INI yang sudah
+                # tidak PENDING (dibayar / ditunda / batal sejak halaman dimuat) → LEWATI.
+                # Dulu diperlakukan sebagai kartu BARU → baris PENDING kembar → ditagih
+                # LAGI sebagai susulan (atau menagih yang baru saja ditolak pasien).
+                if (head is not None and head.id_kunjungan == id_kunjungan
+                        and head.status_item != "PENDING"):
+                    sudah_diproses.append(head.nama_snapshot or f"racikan #{head.id_kunjungan_racikan}")
+                    continue
+                if head is not None and head.id_kunjungan != id_kunjungan:
                     head = None
 
             if head is not None:
@@ -571,7 +580,7 @@ class RacikanService:
                 ))
         self.db.flush()
         return {"baru": n_baru, "diubah": n_ubah, "dihapus": len(old_ids),
-                "dipertahankan": dipertahankan}
+                "dipertahankan": dipertahankan, "sudah_diproses": sudah_diproses}
 
     def pecah_racikan(self, id_kunjungan_racikan: int, unit_ditunda: int) -> dict:
         """R8 — pecah satu racikan PENDING jadi dua batch: yang ditagih & yang ditunda.
