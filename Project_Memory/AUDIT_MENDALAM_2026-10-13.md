@@ -577,11 +577,16 @@ perpanjangan yang sama → dengan perbaikan yang kedua DITOLAK; kode lama → **
 berhasil**. ⚠ Tier VIP di dev tak punya benefit kuota paket, jadi baris kuota dobel tidak
 terlihat di data dev; yang terbukti aktivasi gandanya.
 
-**T4-10 Diskon member produk berlaku untuk SEMUA produk.** `06_business_logic.md:77,146`:
+**T4-10 ✅ DISELARASKAN 2026-10-16 (keputusan: semua produk) — Diskon member produk berlaku untuk SEMUA produk.** `06_business_logic.md:77,146`:
 hanya `eligible_member_discount=1`. `get_tagihan` (:570) mengenakan persen ke seluruh
 subtotal produk; satu-satunya pembaca tanda itu = harga pengganti TUKAR (`retur_pasien_service:170`).
 DB dev: 80 produk aktif bertanda berhak, 267 tidak. Akibat lain: tukar produk tak berhak dengan
 produk yang SAMA membuat pasien membayar "selisih". ⚠ Butuh keputusan (mengubah harga 267 produk).
+ Keputusan dr. Hansen 2026-10-16: diskon untuk SEMUA produk — kasir TIDAK diubah. Yang
+diselaraskan: harga pengganti TUKAR (`_harga_pengganti`) kini mendiskon semua produk;
+`06_business_logic.md` (2 tempat) diperbarui; kolom `eligible_member_discount` diberi komentar
+"tidak dipakai untuk harga" (tetap ada, tanpa migrasi; tidak tampil di layar mana pun).
+Uji: test produk tak bertanda ditukar oleh member 10% → diskon 10.000 (GAGAL di kode lama: 0).
 
 **T4-11 Harga sesi 1 series menghitung SEMUA rencana dengan kunci (pasien, treatment,
 kunjungan pembuat)** (`_compute_charge` :319), tanpa status/kelompok. Series kedua untuk

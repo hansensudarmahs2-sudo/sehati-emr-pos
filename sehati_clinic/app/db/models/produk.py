@@ -68,6 +68,9 @@ class MasterProduk(Base):
     default_iterasi: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
+    # ⚠ TIDAK DIPAKAI untuk harga sejak 2026-10-16 (Audit T4-10, keputusan dr. Hansen):
+    # diskon member produk berlaku untuk SEMUA produk. Kolom dipertahankan (tanpa migrasi);
+    # jangan membacanya untuk menghitung harga — kasir tidak pernah membacanya.
     eligible_member_discount: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0", nullable=False
     )

@@ -392,3 +392,23 @@ def test_bayar_membership_membaca_berkunci(db):
     i_commit, i_kunci = _urutan(q, lambda x: x == "<<COMMIT>>",
                                 lambda x: "FROM pasien_membership_history" in x and "FOR UPDATE" in x)
     assert i_commit < i_kunci
+
+
+# ---------------------------------------------------------------- T4-10
+# Keputusan dr. Hansen 2026-10-16: diskon member produk berlaku untuk SEMUA produk (perilaku
+# kasir). Satu-satunya pembaca tanda `eligible_member_discount` = harga pengganti TUKAR — dulu
+# produk tak bertanda tidak didiskon saat ditukar, sehingga menukar dengan produk yang SAMA
+# membuat pasien member membayar "selisih" sebesar diskonnya.
+def test_harga_pengganti_tukar_diskon_semua_produk(db, monkeypatch):
+    from decimal import Decimal as D
+    from app.services.membership_service import DiskonMembership, MembershipService
+    from app.services.retur_pasien_service import ReturPasienService
+    from tests.integration.test_retur_pasien import _setup
+    d = _setup(db)
+    assert d["produk"].eligible_member_discount is False          # produk TIDAK bertanda
+    monkeypatch.setattr(MembershipService, "get_diskon_for_pasien",
+                        lambda self, id_pasien: DiskonMembership(D("0"), D("10"), "VIP", True))
+    rows, total = ReturPasienService(db)._harga_pengganti(
+        d["trx"], [{"id_produk": d["produk"].id_produk, "qty": 1}])
+    (_p, _q, harga, sub, disk), = rows
+    assert (sub, disk, total) == (D("100000.00"), D("10000.00"), D("90000.00"))  # dulu diskon 0

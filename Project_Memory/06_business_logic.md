@@ -74,7 +74,9 @@ Kasir hitung tagihan → terima pembayaran
 - 1× Basic Treatment per bulan (kuota BULANAN — hangus kalau tidak dipakai)
 - 2× Laser Pico per 12 bulan total (kuota TOTAL_PAKET)
 - 10% diskon treatment (hardcoded di kode lama, sekarang di `master_membership.diskon_treatment_persen`)
-- 3% diskon produk **HANYA untuk produk dengan `eligible_member_discount=1`**
+- 3% diskon produk untuk **SEMUA produk** (keputusan dr. Hansen 2026-10-16, Audit T4-10 —
+  dulu tertulis "hanya `eligible_member_discount=1`", tapi kasir tidak pernah membaca tanda itu;
+  kini resmi semua produk, kolomnya tidak dipakai untuk harga)
 
 **Aturan Kuota:**
 - **Bulanan:** Tidak terpakai bulan ini = HANGUS. Tidak akumulasi.
@@ -143,7 +145,9 @@ Kasir hitung tagihan → terima pembayaran
 
 **Diskon membership:**
 - Untuk treatment: % dari subtotal treatment (sesuai `master_membership.diskon_treatment_persen`)
-- Untuk produk: % dari subtotal produk **HANYA** untuk produk `eligible_member_discount=1`
+- Untuk produk: % dari subtotal produk — **SEMUA produk** (Audit T4-10, 2026-10-16). Racikan
+  memakai persen produk yang sama (keputusan 2026-09-21). Harga pengganti retur TUKAR ikut aturan
+  yang sama.
 - Kuota member free → harga tindakan = 0 (gratis), tidak masuk diskon
 
 **Bulletproof double-charge prevention:**

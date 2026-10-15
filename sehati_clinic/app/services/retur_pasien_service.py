@@ -149,8 +149,8 @@ class ReturPasienService:
         """[(produk, qty, harga_satuan, subtotal, diskon_item)], total bersih Y.
 
         Harga jual HARI INI dengan diskon member yang sama seperti pembelian biasa
-        (persen_produk tier aktif, hanya produk eligible) — pasien member tidak dirugikan
-        saat menukar.
+        (persen_produk tier aktif, SEMUA produk — sama dengan kasir) — pasien member tidak
+        dirugikan saat menukar.
         """
         from app.db.models import Kunjungan
         id_pasien = trx.id_pasien
@@ -170,8 +170,11 @@ class ReturPasienService:
                 raise HTTPException(400, f"Qty pengganti {produk.nama_produk} harus > 0.")
             harga = _d(produk.harga_jual)
             sub = (harga * q).quantize(Decimal("0.01"))
-            disk = ((sub * persen / 100).quantize(Decimal("0.01"))
-                    if produk.eligible_member_discount else Decimal("0"))
+            # Audit T4-10 (keputusan dr. Hansen 2026-10-16): diskon member produk untuk SEMUA
+            # produk, persis kasir (`get_tagihan`). Dulu hanya produk `eligible_member_discount`
+            # — dua aturan untuk uang yang sama: menukar produk tak bertanda dengan produk yang
+            # SAMA membuat pasien member membayar "selisih" sebesar diskonnya.
+            disk = (sub * persen / 100).quantize(Decimal("0.01"))
             rows.append((produk, q, harga, sub, disk))
             total += sub - disk
         if total <= 0:
