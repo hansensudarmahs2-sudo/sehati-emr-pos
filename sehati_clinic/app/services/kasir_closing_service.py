@@ -33,7 +33,8 @@ from app.services.audit_service import AuditService
 
 
 # Urutan kanonik untuk tampilan + agregasi
-METODE_KANONIK = ["TUNAI", "QRIS", "DEBIT", "KREDIT", "TRANSFER"]
+# Satu daftar untuk bayar, refund, dan laci (Audit T4-8) — jangan menyalin daftarnya.
+from app.core.metode_bayar import METODE_KANONIK  # noqa: E402
 
 
 class KasirClosingService:

@@ -481,8 +481,18 @@ class ReturPasienService:
             pengganti = [p for p in (pengganti or []) if p]
             if not pengganti:
                 raise HTTPException(400, "Retur TUKAR butuh minimal satu produk pengganti.")
-            if (metode_refund or "TUNAI").upper() == "TUKAR":
-                raise HTTPException(400, "Pilih metode bayar selisih yang nyata (TUNAI/QRIS/...).")
+        # Audit T4-8 (2026-10-16): metode uang keluar (REFUND) / metode bayar selisih (TUKAR)
+        # harus dari daftar yang dihitung tutup kasir. Dulu hanya `TUKAR` yang ditolak, dan
+        # hanya pada jenis TUKAR: retur REFUND ber-metode `TUKAR` lolos → omzet berkurang,
+        # laci tidak. `TUKAR` sebagai metode hanya ditulis kode ini sendiri (kredit tukar).
+        from app.core.metode_bayar import metode_sah
+        try:
+            metode_refund = metode_sah(metode_refund or "TUNAI")
+        except ValueError:
+            raise HTTPException(400, (
+                "Pilih metode bayar selisih yang nyata (TUNAI/QRIS/DEBIT/KREDIT/TRANSFER)."
+                if is_tukar else
+                "Pilih metode pengembalian uang yang nyata (TUNAI/QRIS/DEBIT/KREDIT/TRANSFER)."))
         if not (alasan_teks or "").strip():
             raise HTTPException(400, "Keluhan/alasan pasien WAJIB diisi — ini uang keluar.")
 

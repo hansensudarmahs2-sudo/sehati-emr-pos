@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # =============================================================================
@@ -197,6 +197,14 @@ class PembayaranItem(BaseModel):
     """1 metode pembayaran (split payment ready)."""
     metode_bayar: str = Field(..., max_length=50, description="TUNAI / QRIS / DEBIT / KREDIT / TRANSFER")
     nominal: Decimal = Field(..., gt=0)
+
+    @field_validator("metode_bayar")
+    @classmethod
+    def _metode_sah(cls, v: str) -> str:
+        # Audit T4-8 (2026-10-16): dulu teks bebas — `GRATIS`/`TUKAR` masuk omzet tapi tak
+        # diharapkan laci mana pun. Satu daftar: app/core/metode_bayar.py.
+        from app.core.metode_bayar import metode_sah
+        return metode_sah(v)
 
 
 class BayarRequest(BaseModel):

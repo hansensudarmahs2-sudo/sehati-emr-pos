@@ -305,3 +305,36 @@ def test_baca_segar_menolak_sesi_dengan_perubahan_tertunda(db):
     k.status_antrian = "ANTRI_OBAT"                   # belum di-flush
     with pytest.raises(RuntimeError):
         mulai_baca_segar(db)
+
+
+# ---------------------------------------------------------------- T4-8
+# Metode bayar/refund dulu teks bebas (hanya .upper()). Tutup kasir hanya menghitung lima
+# metode kanonik → POST rakitan `metode=GRATIS`/`TUKAR` menaikkan omzet tanpa laci yang
+# mengharapkan uangnya; refund ber-metode aneh mengurangi omzet tanpa mengurangi laci.
+@pytest.mark.parametrize("metode", ["GRATIS", "TUKAR", "CASH", ""])
+def test_metode_bayar_di_luar_daftar_ditolak(metode):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        PembayaranItem(metode_bayar=metode, nominal=1000)
+
+
+def test_metode_bayar_kanonik_dinormalisasi():
+    assert PembayaranItem(metode_bayar=" qris ", nominal=1000).metode_bayar == "QRIS"
+
+
+def test_refund_tertunda_metode_aneh_ditolak(db):
+    staf, k = _siapkan(db)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        KasirService(db).refund_item_tertunda(id_resep=r.id_resep, alasan="uji T4-8",
+                                              metode_refund="TUKAR", actor_id_staf=staf.id_staf)
+    assert e.value.status_code == 400
+
+
+def test_retur_refund_metode_tukar_ditolak(db):
+    from tests.integration.test_retur_pasien import _retur, _setup
+    d = _setup(db)
+    with pytest.raises(HTTPException) as e:
+        _retur(db, d, metode_refund="TUKAR")
+    assert e.value.status_code == 400

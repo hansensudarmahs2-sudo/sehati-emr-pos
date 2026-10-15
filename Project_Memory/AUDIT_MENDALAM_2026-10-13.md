@@ -554,10 +554,17 @@ Uji: `test_diskon_member_tindakan_tidak_dikurangkan_dua_kali` (diskon tindakan 1
 GAGAL di kode lama (baris 450.000, bukan 500.000). DB dev tak punya transaksi berdiskon
 tindakan, jadi tak ada nota nyata untuk dibandingkan.
 
-**T4-8 Metode bayar/refund tidak divalidasi server.** `metode_bayar: str` bebas
+**T4-8 ✅ DIPERBAIKI 2026-10-16 — Metode bayar/refund tidak divalidasi server.** `metode_bayar: str` bebas
 (`schemas/kasir.py:198`), route hanya `.upper()`. Tutup kasir hanya menghitung
 `METODE_KANONIK`. POST rakitan `metode=TUKAR`/`GRATIS` → omzet naik, laci tidak mengharapkan
 uangnya. Retur jenis REFUND dengan metode TUKAR juga lolos.
+ Perbaikan: SATU daftar `app/core/metode_bayar.py` (`METODE_KANONIK` + `metode_sah`), dipakai
+tutup kasir (dulu pemilik daftarnya), validator `PembayaranItem` (kasir web, API, bayar
+membership), `refund_item_tertunda`, dan `buat_retur` (REFUND & selisih TUKAR). `TUKAR`
+hanya ditulis langsung oleh kode retur, tidak pernah lewat form. Data dev: hanya TUNAI/QRIS/
+TRANSFER + TUKAR sah dari retur.
+Uji: 7 test (4 metode liar ditolak, normalisasi, refund tertunda `TUKAR`, retur REFUND `TUKAR`)
+— semuanya GAGAL di kode lama.
 
 **T4-9 Bayar & aktivasi membership tanpa kunci.** `bayar_membership` (:466) dan
 `activate_membership` (:571) cek-lalu-tulis dengan `db.get`. Klik ganda "Aktifkan" pada

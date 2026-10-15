@@ -1410,6 +1410,13 @@ class KasirService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Alasan pembatalan WAJIB diisi — ini uang keluar.",
             )
+        # Audit T4-8: metode refund dari daftar yang dihitung tutup kasir — dulu teks bebas
+        # (mis. `TUKAR`) mengurangi omzet tanpa mengurangi laci mana pun.
+        from app.core.metode_bayar import metode_sah
+        try:
+            metode_refund = metode_sah(metode_refund or "TUNAI")
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
         # ---- 1. Ambil item + pastikan statusnya DIBAYAR --------------------
         # Audit T3-2: item dibaca BERKUNCI & segar — refund yang berjalan bersama serah
