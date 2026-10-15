@@ -1,6 +1,7 @@
 # Rancangan — Bayar dulu, tindakan & obat urutan bebas
 
-Status: **RANCANGAN — menunggu tinjauan dr. Hansen** (ditulis 2026-10-15).
+Status: **DISETUJUI dr. Hansen 2026-10-15** (ditulis 2026-10-15). Rencana pengerjaan tahap 1 belum ditulis —
+T4-5..T4-11 dikerjakan lebih dulu atas permintaan beliau.
 Asal: Audit T4-4 (`AUDIT_MENDALAM_2026-10-13.md`). Disetujui per bagian dalam percakapan
 2026-10-15; dokumen ini merangkumnya untuk dibaca utuh sebelum rencana pengerjaan ditulis.
 
@@ -204,7 +205,10 @@ dr. Hansen di desktop → commit & push. Deploy ke mini PC per tahap, di luar 12
 - **Deploy tahap 1 mengubah antrian semua meja sekaligus** → uji layar lengkap (FO, dokter,
   perawat, kasir, apotek, tutup kasir) sebelum deploy.
 
-## 6. Pertanyaan terbuka untuk dr. Hansen
+## 6. Pertanyaan — DIJAWAB dr. Hansen 2026-10-15
+
+Jawaban: (1) **dari tanggal bayar**; (2) **setuju** dropdown dipangkas; (3) **setuju** dokter,
+perawat, admin (+ kasir untuk Kembalikan uang dengan PIN). Pertanyaan aslinya:
 
 1. **Batas 6 bulan dihitung dari mana?** Rancangan ini: dari **tanggal bayar** (uangnya masuk).
    Alternatif: dari tanggal disimpan sebagai hak.

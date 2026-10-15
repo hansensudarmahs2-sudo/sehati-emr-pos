@@ -497,15 +497,22 @@ utuh). Uji layar: **U61** di bawah.
 
 ### 🟠 Sedang
 
-**T4-4 Bayar saat masih ada tindakan PENDING/PROSES → tindakan tertinggal selamanya.**
+**T4-4 ⏸ DIRANCANG ULANG 2026-10-15 → `DESAIN_BAYAR_DULU_BERCABANG.md` (disetujui; tahap 1 menutup ini) — Bayar saat masih ada tindakan PENDING/PROSES → tindakan tertinggal selamanya.**
 Satu-satunya pagar status = BATAL (:726); tagihan hanya SELESAI (`kasir_repo.py:143`); status
 jadi COMPLETED/ANTRI_OBAT. Halaman tagihan basi + dokter menambah tindakan (ANTRI_TREATMENT) →
 tindakan B lenyap dari antrian perawat, SOAP ditolak (COMPLETED), kuota yang terpakai hilang.
 
-**T4-5 Refund obat tertunda vs void bersamaan → uang yang sama keluar dua kali.**
+**T4-5 ✅ DIPERBAIKI 2026-10-15 — Refund obat tertunda vs void bersamaan → uang yang sama keluar dua kali.**
 `refund_item_tertunda` mengunci item saja; `_pagari_void_sudah_refund` (:2641) membaca
 `transaksi_refund` tanpa kunci. Void yang menunggu kunci item tak melihat refund baru → VOID.
 Refund atas transaksi VOID tak dihitung `_refund_bukuan._dasar` → laci kurang tanpa jejak.
+ Perbaikan: `_kunci_untuk_void` (kedua jalur void) menutup transaksi baca sebelum mengunci
+(pola T4-1); `refund_item_tertunda` mengunci KUNJUNGAN dulu (urutan sama dengan bayar/serah/
+void) sesudah menutup transaksi baca. Docstring lama "serah, refund, dan bayar mengunci
+kunjungan yang sama" kini benar.
+Uji: 2 test urutan SQL (keduanya GAGAL di kode lama). Bukti DUA KONEKSI (data dihapus): refund
+commit saat void berjalan → dengan perbaikan void DITOLAK (sudah ada refund #…); commit di
+void dicabut → **VOID diterima, refund 1** (uang keluar dua kali).
 
 **T4-6 Buka Kasir ganda.** Cek "sudah ada sesi" (`kasir_closing_service.py:206, 219`) tanpa
 kunci, indeks tidak unik → dua sesi OPEN satu tanggal; satu tertinggal OPEN memblokir esok

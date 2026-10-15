@@ -1417,6 +1417,21 @@ class KasirService:
         # bersamaan sama-sama lolos anti-dobel (cek-lalu-insert tanpa indeks unik).
         from sqlalchemy import select as _sel_k
         from app.db.models import KunjunganResep   # dulu tak diimpor di sini (repo yang membaca)
+        # Audit T4-5 (2026-10-15): kunci KUNJUNGAN dulu — urutan yang sama dengan bayar,
+        # serah, dan void (void: transaksi → kunjungan → item). Dulu hanya item yang dikunci:
+        # void yang berjalan bersamaan sudah memegang kunjungan, menunggu item, lalu tak
+        # melihat refund ini (lihat `_kunci_untuk_void`). Transaksi baca ditutup dulu supaya
+        # pembacaan sesudah kunci melihat data terbaru (pola T4-1).
+        _id_kj = self.db.execute(
+            _sel_k(KunjunganResep.id_kunjungan).where(KunjunganResep.id_resep == id_resep)
+            if id_resep is not None else
+            _sel_k(KunjunganRacikan.id_kunjungan)
+            .where(KunjunganRacikan.id_kunjungan_racikan == id_kunjungan_racikan)
+        ).scalar_one_or_none()
+        self.db.commit()
+        self.db.expire_all()
+        if _id_kj is not None:
+            self.kunjungan_repo.get_by_id_for_update(_id_kj)
         if id_resep is not None:
             item = self.db.execute(
                 _sel_k(KunjunganResep).where(KunjunganResep.id_resep == id_resep)
@@ -2503,8 +2518,18 @@ class KasirService:
         lolos (komisi & kuota dikembalikan dua kali); void yang berjalan bersama serah obat
         bisa mem-void transaksi yang obatnya baru saja DISERAHKAN — persis yang dicegah
         pagar 2026-10-04. Serah, refund, dan bayar mengunci kunjungan yang sama.
+
+        Audit T4-5 (2026-10-15): transaksi baca ditutup DULU (pola T4-1). Pagar-pagar void
+        sesudah kunci — terutama `_pagari_void_sudah_refund` — adalah SELECT biasa yang di
+        REPEATABLE-READ membaca potret awal permintaan. Refund obat tertunda yang commit
+        sambil void menunggu kunci tak terlihat → void diterima, uang yang sama keluar dua
+        kali, dan refund atas transaksi VOID hilang dari hitungan laci (`_refund_bukuan`
+        hanya menghitung refund atas transaksi BAYAR). Terbukti dengan dua koneksi.
+        ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci transaksi.
         """
         from sqlalchemy import select
+        self.db.commit()
+        self.db.expire_all()
         trx = self.db.execute(
             select(TransaksiKasir).where(TransaksiKasir.id_transaksi == id_transaksi)
             .with_for_update().execution_options(populate_existing=True)

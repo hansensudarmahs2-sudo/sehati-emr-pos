@@ -181,3 +181,50 @@ def test_pesan_error_di_url_tidak_terpotong():
         url = urlsplit(f"/web/kasir/bayar/sukses/12?err={q(pesan)}")
         assert url.fragment == ""
         assert QueryParams(url.query)["err"] == pesan
+
+
+# ---------------------------------------------------------------- T4-5
+# Refund obat tertunda mengunci ITEM saja; void mengunci transaksi→kunjungan, lalu pagar
+# "sudah ada refund" dibaca SELECT biasa (potret awal permintaan). Refund commit di antara →
+# void tak melihatnya → uang yang sama keluar DUA kali; refund atas transaksi VOID hilang dari
+# hitungan laci. Perbaikan: refund ikut mengunci KUNJUNGAN (urutan sama dengan bayar/serah/
+# void), dan keduanya menutup transaksi baca sebelum mengunci.
+def _urutan(q, *penanda):
+    return [next(i for i, x in enumerate(q) if p(x)) for p in penanda]
+
+
+def _rekam_dengan_commit(db, fn):
+    with _rekam_sql(db) as q:
+        asli, db.commit = _commit_ditandai(db, q)
+        try:
+            fn()
+        finally:
+            db.commit = asli
+    return q
+
+
+def test_void_mengakhiri_potret_sebelum_mengunci(db):
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    t = _trx_terakhir(db, k)
+    q = _rekam_dengan_commit(db, lambda: KasirService(db).void_transaksi(
+        t.id_transaksi, "SALAH_INPUT", "uji T4-5", [], staf.id_staf))
+    i_commit, i_trx = _urutan(q, lambda x: x == "<<COMMIT>>",
+                              lambda x: "FROM transaksi_kasir" in x and "FOR UPDATE" in x)
+    assert i_commit < i_trx                           # dulu: tak ada commit sebelum kunci
+    assert not [x for x in q[i_commit + 1:i_trx] if x.startswith("SELECT")]
+
+
+def test_refund_tertunda_mengunci_kunjungan_dulu(db):
+    staf, k = _siapkan(db)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    q = _rekam_dengan_commit(db, lambda: KasirService(db).refund_item_tertunda(
+        id_resep=r.id_resep, alasan="uji T4-5", actor_id_staf=staf.id_staf))
+    from tests.integration.test_audit_tahap3 import _berkunci
+    i_commit = q.index("<<COMMIT>>")
+    i_kj = q.index(_berkunci(q, "kunjungan")[0])
+    i_item = q.index(_berkunci(q, "kunjungan_resep")[0])
+    assert i_commit < i_kj < i_item                   # dulu: kunjungan tak dikunci
+    assert not [x for x in q[i_commit + 1:i_kj] if x.startswith("SELECT")]
