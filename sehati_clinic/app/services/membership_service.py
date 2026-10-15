@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import MasterMembership, Pasien, PasienMembershipHistory
+from app.services._baca_segar import mulai_baca_segar
 from app.services.audit_service import AuditService
 
 
@@ -463,7 +464,15 @@ class MembershipService:
             MasterMembership as _MM,
             StatusAktivasiEnum as _SA,
         )
-        hist = self.db.get(_PMH, id_history)
+        # Audit T4-9 (2026-10-16): dibaca BERKUNCI & segar sesudah transaksi baca ditutup
+        # (app/services/_baca_segar.py). Dulu `db.get` biasa: dua bayar bersamaan (kunci
+        # idempotensi beda) sama-sama melihat PENDING; yang kedua menimpa
+        # `id_transaksi_aktivasi` → transaksi pertama lunas tapi yatim.
+        mulai_baca_segar(self.db)
+        hist = self.db.execute(
+            select(_PMH).where(_PMH.id_history == id_history)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if hist is None:
             raise HTTPException(404, f"History membership #{id_history} tidak ditemukan.")
         # Harus PENDING (belum dibayar): is_active False + belum ada transaksi aktivasi.
@@ -568,7 +577,14 @@ class MembershipService:
         from app.db.models import (
             StatusAktivasiEnum as _SA, MembershipTierEnum as _MTE,
         )
-        hist = self.db.get(PasienMembershipHistory, id_history)
+        # Audit T4-9 (2026-10-16): BERKUNCI & segar (pola T4-1). Dulu `db.get` biasa: klik
+        # ganda "Aktifkan" sama-sama melihat PAID → `_create_kuota_from_benefit` dua kali
+        # (pasien_membership_kuota tanpa indeks unik), carry-over perpanjangan ditambah dua kali.
+        mulai_baca_segar(self.db)
+        hist = self.db.execute(
+            select(PasienMembershipHistory).where(PasienMembershipHistory.id_history == id_history)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if hist is None:
             raise HTTPException(404, f"History membership #{id_history} tidak ditemukan.")
         _st = getattr(hist.status_aktivasi, "value", hist.status_aktivasi)

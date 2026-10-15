@@ -338,3 +338,57 @@ def test_retur_refund_metode_tukar_ditolak(db):
     with pytest.raises(HTTPException) as e:
         _retur(db, d, metode_refund="TUKAR")
     assert e.value.status_code == 400
+
+
+# ---------------------------------------------------------------- T4-9
+# Bayar & aktivasi membership = cek status lalu tulis, dengan `db.get` biasa. Klik ganda
+# "Aktifkan" pada perpanjangan/upgrade → kuota benefit DUA kali (tak ada indeks unik), carry-
+# over ditambah dua kali. Bayar ganda (kunci idempotensi beda) → transaksi pertama yatim.
+def _pending_dibayar(db, staf, id_pasien, aksi="ACTIVATION"):
+    from app.services.membership_service import MembershipService
+    m = MembershipService(db)
+    h = m.create_pending(id_pasien=id_pasien, id_membership=1, actor_id_staf=staf.id_staf,
+                         action_type=aksi)
+    m.bayar_membership(h.id_history, [PembayaranItem(metode_bayar="TUNAI", nominal=10**7)],
+                       staf.id_staf, idempotency_key=secrets.token_hex(8))
+    return m, h
+
+
+def test_aktivasi_membership_membaca_berkunci(db):
+    staf, k = _siapkan(db)
+    m, h = _pending_dibayar(db, staf, k.id_pasien)
+    q = _rekam_dengan_commit(db, lambda: m.activate_membership(h.id_history, staf.id_staf))
+    i_commit, i_kunci = _urutan(q, lambda x: x == "<<COMMIT>>",
+                                lambda x: "FROM pasien_membership_history" in x and "FOR UPDATE" in x)
+    assert i_commit < i_kunci                         # dulu: db.get tanpa kunci
+    assert not [x for x in q[i_commit + 1:i_kunci] if x.startswith("SELECT")]
+
+
+def test_aktivasi_kedua_ditolak_walau_objek_di_sesi_basi(db):
+    from sqlalchemy import text
+    from app.db.models import PasienMembershipKuota
+    staf, k = _siapkan(db)
+    m, h = _pending_dibayar(db, staf, k.id_pasien)
+    db.execute(text("UPDATE pasien_membership_history SET is_active=1, status_aktivasi=\x27ACTIVE\x27 "
+                    "WHERE id_history=:i"), {"i": h.id_history})   # permintaan lain sudah
+    n0 = db.execute(select(PasienMembershipKuota).where(
+        PasienMembershipKuota.id_membership_history == h.id_history)).all()
+    with pytest.raises(HTTPException):
+        m.activate_membership(h.id_history, staf.id_staf)
+    n1 = db.execute(select(PasienMembershipKuota).where(
+        PasienMembershipKuota.id_membership_history == h.id_history)).all()
+    assert len(n1) == len(n0)                         # dulu: kuota dibuat lagi
+
+
+def test_bayar_membership_membaca_berkunci(db):
+    from app.services.membership_service import MembershipService
+    staf, k = _siapkan(db)
+    m = MembershipService(db)
+    h = m.create_pending(id_pasien=k.id_pasien, id_membership=1, actor_id_staf=staf.id_staf,
+                         action_type="ACTIVATION")
+    q = _rekam_dengan_commit(db, lambda: m.bayar_membership(
+        h.id_history, [PembayaranItem(metode_bayar="TUNAI", nominal=10**7)], staf.id_staf,
+        idempotency_key=secrets.token_hex(8)))
+    i_commit, i_kunci = _urutan(q, lambda x: x == "<<COMMIT>>",
+                                lambda x: "FROM pasien_membership_history" in x and "FOR UPDATE" in x)
+    assert i_commit < i_kunci

@@ -566,10 +566,16 @@ TRANSFER + TUKAR sah dari retur.
 Uji: 7 test (4 metode liar ditolak, normalisasi, refund tertunda `TUKAR`, retur REFUND `TUKAR`)
 — semuanya GAGAL di kode lama.
 
-**T4-9 Bayar & aktivasi membership tanpa kunci.** `bayar_membership` (:466) dan
+**T4-9 ✅ DIPERBAIKI 2026-10-16 — Bayar & aktivasi membership tanpa kunci.** `bayar_membership` (:466) dan
 `activate_membership` (:571) cek-lalu-tulis dengan `db.get`. Klik ganda "Aktifkan" pada
 perpanjangan/upgrade → baris kuota DUA kali (tak ada indeks unik), carry-over ditambah dua kali.
 Bayar ganda → transaksi pertama yatim.
+ Perbaikan: keduanya memakai `mulai_baca_segar` lalu membaca history BERKUNCI & segar.
+Uji: 3 test (urutan SQL bayar & aktivasi; aktivasi kedua dengan objek basi ditolak, kuota tak
+bertambah) — GAGAL di kode lama. Bukti DUA KONEKSI (data dihapus): dua petugas mengaktifkan
+perpanjangan yang sama → dengan perbaikan yang kedua DITOLAK; kode lama → **aktivasi kedua
+berhasil**. ⚠ Tier VIP di dev tak punya benefit kuota paket, jadi baris kuota dobel tidak
+terlihat di data dev; yang terbukti aktivasi gandanya.
 
 **T4-10 Diskon member produk berlaku untuk SEMUA produk.** `06_business_logic.md:77,146`:
 hanya `eligible_member_discount=1`. `get_tagihan` (:570) mengenakan persen ke seluruh
