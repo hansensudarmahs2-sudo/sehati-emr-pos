@@ -29,6 +29,7 @@ from app.db.models import (
     TransaksiKasir,
     TransaksiPembayaran,
 )
+from app.services._refund_bukuan import terhitung_omzet
 
 
 class KasirRepository:
@@ -360,7 +361,7 @@ class KasirRepository:
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
             .where(TransaksiKasir.id_staf_kasir == id_staf_kasir)
             .where(TransaksiKasir.waktu_bayar >= sejak)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .order_by(TransaksiKasir.waktu_bayar.desc())
         )
         rows = self.db.execute(stmt).all()
@@ -385,7 +386,7 @@ class KasirRepository:
             .join(TransaksiKasir, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .where(TransaksiKasir.id_staf_kasir == id_staf_kasir)
             .where(TransaksiKasir.waktu_bayar >= sejak)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiPembayaran.metode_bayar)
         )
         rows = self.db.execute(stmt).all()

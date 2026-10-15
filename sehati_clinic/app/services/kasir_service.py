@@ -2532,6 +2532,42 @@ class KasirService:
                 pass
         return reverted
 
+    def _catat_uang_keluar_void(self, trx, *, actor_id_staf, id_penyetuju, waktu, alasan) -> int:
+        """Baris `transaksi_refund` berjenis VOID untuk void HARI LAMPAU — audit K4-1.
+
+        Satu baris per metode bayar asal, totalnya = `total_tagihan` (yang benar-benar
+        diterima klinik). Kembalian (bayar lebih) tidak ikut keluar: metode non-TUNAI
+        dialokasikan lebih dulu, TUNAI menampung sisanya — kelebihan bayar hanya mungkin di
+        tunai. Dibaca semua laporan uang & tutup kasir lewat `_refund_bukuan`, di TANGGAL VOID.
+        """
+        from sqlalchemy import select
+        from app.db.models import TransaksiPembayaran, TransaksiRefund
+        sisa = Decimal(str(trx.total_tagihan or 0))
+        bayar = self.db.execute(
+            select(TransaksiPembayaran)
+            .where(TransaksiPembayaran.id_transaksi == trx.id_transaksi)
+            .order_by(TransaksiPembayaran.id_pembayaran)
+        ).scalars().all()
+        bayar = sorted(bayar, key=lambda p: (str(p.metode_bayar or "").upper() == "TUNAI"))
+        n = 0
+        for p in bayar:
+            if sisa <= 0:
+                break
+            nilai = min(Decimal(str(p.nominal or 0)), sisa)
+            if nilai <= 0:
+                continue
+            self.db.add(TransaksiRefund(
+                id_transaksi=trx.id_transaksi, tgl_refund=waktu, nilai_refund=nilai,
+                metode_refund=str(p.metode_bayar or "TUNAI").upper(),
+                alasan=f"Void hari lampau — {alasan}"[:1000],
+                id_staf_refund=actor_id_staf, id_staf_otorisasi=id_penyetuju,
+                jenis_refund="VOID",
+            ))
+            sisa -= nilai
+            n += 1
+        self.db.flush()
+        return n
+
     def _kunci_untuk_void(self, id_transaksi):
         """Kunci transaksi LALU kunjungannya, dengan pembacaan segar — Audit T3-2.
 
@@ -2928,9 +2964,18 @@ class KasirService:
         actor_id_staf,
         actor_role,
         request=None,
+        id_staf_otorisasi=None,
+        pin_otorisasi=None,
     ):
         """Admin/Superadmin/Owner force past-day void.
-        Limit: Admin=3 hari, Superadmin/Owner=7 hari."""
+        Limit: Admin=3 hari, Superadmin/Owner=7 hari.
+
+        Void HARI LAMPAU (days_past > 0) = UANG KELUAR di tanggal void (keputusan dr. Hansen
+        2026-10-15/16, audit K4-1): wajib PIN penyetuju ≠ pemroses (pagar T32 dipakai ulang),
+        lalu `_catat_uang_keluar_void` menulis baris `transaksi_refund` berjenis VOID.
+        Omzet hari asal TIDAK berubah (`_refund_bukuan.terhitung_omzet`). Override di hari
+        yang sama (days_past == 0) tetap seperti void biasa: tanpa PIN, tanpa uang keluar.
+        """
         if actor_role not in self._MAX_PAST_DAYS_BY_ROLE:
             raise HTTPException(403, "Role tidak punya wewenang force past-day void")
         max_days = self._MAX_PAST_DAYS_BY_ROLE[actor_role]
@@ -2968,6 +3013,16 @@ class KasirService:
                 f"Force past-day void max {max_days} hari untuk role ini. "
                 f"Transaksi sudah {days_past} hari lalu."
             )
+        id_penyetuju = None
+        if days_past > 0:
+            id_penyetuju = self._otorisasi_refund_lampau(
+                trx=trx, label=f"#{trx.id_transaksi}", actor_id_staf=actor_id_staf,
+                id_staf_otorisasi=id_staf_otorisasi, pin_otorisasi=pin_otorisasi,
+                request=request, aksi_tolak="VOID_LAMPAU_DITOLAK_PIN",
+                alasan_perlu=(f"Transaksi #{trx.id_transaksi} dibayar "
+                              f"{trx_dt:%d/%m/%Y} (hari lampau). Void hari lampau = uang "
+                              f"keluar hari ini, jadi"),
+            )
 
         try:
             now_naive = now.replace(tzinfo=None)
@@ -2982,12 +3037,20 @@ class KasirService:
             trx.void_by_id_staf = actor_id_staf
             trx.void_reason_code = reason_enum.value
             trx.void_reason_note = reason_note.strip()
-            trx.void_approved_by_id_staf = actor_id_staf
+            trx.void_approved_by_id_staf = id_penyetuju or actor_id_staf
             trx.void_approved_at = now_naive
-            trx.void_approval_method = VoidApprovalMethodEnum.SELF.value
+            trx.void_approval_method = (VoidApprovalMethodEnum.PIN.value if id_penyetuju
+                                        else VoidApprovalMethodEnum.SELF.value)
             # late_void flag: TRUE hanya kalau force void dilakukan past-day (days_past > 0).
             # Day 0 via Admin/Owner override tetap late_void=False (masih dalam calendar day).
+            # ⚠ Sejak K4-1 flag ini MENENTUKAN UANG: transaksi late_void tetap dihitung di omzet
+            # hari asal (`terhitung_omzet`) — jangan diubah tanpa baris uang keluarnya.
             trx.late_void = days_past > 0
+            n_uang_keluar = 0
+            if trx.late_void:
+                n_uang_keluar = self._catat_uang_keluar_void(
+                    trx, actor_id_staf=actor_id_staf, id_penyetuju=id_penyetuju,
+                    waktu=now_naive, alasan=f"{reason_enum.value}: {reason_note.strip()}")
 
             reversed_count = self._reverse_stok_per_item(trx, items_reverse_stok, actor_id_staf, request)
             cancelled_series = 0
@@ -3038,8 +3101,10 @@ class KasirService:
                     "items_reverse_count": reversed_count,
                     "series_cancelled_count": cancelled_series,
                     "kuota_reverted_count": kuota_reverted,
-                    "late_void": True,
+                    "late_void": trx.late_void,       # dulu selalu True, juga untuk hari 0
                     "days_past": days_past,
+                    "id_penyetuju": id_penyetuju,
+                    "baris_uang_keluar": n_uang_keluar,
                     "actor_role": actor_role.value if hasattr(actor_role, "value") else str(actor_role),
                     # Ditambahkan bersama perbaikan 3 langkah yang hilang: tanpa angka
                     # ini, jejak audit tidak bisa membuktikan rollback benar terjadi.
@@ -3068,7 +3133,7 @@ class KasirService:
                 "id_transaksi": trx.id_transaksi,
                 "void_at": now_naive.isoformat(),
                 "days_past": days_past,
-                "late_void": True,
+                "late_void": trx.late_void,
                 "reason_code": reason_enum.value,
                 "items_reverse_stok_count": reversed_count,
                 "series_cancelled_count": cancelled_series,

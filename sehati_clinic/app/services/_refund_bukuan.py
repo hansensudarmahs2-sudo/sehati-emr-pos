@@ -15,25 +15,43 @@ dimutasi. Sekarang setiap titik harus memanggil sesuatu — kalau masing-masing 
 query refund sendiri, salah satunya PASTI berbeda (filter status, kolom tanggal).
 Itu pola CLAUDE.md §4.1 yang paling sering menggigit proyek ini.
 
-⚠ Refund atas transaksi yang kemudian VOID tidak dihitung: transaksinya sudah keluar
-penuh dari omzet. Sejak T32 void atas transaksi ber-refund ditolak, jadi ini hanya
-menjaga data lama.
+⚠ Refund atas transaksi yang kemudian VOID (di HARI YANG SAMA) tidak dihitung: transaksinya
+sudah keluar penuh dari omzet. Sejak T32 void atas transaksi ber-refund ditolak, jadi ini
+hanya menjaga data lama.
+
+VOID HARI LAMPAU (keputusan dr. Hansen 2026-10-15/16, audit K4-1) diperlakukan SEPERTI
+REFUND: transaksinya TETAP dihitung di omzet hari asalnya (`terhitung_omzet`), dan uangnya
+keluar di TANGGAL VOID lewat baris `transaksi_refund` berjenis `VOID` yang ditulis
+`KasirService.force_past_day_void`. Dulu void hari lampau mengubah omzet hari yang sudah
+ditutup & diekspor, dan laci hari void tidak berkurang.
 """
 
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import extract, func, select
+from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import TransaksiKasir, TransaksiRefund
 
 
+def terhitung_omzet():
+    """Transaksi yang DIHITUNG omzet di hari bayarnya: BAYAR, atau VOID hari lampau.
+
+    SATU definisi untuk semua pembaca uang (laporan, rekap, dashboard, tutup kasir, ekspor).
+    Void hari lampau tetap milik hari asalnya; uang keluarnya baris refund `VOID` di hari void.
+    Void di hari yang sama: tidak dihitung sama sekali (seperti sebelumnya).
+    """
+    return or_(TransaksiKasir.status_transaksi == "BAYAR",
+               and_(TransaksiKasir.status_transaksi == "VOID",
+                    TransaksiKasir.late_void.is_(True)))
+
+
 def _dasar(stmt, start: datetime, end: datetime):
     return (
         stmt.join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiRefund.id_transaksi)
-        .where(TransaksiKasir.status_transaksi == "BAYAR")
+        .where(terhitung_omzet())
         .where(TransaksiRefund.tgl_refund >= start)
         .where(TransaksiRefund.tgl_refund <= end)
     )

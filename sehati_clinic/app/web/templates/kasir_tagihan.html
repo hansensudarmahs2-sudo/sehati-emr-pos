@@ -209,7 +209,8 @@
                         {% if tagihan.days_past == 0 %}
                         Admin override day 0 — kasir flow di Pembayaran Berhasil masih jadi pilihan utama.
                         {% else %}
-                        Transaksi {{ tagihan.days_past }} hari lalu. Akan tercatat sebagai LATE VOID di audit log.
+                        Transaksi {{ tagihan.days_past }} hari lalu. Uangnya dicatat KELUAR HARI INI
+                        (laci & laporan hari ini berkurang); omzet hari asal tidak berubah.
                         {% endif %}
                     </p>
                 </div>
@@ -267,6 +268,29 @@
                     </div>
                     {% endif %}
                     <input type="hidden" name="items_reverse_stok" id="force-hidden-reverse-list" value="">
+                    {% if tagihan.days_past and tagihan.days_past > 0 %}
+                    {# K4-1 (dr. Hansen 2026-10-16): void hari lampau = uang keluar hari ini, jadi
+                       aturannya sama dengan refund hari lampau (T32) — PIN Admin/Superadmin/Owner
+                       yang BUKAN orang yang sedang login (daftar sudah disaring). #}
+                    <div class="border-t border-slate-200 pt-3">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">
+                            Persetujuan <span class="text-red-500">*</span>
+                            <span class="text-xs text-slate-500 font-normal">(penyetuju bukan Anda)</span>
+                        </label>
+                        <div class="flex gap-2">
+                            <select name="id_staf_otorisasi" required
+                                    class="flex-1 px-3 py-2 border border-amber-400 bg-amber-50 rounded-lg text-sm">
+                                <option value="">— penyetuju —</option>
+                                {% for s in penyetuju_void %}
+                                <option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="password" name="pin_otorisasi" required inputmode="numeric"
+                                   autocomplete="off" placeholder="PIN"
+                                   class="w-24 px-3 py-2 border border-amber-400 bg-amber-50 rounded-lg text-sm">
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="p-5 border-t border-slate-200 flex items-center justify-end gap-2">

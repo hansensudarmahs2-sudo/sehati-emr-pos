@@ -498,3 +498,186 @@ def test_void_hanya_membatalkan_series_yang_ditagih_transaksinya(db, monkeypatch
         db.refresh(r)
     assert [V(r.status) for r in a[1:]] == ["PENDING", "PENDING"]   # dulu CANCELLED (sudah lunas)
     assert [V(r.status) for r in b] == ["CANCELLED", "CANCELLED"]
+
+
+# ---------------------------------------------------------------- K4-1 void hari lampau
+# Keputusan dr. Hansen 2026-10-15/16: void hari lampau = UANG KELUAR di tanggal void (seperti
+# refund T32), omzet hari asal TIDAK berubah, wajib PIN penyetuju ≠ pemroses. Dulu: transaksi
+# hilang dari omzet hari asal (yang sudah ditutup & diekspor), laci hari void tak berkurang.
+def _void_lampau_siap(db, nominal_bayar=None):
+    from datetime import timedelta
+    from app.core.security import hash_password
+    from app.db.models import MasterStaf, TransaksiPembayaran
+    from app.db.models._enums import StafRoleEnum
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    svc = KasirService(db)
+    total = svc.get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan
+    svc.proses_bayar(BayarRequest(
+        id_kunjungan=k.id_kunjungan, idempotency_key=secrets.token_hex(8),
+        pembayaran=[PembayaranItem(metode_bayar="QRIS", nominal=D2(1000)),
+                    PembayaranItem(metode_bayar="TUNAI", nominal=(nominal_bayar or total) - D2(1000))]),
+        staf.id_staf)
+    t = _trx_terakhir(db, k)
+    t.waktu_bayar = t.waktu_bayar - timedelta(days=1); db.flush()   # dibayar KEMARIN
+    admin = MasterStaf(username=f"uji_vl_a_{secrets.token_hex(3)}", password_hash=hash_password("x"),
+                       role=StafRoleEnum.ADMIN, nama_staf="Uji VL Admin", is_active=True)
+    sup = MasterStaf(username=f"uji_vl_s_{secrets.token_hex(3)}", password_hash=hash_password("x"),
+                     role=StafRoleEnum.SUPERADMIN, nama_staf="Uji VL Sup", is_active=True,
+                     pin=hash_password("4321"))
+    db.add_all([admin, sup]); db.flush()
+    return k, t, total, admin, sup
+
+
+def D2(x):
+    from decimal import Decimal
+    return Decimal(str(x))
+
+
+def _void_lampau(db, t, admin, **kw):
+    from app.db.models._enums import StafRoleEnum
+    return KasirService(db).force_past_day_void(
+        t.id_transaksi, "CUSTOMER_CANCEL", "uji void lampau", [], admin.id_staf,
+        StafRoleEnum.ADMIN, **kw)
+
+
+def test_void_lampau_tanpa_pin_ditolak(db):
+    _k, t, _total, admin, _sup = _void_lampau_siap(db)
+    with pytest.raises(HTTPException) as e:
+        _void_lampau(db, t, admin)
+    assert e.value.status_code == 401                 # dulu: diterima tanpa penyetuju
+
+
+def test_void_lampau_mencatat_uang_keluar_di_tanggal_void(db):
+    from datetime import date as _date
+    from app.db.models import TransaksiRefund
+    _k, t, total, admin, sup = _void_lampau_siap(db, nominal_bayar=None)
+    _void_lampau(db, t, admin, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    rows = db.execute(select(TransaksiRefund).where(
+        TransaksiRefund.id_transaksi == t.id_transaksi)).scalars().all()
+    assert sorted((r.jenis_refund, r.metode_refund, D2(r.nilai_refund)) for r in rows) == sorted(
+        [("VOID", "QRIS", D2(1000)), ("VOID", "TUNAI", D2(total) - D2(1000))])
+    assert all(r.tgl_refund.date() == _date.today() and r.id_staf_otorisasi == sup.id_staf
+               for r in rows)
+    db.refresh(t)
+    assert (V(t.status_transaksi), bool(t.late_void)) == ("VOID", True)
+
+
+def test_void_lampau_uang_keluar_tidak_memuat_kembalian(db):
+    from app.db.models import TransaksiPembayaran, TransaksiRefund
+    _k, t, total, admin, sup = _void_lampau_siap(db)
+    tunai = db.execute(select(TransaksiPembayaran).where(
+        TransaksiPembayaran.id_transaksi == t.id_transaksi,
+        TransaksiPembayaran.metode_bayar == "TUNAI")).scalar_one()
+    tunai.nominal = D2(tunai.nominal) + D2(50000); db.flush()   # bayar lebih, kembali 50rb
+    _void_lampau(db, t, admin, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    keluar = sum(D2(r.nilai_refund) for r in db.execute(select(TransaksiRefund).where(
+        TransaksiRefund.id_transaksi == t.id_transaksi)).scalars())
+    assert keluar == D2(total)                        # bukan total + kembalian
+
+
+def test_void_lampau_omzet_hari_asal_tetap_hari_void_berkurang(db):
+    from datetime import date as _date, timedelta
+    from app.services.reports_service import ReportsService
+    _k, t, total, admin, sup = _void_lampau_siap(db)
+    rs = ReportsService(db)
+    kemarin, hari_ini = _date.today() - timedelta(days=1), _date.today()
+    o_kemarin0 = D2(rs.omzet_harian(kemarin).total_omzet)
+    o_hari0 = D2(rs.omzet_harian(hari_ini).total_omzet)
+    _void_lampau(db, t, admin, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    assert D2(rs.omzet_harian(kemarin).total_omzet) == o_kemarin0          # dulu turun
+    assert D2(rs.omzet_harian(hari_ini).total_omzet) == o_hari0 - D2(total)  # dulu tetap
+
+
+def test_void_hari_sama_tanpa_uang_keluar(db):
+    from app.db.models import TransaksiRefund
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    t = _trx_terakhir(db, k)
+    KasirService(db).void_transaksi(t.id_transaksi, "SALAH_INPUT", "uji void hari sama", [], staf.id_staf)
+    assert db.execute(select(TransaksiRefund).where(
+        TransaksiRefund.id_transaksi == t.id_transaksi)).first() is None
+
+
+def test_migrasi_mengisi_uang_keluar_void_lampau_lama(db):
+    """Migrasi 20261016_0200: void hari lampau SEBELUM K4-1 (tanpa baris uang keluar) diberi
+    baris VOID dengan alokasi yang sama dengan kode; dijalankan ulang → tidak dobel."""
+    import importlib.util, pathlib
+    from datetime import timedelta
+    from app.db.models import TransaksiPembayaran, TransaksiRefund
+    path = pathlib.Path(__file__).parents[2] / "migrations/versions/20261016_0200_uang_keluar_void_lampau.py"
+    spec = importlib.util.spec_from_file_location("mig_k41", path)
+    mig = importlib.util.module_from_spec(spec); spec.loader.exec_module(mig)
+    _k, t, total, _admin, _sup = _void_lampau_siap(db)
+    tunai = db.execute(select(TransaksiPembayaran).where(
+        TransaksiPembayaran.id_transaksi == t.id_transaksi,
+        TransaksiPembayaran.metode_bayar == "TUNAI")).scalar_one()
+    tunai.nominal = D2(tunai.nominal) + D2(20000)           # kembalian 20rb
+    t.status_transaksi = "VOID"; t.late_void = True          # seperti void lama: tanpa baris
+    t.void_at = t.waktu_bayar + timedelta(days=1); t.void_by_id_staf = _admin.id_staf
+    db.flush()
+    n_trx, n_baris = mig.isi_uang_keluar(db.connection())
+    rows = db.execute(select(TransaksiRefund).where(
+        TransaksiRefund.id_transaksi == t.id_transaksi)).scalars().all()
+    assert sorted((r.metode_refund, D2(r.nilai_refund)) for r in rows) == sorted(
+        [("QRIS", D2(1000)), ("TUNAI", D2(total) - D2(1000))])
+    assert all(r.jenis_refund == "VOID" and r.tgl_refund == t.void_at for r in rows)
+    assert mig.isi_uang_keluar(db.connection())[1] == 0       # jalan ulang: tidak dobel
+
+
+@pytest.mark.parametrize("geser_hari", [1, 0])        # 1 = hari asal (kemarin), 0 = hari void
+def test_void_lampau_semua_pembaca_uang_sepakat(db, geser_hari):
+    """Laporan omzet = rekap harian = ekspor Finance = KPI dashboard (basis pembayaran) =
+    jumlah per kasir — di hari asal DAN di hari void. 17 saringan di 6 berkas diganti satu
+    definisi (`terhitung_omzet`); satu yang terlewat akan membuat angka ini berbeda."""
+    from datetime import date as _date, timedelta
+    from app.services.dashboard_service import DashboardService
+    from app.services.export_service import ExportService
+    from app.services.rekap_harian_service import RekapHarianService
+    from app.services.reports_service import ReportsService
+    _k, t, _total, admin, sup = _void_lampau_siap(db)
+    _void_lampau(db, t, admin, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    hari = _date.today() - timedelta(days=geser_hari)
+    rpt = ReportsService(db).omzet_harian(hari)
+    rh = RekapHarianService(db).rekap(hari)
+    eks = ExportService(db).export_daily_operational_summary(hari, hari)[0]["total_omzet"]
+    kpi = DashboardService(db)._kpi_omzet_hari_ini(hari)["value_money"]
+    assert D2(rpt.total_omzet) == D2(rh["total_omzet"])
+    assert abs(float(rpt.total_omzet) - float(eks)) < 0.01
+    assert sum(D2(x.total_omzet) for x in rpt.per_kasir) == D2(rpt.total_omzet)
+    assert abs(float(sum(D2(m.total_nominal) for m in rpt.per_metode)) - float(kpi)) < 0.01
+
+
+def test_layar_void_lampau_meminta_penyetuju_dan_pin(db):
+    """Halaman tagihan transaksi KEMARIN: form Force Void memuat pilihan penyetuju (tanpa
+    akun yang sedang login) + PIN, dan keterangan "uang dicatat keluar hari ini". Dirender
+    lewat aplikasi sungguhan dengan sesi test yang di-rollback (tanpa data tertinggal)."""
+    import os, re
+    from fastapi.testclient import TestClient
+    from app.core.deps import get_db
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+    k, _t, _total, _admin, sup = _void_lampau_siap(db)
+
+    def _db():
+        yield db
+    app.dependency_overrides[get_db] = _db
+    try:
+        c = TestClient(app)
+        hal = c.get("/web/login")
+        data = {"username": os.environ["TEST_USERNAME"], "password": os.environ["TEST_PASSWORD"]}
+        m = re.search(r'name="csrf_token"\s+value="([^"]+)"', hal.text)
+        if m:
+            data["csrf_token"] = m.group(1)
+        c.post("/web/login", data=data)
+        r = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert r.status_code == 200
+    if "force-void-modal" not in r.text:
+        pytest.skip("akun uji tidak berhak force void")
+    assert 'name="id_staf_otorisasi"' in r.text and 'name="pin_otorisasi"' in r.text
+    assert f'value="{sup.id_staf}"' in r.text                 # penyetuju lain ditawarkan
+    assert "dicatat KELUAR HARI INI" in r.text

@@ -28,6 +28,7 @@ from app.schemas.kasir import (
 from app.services.kasir_service import KasirService
 from app.services.kasir_service import daftar_pengembalian as _daftar_pengembalian
 from app.services.kasir_service import pengembalian_kunjungan as _pengembalian_kunjungan
+from app.services.kasir_service import daftar_penyetuju_refund
 from app.services.kasir_service import transaksi_kunjungan as _transaksi_kunjungan
 from app.services.membership_service import MembershipService
 from app.services.klinik_config_service import KlinikConfigService
@@ -136,6 +137,9 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         transaksi_kunjungan=(_transaksi_kunjungan(db, id_kunjungan)
                              if tagihan_dict.get("sudah_lunas") else []),
         idempotency_key=_secrets.token_urlsafe(24),
+        # K4-1: void HARI LAMPAU = uang keluar → PIN penyetuju ≠ pemroses (pagar T32).
+        penyetuju_void=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
+                        if (tagihan_dict.get("days_past") or 0) > 0 else []),
         flash=request.query_params.get("ok"),
         error=request.query_params.get("err"),
     )
@@ -776,6 +780,8 @@ def kasir_force_past_day_void(
     reason_code: str = Form(...),
     reason_note: str = Form(...),
     items_reverse_stok: str = Form(default=""),
+    id_staf_otorisasi: str = Form(default=""),
+    pin_otorisasi: str = Form(default=""),
 ):
     """Admin/Superadmin/Owner force past-day void.
     Limit: Admin=3 hari, Superadmin/Owner=7 hari."""
@@ -802,6 +808,9 @@ def kasir_force_past_day_void(
             actor_id_staf=user.id_staf,
             actor_role=user.role,
             request=request,
+            # K4-1: hari lampau wajib PIN penyetuju (diabaikan untuk override hari yang sama).
+            id_staf_otorisasi=int(id_staf_otorisasi) if id_staf_otorisasi.strip().isdigit() else None,
+            pin_otorisasi=pin_otorisasi or None,
         )
     except HTTPException as e:
         return RedirectResponse(

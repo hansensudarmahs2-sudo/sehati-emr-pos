@@ -21,6 +21,7 @@ from app.core.zip_packer import ZipPacker
 from app.services._export_columns import COLUMNS_METADATA
 from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
 from app.services.audit_service import AuditService
+from app.services._refund_bukuan import terhitung_omzet
 
 
 WARNING_THRESHOLD_DAYS = 90
@@ -254,7 +255,7 @@ class ExportService:
             )
             .where(TransaksiKasir.waktu_bayar >= start_dt)
             .where(TransaksiKasir.waktu_bayar <= end_dt)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(func.date(TransaksiKasir.waktu_bayar))
         ).all()}
         resep = dict(self.db.execute(
@@ -479,6 +480,8 @@ class ExportService:
                 TransaksiKasir.dpp,
                 TransaksiKasir.ppn,
                 TransaksiKasir.is_kena_ppn,
+                TransaksiKasir.late_void,
+                TransaksiKasir.void_at,
             )
             .outerjoin(Kunjungan, Kunjungan.id_kunjungan == TransaksiKasir.id_kunjungan)
             .outerjoin(Pasien, Pasien.id_pasien == Kunjungan.id_pasien)
@@ -507,6 +510,9 @@ class ExportService:
                 "dpp": float(r[15]) if r[15] is not None else None,
                 "ppn": float(r[16]) if r[16] is not None else 0.0,
                 "is_kena_ppn": bool(r[17]) if r[17] is not None else False,
+                # K4-1: void hari lampau tetap omzet hari asal; uang keluarnya di refunds_raw.
+                "late_void": bool(r[18]) if r[18] is not None else False,
+                "void_at": _iso(r[19]),
                 "kode_entitas": "KLN",
             }
             for r in self.db.execute(stmt).all()

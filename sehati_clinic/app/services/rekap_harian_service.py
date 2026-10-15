@@ -34,6 +34,7 @@ from app.db.models import (
     TransaksiKasir,
     TransaksiPembayaran,
 )
+from app.services._refund_bukuan import terhitung_omzet
 
 
 class RekapHarianService:
@@ -48,7 +49,7 @@ class RekapHarianService:
         def _bayar_today(stmt):
             """Filter umum: transaksi BAYAR pada tanggal ini."""
             return (
-                stmt.where(TransaksiKasir.status_transaksi == "BAYAR")
+                stmt.where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
                 .where(TransaksiKasir.waktu_bayar >= start)
                 .where(TransaksiKasir.waktu_bayar <= end)
             )

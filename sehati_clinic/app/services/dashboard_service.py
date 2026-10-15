@@ -34,6 +34,7 @@ from app.db.models import (
     TransaksiKasir,
     TransaksiPembayaran,
 )
+from app.services._refund_bukuan import terhitung_omzet
 
 
 class DashboardService:
@@ -195,7 +196,7 @@ class DashboardService:
             .where(TransaksiKasir.id_staf_kasir == actor.id_staf)
             .where(TransaksiKasir.waktu_bayar >= today_start)
             .where(TransaksiKasir.waktu_bayar <= today_end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
         ).scalar() or 0
         # T32: refund oleh kasir ini hari ini (atribusi pelaku, sama dengan tutup kasir).
         from app.services import _refund_bukuan as _rb
@@ -207,7 +208,7 @@ class DashboardService:
             .where(TransaksiKasir.id_staf_kasir == actor.id_staf)
             .where(TransaksiKasir.waktu_bayar >= today_start)
             .where(TransaksiKasir.waktu_bayar <= today_end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
         ).scalar() or 0
 
         return {
@@ -292,7 +293,7 @@ class DashboardService:
             .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiPembayaran.id_transaksi)
             .where(TransaksiKasir.waktu_bayar >= today_start)
             .where(TransaksiKasir.waktu_bayar <= today_end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
         ).scalar() or 0
         # T32: kurangi refund yang dibukukan hari ini. Pembayaran tidak pernah dikurangi
         # refund (header pun tidak lagi), jadi tanpa ini KPI selalu lebih besar dari
@@ -428,7 +429,7 @@ class DashboardService:
             select(func.count(TransaksiKasir.id_transaksi))
             .where(TransaksiKasir.waktu_bayar >= today_start)
             .where(TransaksiKasir.waktu_bayar <= today_end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
         ).scalar() or 0)
 
     def _count_stok_urgent(self) -> int:

@@ -36,6 +36,7 @@ from app.schemas.reports import (
     TopTreatmentItem,
     TopTreatmentResponse,
 )
+from app.services._refund_bukuan import terhitung_omzet
 
 
 _BULAN_LABEL = [
@@ -63,7 +64,7 @@ class ReportsService:
             )
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
         )
         row = self.db.execute(stmt_total).first()
         total_trx = int(row[0] or 0)
@@ -84,7 +85,7 @@ class ReportsService:
             .join(MasterStaf, TransaksiKasir.id_staf_kasir == MasterStaf.id_staf)
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiKasir.id_staf_kasir, MasterStaf.nama_staf)
             .order_by(func.sum(TransaksiKasir.total_tagihan).desc())
         )
@@ -118,7 +119,7 @@ class ReportsService:
             .join(TransaksiKasir, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiPembayaran.metode_bayar)
             .order_by(func.sum(TransaksiPembayaran.nominal).desc())
         )
@@ -178,7 +179,7 @@ class ReportsService:
             )
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(extract("month", TransaksiKasir.waktu_bayar))
             .order_by(extract("month", TransaksiKasir.waktu_bayar))
         )
@@ -227,7 +228,7 @@ class ReportsService:
             .join(TransaksiKasir, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiPembayaran.metode_bayar)
             .order_by(func.sum(TransaksiPembayaran.nominal).desc())
         )
@@ -703,7 +704,7 @@ class ReportsService:
             .join(MasterStaf, MasterStaf.id_staf == TransaksiKasir.id_staf_kasir)
             .where(TransaksiKasir.waktu_bayar >= start)
             .where(TransaksiKasir.waktu_bayar <= end)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")  # A1: exclude VOID
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiKasir.id_staf_kasir, MasterStaf.nama_staf)
             .order_by(func.sum(TransaksiKasir.total_tagihan).desc())
         )

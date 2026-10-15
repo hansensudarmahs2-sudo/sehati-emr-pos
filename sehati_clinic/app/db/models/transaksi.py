@@ -271,7 +271,8 @@ class TransaksiRefund(Base):
     # jenis_refund='ITEM'; keduanya NULL = refund tingkat transaksi (belum dipakai).
     jenis_refund: Mapped[str] = mapped_column(
         String(20), default="ITEM", server_default="ITEM", nullable=False,
-        comment="ITEM = refund satu baris resep/racikan; TRANSAKSI = seluruh transaksi.",
+        comment=("ITEM = satu baris resep/racikan; RETUR = retur dari pasien; "
+                 "VOID = uang keluar void hari lampau (K4-1); TRANSAKSI = seluruh transaksi."),
     )
     id_resep: Mapped[Optional[int]] = mapped_column(
         ForeignKey("kunjungan_resep.id_resep"), nullable=True

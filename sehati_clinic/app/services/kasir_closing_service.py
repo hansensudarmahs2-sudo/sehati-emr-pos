@@ -35,6 +35,7 @@ from app.services.audit_service import AuditService
 # Urutan kanonik untuk tampilan + agregasi
 # Satu daftar untuk bayar, refund, dan laci (Audit T4-8) — jangan menyalin daftarnya.
 from app.core.metode_bayar import METODE_KANONIK  # noqa: E402
+from app.services._refund_bukuan import terhitung_omzet
 
 
 class KasirClosingService:
@@ -106,7 +107,7 @@ class KasirClosingService:
             .join(TransaksiKasir, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .where(TransaksiKasir.waktu_bayar >= awal)
             .where(TransaksiKasir.waktu_bayar <= akhir)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiPembayaran.metode_bayar)
         )
         result = {m: Decimal("0") for m in METODE_KANONIK}
@@ -128,7 +129,7 @@ class KasirClosingService:
             .join(TransaksiPembayaran, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .where(TransaksiKasir.waktu_bayar >= awal)
             .where(TransaksiKasir.waktu_bayar <= akhir)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiKasir.id_staf_kasir)
         ).all())
         refund = _rb.refund_per_staf(self.db, awal, akhir)
@@ -160,7 +161,7 @@ class KasirClosingService:
                    MasterStaf.nama_staf, func.sum(TransaksiPembayaran.nominal))
             .join(TransaksiPembayaran, TransaksiPembayaran.id_transaksi == TransaksiKasir.id_transaksi)
             .join(MasterStaf, MasterStaf.id_staf == TransaksiKasir.id_staf_kasir)
-            .where(TransaksiKasir.status_transaksi == "BAYAR")
+            .where(terhitung_omzet())  # BAYAR + void hari lampau (K4-1)
             .group_by(TransaksiKasir.id_transaksi, TransaksiKasir.waktu_bayar, MasterStaf.nama_staf)
             .order_by(TransaksiKasir.waktu_bayar)
         )

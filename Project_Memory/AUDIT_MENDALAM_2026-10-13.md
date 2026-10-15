@@ -614,10 +614,30 @@ treatment yang sama → tidak ada harga data lama yang berubah.
 
 ### ⚖ Perlu keputusan kebijakan (bukan bug murni)
 
-- **K4-1 Void hari lampau:** hanya mengubah status — tanpa baris uang keluar di tanggal void.
+- **K4-1 ✅ DIKERJAKAN 2026-10-16 — Void hari lampau:** hanya mengubah status — tanpa baris uang keluar di tanggal void.
   Laci hari void tidak berkurang (kalau uang dikembalikan tunai, kasir tampak kurang); omzet hari
   ASAL berubah sesudah ditutup & diekspor (pergeseran yang dihapus T32 untuk refund). Void
   hari lampau juga tanpa penyetuju kedua, refund hari lampau dengan PIN (DEC-063 "self-acc").
+  **Keputusan dr. Hansen:** void hari lampau = uang keluar di tanggal void, WAJIB PIN penyetuju
+  ≠ pemroses (sama dengan refund T32), data lama DIISI. Dikerjakan:
+  - `_refund_bukuan.terhitung_omzet()` = BAYAR **atau** VOID ber-`late_void` — SATU definisi
+    menggantikan 17 saringan `status='BAYAR'` di 6 berkas (laporan omzet harian/bulanan &
+    shift, rekap harian, dashboard, ekspor ringkasan, tutup kasir, rekap shift API) + `_dasar`.
+  - `force_past_day_void` (days_past > 0): PIN lewat `_otorisasi_refund_lampau` (aksi tolak
+    `VOID_LAMPAU_DITOLAK_PIN`), `void_approval_method=PIN`, lalu `_catat_uang_keluar_void`:
+    baris `transaksi_refund` jenis **VOID** per metode bayar asal, total = total_tagihan,
+    non-TUNAI dulu → kembalian tak ikut keluar. Override hari yang sama tidak berubah.
+    Ikut diperbaiki: audit & hasilnya dulu selalu `late_void: True`, juga untuk hari 0.
+  - Layar: form Force Void meminta penyetuju + PIN hanya untuk hari lampau.
+  - Ekspor: `transactions_raw` + `late_void`, `void_at`; kamus data `status_transaksi`,
+    `total_omzet`, `jenis_refund` diperbarui. ⚠ **Kontrak `data_analyst` berubah:** omzet =
+    BAYAR + VOID late_void; uang keluar void ada di `refunds_raw` jenis VOID.
+  - Migrasi DATA `20261016_0200`: void hari lampau lama diberi baris uang keluar (dev: 0).
+  - Belum: komisi hari asal tetap batal SURUT (backlog F2, terpisah dari uang).
+  Uji: 10 test — 4 GAGAL di kode lama (tanpa PIN diterima; tak ada uang keluar; kembalian;
+  omzet hari asal turun & hari void tetap); semua pembaca sepakat di hari asal & hari void
+  (suntikan "satu pembaca lama" tertangkap); migrasi mengisi + aman dijalankan ulang; layar
+  dirender lewat aplikasi (sesi test di-rollback). Uji layar **U62**.
 - **K4-2 Rantai tukar→refund:** X ditukar Y (komisi X tetap, keputusan 3), lalu Y dikembalikan
   uang → komisi X tetap AKTIF. Setiap tukar memulai ulang batas 7 hari (`waktu_serah=now`).
 - **K4-3 Kuota BULANAN** mulai penuh lagi saat perpanjangan/upgrade di tengah bulan.
