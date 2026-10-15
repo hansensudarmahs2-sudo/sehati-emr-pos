@@ -659,10 +659,15 @@ class PrintService:
                     ket_pendek = "Paket series"
             if ket:
                 nilai_benefit += normal
+            # Audit T4-7 (2026-10-16): baris nota = harga PENUH (harga × qty), seperti produk &
+            # racikan — diskon dikurangkan SEKALI di bawah lewat `nominal_diskon`. Kolom
+            # `transaksi_detail_tindakan.subtotal` berarti BERSIH (harga − diskon_item); dulu
+            # dipakai langsung sehingga diskon member tindakan terkurang DUA kali di kertas.
+            # Satu kolom, dua arti antar tabel (produk: subtotal = KOTOR) — CLAUDE.md §4.1.
             items.append({
                 "tipe": "TND", "label": nama,
                 "qty": float(d.qty or 1), "harga": harga,
-                "subtotal": float(d.subtotal or 0),
+                "subtotal": round(harga * float(d.qty or 1), 2),
                 "pakai_kuota": ket is not None,
                 "ket_prabayar": ket, "ket_pendek": ket_pendek,  # pendek: thermal 58mm
                 "nilai_normal": normal if ket else None,

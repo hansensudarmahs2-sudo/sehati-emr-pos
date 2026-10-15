@@ -541,11 +541,18 @@ jatuh di tanggal kemarin) dan `test_sesi_kemarin…` terhalang kunjungan "Bookin
 ditinggalkan `test_booking_service` (kebocoran yang sudah tercatat di CLAUDE.md §8) — keduanya
 gagal karena jam & data, bukan karena T4-6.
 
-**T4-7 Nota: diskon member TINDAKAN dikurangkan dua kali.** `transaksi_detail_tindakan.subtotal`
+**T4-7 ✅ DIPERBAIKI 2026-10-16 — Nota: diskon member TINDAKAN dikurangkan dua kali.** `transaksi_detail_tindakan.subtotal`
 = BERSIH (`kasir_service.py:894`), produk & racikan di nota = KOTOR. Nota menjumlah baris jadi
 "Subtotal" lalu mengurangi `nominal_diskon` lagi (`print_service.py:271-273`): baris 450.000,
 Subtotal 450.000, Diskon −50.000, Total 450.000 — hitungan di kertas salah.
 `test_nota_snapshot` hanya menguji diskon 0.
+ Perbaikan: baris tindakan di nota = harga × qty (KOTOR), sejajar produk & racikan; diskon
+dikurangkan sekali lewat `nominal_diskon`. Kolom snapshot TIDAK diubah (Finance & refund
+membaca artinya yang sekarang). Pembaca lain `transaksi_detail_tindakan.subtotal`: hanya ekspor
+`transaction_items_raw` (bersih, bercampur dengan produk yang kotor) → tahap 5.
+Uji: `test_diskon_member_tindakan_tidak_dikurangkan_dua_kali` (diskon tindakan 10% + produk) —
+GAGAL di kode lama (baris 450.000, bukan 500.000). DB dev tak punya transaksi berdiskon
+tindakan, jadi tak ada nota nyata untuk dibandingkan.
 
 **T4-8 Metode bayar/refund tidak divalidasi server.** `metode_bayar: str` bebas
 (`schemas/kasir.py:198`), route hanya `.upper()`. Tutup kasir hanya menghitung

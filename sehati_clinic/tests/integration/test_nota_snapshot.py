@@ -163,3 +163,29 @@ def test_split_billing_tidak_memuat_tindakan_transaksi_lain(db, dasar):
     nb = _nota(db, b)
     assert [i for i in nb["items"] if i["tipe"] == "TND"] == []
     assert nb["rekonstruksi"] is False
+
+
+def test_diskon_member_tindakan_tidak_dikurangkan_dua_kali(db, dasar):
+    """Audit T4-7 (2026-10-16): `transaksi_detail_tindakan.subtotal` = BERSIH (harga − diskon),
+    padahal nota menjumlah baris sebagai harga PENUH lalu mengurangi `nominal_diskon` lagi.
+    Dulu: baris 450.000, Subtotal 450.000, Diskon −50.000, Total 450.000 — hitungan di kertas
+    salah. Test lama hanya memakai diskon 0."""
+    k = _kunjungan(db, dasar)
+    kt = _tindakan(db, dasar, k)
+    p = MasterProduk(kode_produk=f"N7{random.randint(10000, 99999)}", nama_produk="Uji T4-7",
+                     tipe_produk=TipeProdukEnum.RETAIL, satuan="pcs", default_iterasi=1,
+                     eligible_member_discount=True, stok_terkini=0, harga_jual=Decimal("100000"))
+    db.add(p); db.flush()
+    t = _trx(db, dasar, k, Decimal("547000"))                 # 450.000 + 97.000
+    t.subtotal = Decimal("600000"); t.nominal_diskon = Decimal("53000")
+    db.add(TransaksiDetailTindakan(id_transaksi=t.id_transaksi, id_kunjungan_tindakan=kt.id_kunjungan_tindakan,
+                                   id_treatment=dasar["treatment"].id_treatment, qty=1,
+                                   harga_satuan=500000, diskon_item=50000, subtotal=450000))
+    db.add(TransaksiDetailProduk(id_transaksi=t.id_transaksi, id_produk=p.id_produk, qty=1,
+                                 harga_satuan=100000, subtotal=100000, diskon_item=3000))
+    db.flush()
+    n = _nota(db, t)
+    tnd = [i for i in n["items"] if i["tipe"] == "TND"][0]
+    assert tnd["subtotal"] == 500000                          # dulu 450.000 (bersih)
+    assert n["subtotal"] == 600000
+    assert sum(i["subtotal"] for i in n["items"]) - n["diskon"] == n["total"] == 547000
