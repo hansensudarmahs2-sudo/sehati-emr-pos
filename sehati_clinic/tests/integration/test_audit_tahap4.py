@@ -89,3 +89,30 @@ def test_bayar_tetap_menandai_semua_item_yang_ditagih(db):
     assert (V(r1.status_item), V(r2.status_item)) == ("DIBAYAR", "DIBAYAR")
     t = _trx_terakhir(db, k)
     assert (r1.id_transaksi, r2.id_transaksi) == (t.id_transaksi, t.id_transaksi)
+
+
+# ---------------------------------------------------------------- T4-2
+# Retur mengunci baris item, tapi tidak mengubahnya (tetap DISERAHKAN). Pagar sebenarnya —
+# jumlah yang SUDAH diretur — dibaca SELECT biasa = potret permintaan. Klik ganda / dua
+# petugas: retur kedua melihat "belum diretur" → uang kembali DUA kali, stok +2×q, tanpa PIN.
+def _commit_ditandai(db, q):
+    _flush = db.commit
+    def _c():
+        q.append("<<COMMIT>>")
+        return _flush()
+    return _flush, _c
+
+
+def test_retur_mengakhiri_potret_sebelum_mengunci_item(db):
+    from tests.integration.test_retur_pasien import _retur, _setup
+    d = _setup(db)
+    with _rekam_sql(db) as q:
+        asli, db.commit = _commit_ditandai(db, q)
+        try:
+            _retur(db, d)
+        finally:
+            db.commit = asli
+    i_commit = q.index("<<COMMIT>>")
+    i_kunci = next(i for i, x in enumerate(q) if "FROM kunjungan_resep" in x and "FOR UPDATE" in x)
+    assert i_commit < i_kunci                         # dulu: tak ada commit sebelum kunci
+    assert not [x for x in q[i_commit + 1:i_kunci] if x.startswith("SELECT")]

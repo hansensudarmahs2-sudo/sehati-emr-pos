@@ -459,12 +459,19 @@ resep telat jadi DIBAYAR). Bukti DUA KONEKSI sungguhan di DB dev (data uji dihap
 perbaikan → bayar kedua ditolak "sudah dibayar", 1 transaksi, ANTRI_OBAT; commit dicabut →
 **2 transaksi, status COMPLETED** (obat lunas hilang dari antrian apotek).
 
-**T4-2 Retur dari pasien bisa dibayar DUA kali + stok hantu.** Baris item dikunci
+**T4-2 ✅ DIPERBAIKI 2026-10-15 — Retur dari pasien bisa dibayar DUA kali + stok hantu.** Baris item dikunci
 (`retur_pasien_service.py:489`), tapi retur tidak mengubah baris itu (tetap DISERAHKAN);
 pagar sebenarnya `_sudah_diretur` (:91) dan `_lot_tersedia_untuk_kembali` (:97) = SELECT biasa.
 Klik ganda / dua petugas → permintaan kedua melihat "belum diretur", refund kedua penuh, stok
 +2×q, `is_sebagian` dari potret → tanpa PIN. TUKAR: dua transaksi tukar, dua potong FEFO.
 Docstring :35 mengklaim kunci mencegah ini.
+ Perbaikan: pola T4-1 — `buat_retur` menutup transaksi baca (`commit` + `expire_all`) TEPAT
+sebelum mengunci item; kunci produk & lot saat stok kembali diberi `populate_existing`.
+`proses_bayar` (T4-1) ikut diberi `expire_all` (sesi `expire_on_commit=False`).
+Uji: 1 test urutan SQL (GAGAL di kode lama). Bukti DUA KONEKSI di DB dev (data dihapus): dengan
+perbaikan → retur kedua ditolak "sudah diretur seluruhnya", 1 refund, lot 10, cache 10; commit
+dicabut → **2 refund, lot 13 (stok hantu +3), cache 10** — cache & lot berselisih karena kunci
+produk mengembalikan objek basi dari sesi (cacat kedua, kini ditutup `populate_existing`).
 
 **T4-3 Void perpanjangan/upgrade membership menghapus membership LAMA yang sudah dibayar.**
 Aktivasi menonaktifkan SEMUA history aktif lain (`membership_service.py:609`, termasuk

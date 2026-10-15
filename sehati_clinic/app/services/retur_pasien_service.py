@@ -33,7 +33,10 @@ Aturan yang dijaga di SERVER (layar bukan pagar):
 - PIN Admin/Superadmin/Owner (≠ pemroses) kalau retur SEBAGIAN (keputusan 1) atau
   transaksi asal hari lampau (aturan refund T32) — memakai pagar PIN yang sama dengan T32;
 - baris item dikunci (`with_for_update`): dua retur bersamaan atas item yang sama tidak
-  boleh sama-sama lolos cek sisa qty (Temuan 15/19/20).
+  boleh sama-sama lolos cek sisa qty (Temuan 15/19/20). ⚠ Kunci SAJA dulu tidak cukup
+  (Audit T4-2, 2026-10-15): retur tidak mengubah baris item, dan jumlah "sudah diretur"
+  dibaca SELECT biasa = potret REPEATABLE-READ dari awal permintaan. Kini transaksi baca
+  ditutup TEPAT sebelum kunci, jadi potret dibuat sesudah retur pertama commit.
 
 Uang — jalur T32, bukan jalur baru: baris `transaksi_refund` (jenis `RETUR`) dibukukan di
 HARI RETUR lewat `_refund_bukuan`; header transaksi asal TIDAK disentuh; void transaksi asal
@@ -485,6 +488,17 @@ class ReturPasienService:
         now = KasirService._now_utc7().replace(tzinfo=None)
 
         # ---- 1. Item (DIKUNCI) ------------------------------------------------
+        # Audit T4-2 (2026-10-15): tutup transaksi baca DULU. Pagar sebenarnya di bawah —
+        # `_sudah_diretur`, `_lot_tersedia_untuk_kembali` — adalah SELECT biasa, dan di
+        # REPEATABLE-READ ia membaca potret yang dibuat oleh pembacaan PERTAMA permintaan
+        # (`get_user_from_cookie`), bukan sesudah kunci. Klik ganda / dua petugas: retur
+        # kedua menunggu kunci item, lalu tetap melihat "belum diretur" → uang kembali DUA
+        # kali, stok +2×q, tanpa PIN. Terbukti dengan dua koneksi di DB dev. FOR UPDATE di
+        # bawah bukan pembacaan konsisten, jadi potret baru dibuat SESUDAH kunci didapat.
+        # `expire_all`: objek yang sudah dimuat (expire_on_commit=False) dibaca ulang.
+        # ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci item.
+        self.db.commit()
+        self.db.expire_all()
         if id_resep is not None:
             item = self.db.execute(select(KunjunganResep)
                                    .where(KunjunganResep.id_resep == id_resep)
@@ -607,12 +621,17 @@ class ReturPasienService:
                                              f"{q - sisa_kembali:g} dari {q:g} — sisanya tidak "
                                              "pernah keluar dari lot mana pun. Pilih 'tidak "
                                              "kembali ke stok'.")
+                # populate_existing (Audit T4-2): tanpa itu FOR UPDATE mengembalikan objek yang
+                # SUDAH ada di sesi (dimuat `db.get` di langkah 1) dengan angka lama — tambah 3
+                # ke angka basi menimpa retur lain. Terbukti: lot benar, cache kehilangan +3.
                 p_lock = self.db.execute(select(MasterProduk)
                                          .where(MasterProduk.id_produk == item.id_produk)
-                                         .with_for_update()).scalar_one()
+                                         .with_for_update()
+                                         .execution_options(populate_existing=True)).scalar_one()
                 for id_lot, ambil in lot_kembali:
                     lot = self.db.execute(select(StokLot).where(StokLot.id_lot == id_lot)
-                                          .with_for_update()).scalar_one()
+                                          .with_for_update()
+                                          .execution_options(populate_existing=True)).scalar_one()
                     lot.qty_sisa = float(_d(lot.qty_sisa) + ambil)
                     if lot.status == "HABIS":
                         lot.status = "AKTIF"

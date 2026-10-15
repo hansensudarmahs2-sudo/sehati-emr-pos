@@ -724,7 +724,10 @@ class KasirService:
         # Maka transaksi baca ditutup DULU: potret baru dibuat oleh SELECT biasa pertama
         # SESUDAH kunci didapat (FOR UPDATE bukan pembacaan konsisten, tidak membuat potret).
         # ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci di bawahnya.
+        # `expire_all`: sesi memakai expire_on_commit=False — objek yang sudah dimuat (mis.
+        # route memanggil get_tagihan lebih dulu) harus dibaca ulang dari potret baru.
         self.db.commit()
+        self.db.expire_all()
         _kj_kunci = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
 
         # Audit T2-3: kunjungan BATAL dulu tetap bisa dibayar (halaman tagihan yang
