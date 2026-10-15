@@ -367,17 +367,14 @@ class KasirService:
                 (t, tr) for (t, tr) in all_tindakan
                 if t.waktu_selesai is not None and t.waktu_selesai > cutoff
             ]
-            new_resep = [
-                (r, p) for (r, p) in all_resep_pending
-                if r.waktu_input is not None and r.waktu_input > cutoff
-            ]
-            # Racikan tidak punya waktu_input; created_at adalah analognya. Baris yang
-            # sudah DIBAYAR tidak akan muncul di sini (repo hanya ambil PENDING), jadi
-            # tidak ada risiko tertagih ulang.
-            new_racikan = [
-                (h, b) for (h, b) in all_racikan_pending
-                if h.created_at is not None and h.created_at > cutoff
-            ]
+            # Audit T4-1 (2026-10-15): resep & racikan PENDING = BELUM ditagih, apa pun
+            # waktunya — bayar kini hanya menandai baris yang ditagih, jadi PENDING tidak
+            # pernah berarti "sudah dibayar". Dulu disaring `waktu_input > cutoff`: resep yang
+            # masuk SELAMA bayar (waktu_input < waktu_bayar) tak pernah muncul lagi — dulu
+            # tak terasa karena ia diam-diam ikut DIBAYAR. Tindakan TETAP memakai cutoff:
+            # tindakan SELESAI tidak ditandai saat dibayar.
+            new_resep = list(all_resep_pending)
+            new_racikan = list(all_racikan_pending)
         else:
             new_tindakan = all_tindakan
             new_resep = all_resep_pending
@@ -716,8 +713,18 @@ class KasirService:
     ) -> dict:
         # P0-2 (AUDIT_SEHATI_2026-07-10): kunci baris kunjungan → serialisasi submit
         # pembayaran konkuren utk kunjungan sama. Submit kedua baru lanjut setelah yang
-        # pertama commit, sehingga get_tagihan di bawah melihat item yang sudah ter-billing
-        # (resep DIBAYAR / tindakan terpakai) → tak double-charge item yang sama.
+        # pertama commit.
+        #
+        # Audit T4-1 (2026-10-15): kunci SAJA tidak cukup. MySQL REPEATABLE-READ: SELECT
+        # biasa membaca POTRET yang dibuat pada pembacaan PERTAMA transaksi — di route itu
+        # `get_user_from_cookie`, jauh sebelum kunci ini. Submit kedua (Kasir + Admin, kunci
+        # idempotensi beda) menunggu kunci, lalu `get_tagihan` di bawah tetap melihat "belum
+        # ada transaksi" → tagihan KEDUA penuh + komisi ganda, dan status jadi COMPLETED
+        # (obat lunas hilang dari antrian apotek). Terbukti dengan dua koneksi di DB dev.
+        # Maka transaksi baca ditutup DULU: potret baru dibuat oleh SELECT biasa pertama
+        # SESUDAH kunci didapat (FOR UPDATE bukan pembacaan konsisten, tidak membuat potret).
+        # ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci di bawahnya.
+        self.db.commit()
         _kj_kunci = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
 
         # Audit T2-3: kunjungan BATAL dulu tetap bisa dibayar (halaman tagihan yang
@@ -905,10 +912,16 @@ class KasirService:
                 ))
 
             # 5. Mark resep + racikan DIBAYAR
-            n_resep_updated = self.repo.mark_resep_dibayar(payload.id_kunjungan, id_trx_baru)
+            # Audit T4-1: hanya baris yang DITAGIH di transaksi ini. Dulu "semua PENDING saat
+            # UPDATE": resep/racikan yang disimpan dokter/perawat SELAMA pembayaran (SOAP &
+            # upsell tidak mengunci kunjungan) ikut lunas tanpa ditagih. Baris yang tertinggal
+            # tetap PENDING dan muncul di tagihan susulan (lihat get_tagihan).
+            n_resep_updated = self.repo.mark_resep_dibayar(
+                payload.id_kunjungan, id_trx_baru,
+                ids=[r.id_resep for r in tagihan.rincian_produk])
             n_racikan_updated = self.repo.mark_racikan_dibayar(
-                payload.id_kunjungan, id_trx_baru
-            )
+                payload.id_kunjungan, id_trx_baru,
+                ids=[r.id_kunjungan_racikan for r in tagihan.rincian_racikan])
 
             # 6. Transition status kunjungan
             # Ada resep ATAU racikan → ANTRI_OBAT (lempar ke apotek); selain itu COMPLETED.

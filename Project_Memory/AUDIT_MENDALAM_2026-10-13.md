@@ -436,7 +436,7 @@ itu. Hanya pembacaan berkunci/UPDATE yang melihat data terbaru.
 
 ### 🔴 Berat
 
-**T4-1 Bayar: pagar P0-2 tidak mencegah tagihan ganda, dan obat bisa lunas tanpa ditagih.**
+**T4-1 ✅ DIPERBAIKI 2026-10-15 — Bayar: pagar P0-2 tidak mencegah tagihan ganda, dan obat bisa lunas tanpa ditagih.**
 `proses_bayar` mengunci kunjungan (`kasir_service.py:721`), lalu `get_tagihan`, transaksi
 terakhir, resep/racikan/tindakan PENDING, dan anti-dobel komisi dibaca SELECT biasa = potret.
 Komentar di :717 ("submit kedua melihat item yang sudah ter-billing") TIDAK benar di RR.
@@ -446,6 +446,18 @@ menimpa ANTRI_OBAT, obat lunas hilang dari antrian apotek.
 (b) `mark_resep_dibayar`/`mark_racikan_dibayar` menandai SEMUA PENDING saat UPDATE, bukan yang
 ditagih: resep/racikan yang masuk (SOAP/upsell) SELAMA pembayaran ikut DIBAYAR tanpa ditagih
 → diserahkan gratis.
+ Perbaikan:
+- `proses_bayar` menutup transaksi baca (`db.commit()`) TEPAT sebelum mengunci kunjungan →
+  potret baru dibuat SESUDAH kunci (InnoDB: FOR UPDATE bukan pembacaan konsisten).
+- `mark_resep_dibayar` / `mark_racikan_dibayar` menerima `ids` = baris yang DITAGIH.
+- `get_tagihan`: resep & racikan PENDING tidak lagi disaring `waktu_input/created_at > cutoff`
+  — PENDING kini selalu berarti "belum ditagih", jadi baris yang tertinggal muncul di tagihan
+  susulan (dulu ia hilang dari pandangan, tak terasa karena diam-diam ikut DIBAYAR). Tindakan
+  tetap memakai cutoff (tidak ditandai saat dibayar). DB dev: 0 baris PENDING di kunjungan lunas.
+Uji: 3 test (`test_audit_tahap4.py`) — 2 GAGAL di kode lama (tak ada commit sebelum kunci;
+resep telat jadi DIBAYAR). Bukti DUA KONEKSI sungguhan di DB dev (data uji dihapus): dengan
+perbaikan → bayar kedua ditolak "sudah dibayar", 1 transaksi, ANTRI_OBAT; commit dicabut →
+**2 transaksi, status COMPLETED** (obat lunas hilang dari antrian apotek).
 
 **T4-2 Retur dari pasien bisa dibayar DUA kali + stok hantu.** Baris item dikunci
 (`retur_pasien_service.py:489`), tapi retur tidak mengubah baris itu (tetap DISERAHKAN);
@@ -503,6 +515,14 @@ produk yang SAMA membuat pasien membayar "selisih". ⚠ Butuh keputusan (menguba
 **T4-11 Harga sesi 1 series menghitung SEMUA rencana dengan kunci (pasien, treatment,
 kunjungan pembuat)** (`_compute_charge` :319), tanpa status/kelompok. Series kedua untuk
 treatment sama di kunjungan sama (reopen) → sesi 1 baru ditagih N1+N2 sesi.
+
+### Keputusan dr. Hansen 2026-10-15
+- **T4-10:** diskon member produk berlaku untuk SEMUA produk (perilaku sekarang dipertahankan;
+  tanda `eligible_member_discount` & dokumen yang menyebutnya disesuaikan).
+- **T4-3:** pilihan (b) — void transaksi perpanjangan/upgrade yang SUDAH diaktifkan ditolak.
+- **K4-1:** void hari lampau = uang keluar di TANGGAL VOID (seperti refund T32).
+- **K4-2:** rantai tukar→refund dibiarkan untuk sementara, tapi wajib PIN.
+- **K4-3:** kuota bulanan yang sudah terpakai TERISI lagi saat perpanjangan — dicoba dulu.
 
 ### ⚖ Perlu keputusan kebijakan (bukan bug murni)
 

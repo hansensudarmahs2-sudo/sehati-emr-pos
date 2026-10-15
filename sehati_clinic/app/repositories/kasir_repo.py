@@ -206,17 +206,26 @@ class KasirRepository:
         ).scalar() or 0
         return int(n_resep) + int(n_racik)
 
-    def mark_racikan_dibayar(self, id_kunjungan: int, id_transaksi: int) -> int:
-        """Racikan PENDING di kunjungan ini → DIBAYAR + tautkan ke transaksinya."""
+    def mark_racikan_dibayar(self, id_kunjungan: int, id_transaksi: int,
+                             ids: Optional[list] = None) -> int:
+        """Racikan PENDING di kunjungan ini → DIBAYAR + tautkan ke transaksinya.
+
+        `ids`: HANYA baris yang benar-benar DITAGIH (Audit T4-1). Tanpa itu, racikan yang
+        disimpan dokter SELAMA pembayaran ikut lunas tanpa ditagih. `ids=[]` → 0 baris.
+        """
         from sqlalchemy import update
         from app.db.models.racikan import KunjunganRacikan
 
+        if ids is not None and not ids:
+            return 0
         stmt = (
             update(KunjunganRacikan)
             .where(KunjunganRacikan.id_kunjungan == id_kunjungan)
             .where(KunjunganRacikan.status_item == "PENDING")
             .values(status_item="DIBAYAR", id_transaksi=id_transaksi)
         )
+        if ids is not None:
+            stmt = stmt.where(KunjunganRacikan.id_kunjungan_racikan.in_(ids))
         return self.db.execute(stmt).rowcount or 0
 
     # =========================================================================
@@ -266,7 +275,8 @@ class KasirRepository:
         self.db.flush()
         return pembayaran
 
-    def mark_resep_dibayar(self, id_kunjungan: int, id_transaksi: Optional[int] = None) -> int:
+    def mark_resep_dibayar(self, id_kunjungan: int, id_transaksi: Optional[int] = None,
+                           ids: Optional[list] = None) -> int:
         """
         Update semua kunjungan_resep PENDING di kunjungan ini → DIBAYAR.
         Return count yang ter-update.
@@ -280,6 +290,11 @@ class KasirRepository:
             # tanpa ini void satu transaksi di split billing membatalkan obat transaksi lain.
             .values(status_item="DIBAYAR", id_transaksi=id_transaksi)
         )
+        # Audit T4-1: hanya resep yang DITAGIH (lihat mark_racikan_dibayar).
+        if ids is not None:
+            if not ids:
+                return 0
+            stmt = stmt.where(KunjunganResep.id_resep.in_(ids))
         result = self.db.execute(stmt)
         return result.rowcount or 0
 
