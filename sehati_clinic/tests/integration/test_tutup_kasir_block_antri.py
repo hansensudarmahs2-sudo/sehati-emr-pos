@@ -20,6 +20,10 @@ from app.services.kasir_closing_service import KasirClosingService
 @pytest.fixture
 def db():
     s = SessionLocal()
+    # Non-destruktif: tutup_kasir kini men-commit di awal (mulai_baca_segar, Audit T4-6).
+    # Dulu fixture ini memakai commit SUNGGUHAN dan perubahan test (kunjungan → ANTRI_OBAT
+    # hari ini, sesi OPEN) jadi permanen di DB dev — 2026-10-16.
+    s.commit = s.flush
     try:
         yield s
     finally:

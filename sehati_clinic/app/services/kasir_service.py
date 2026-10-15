@@ -56,6 +56,7 @@ from app.schemas.kasir import (
     TagihanResponse,
     VoidItemRequest,
 )
+from app.services._baca_segar import mulai_baca_segar
 from app.services.audit_service import AuditService
 from app.services.membership_service import MembershipService
 from app.services.komisi_service import KomisiService
@@ -726,8 +727,7 @@ class KasirService:
         # ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci di bawahnya.
         # `expire_all`: sesi memakai expire_on_commit=False — objek yang sudah dimuat (mis.
         # route memanggil get_tagihan lebih dulu) harus dibaca ulang dari potret baru.
-        self.db.commit()
-        self.db.expire_all()
+        mulai_baca_segar(self.db)   # lihat app/services/_baca_segar.py
         _kj_kunci = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
 
         # Audit T2-3: kunjungan BATAL dulu tetap bisa dibayar (halaman tagihan yang
@@ -1428,8 +1428,7 @@ class KasirService:
             _sel_k(KunjunganRacikan.id_kunjungan)
             .where(KunjunganRacikan.id_kunjungan_racikan == id_kunjungan_racikan)
         ).scalar_one_or_none()
-        self.db.commit()
-        self.db.expire_all()
+        mulai_baca_segar(self.db)   # lihat app/services/_baca_segar.py
         if _id_kj is not None:
             self.kunjungan_repo.get_by_id_for_update(_id_kj)
         if id_resep is not None:
@@ -2528,8 +2527,7 @@ class KasirService:
         ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci transaksi.
         """
         from sqlalchemy import select
-        self.db.commit()
-        self.db.expire_all()
+        mulai_baca_segar(self.db)   # lihat app/services/_baca_segar.py
         trx = self.db.execute(
             select(TransaksiKasir).where(TransaksiKasir.id_transaksi == id_transaksi)
             .with_for_update().execution_options(populate_existing=True)

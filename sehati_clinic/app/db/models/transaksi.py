@@ -12,6 +12,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     Date,
     DateTime,
     DECIMAL,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     String,
     TIMESTAMP,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -304,6 +306,13 @@ class KasirClosing(Base):
     """
 
     __tablename__ = "kasir_closing"
+    # Audit T4-6 (2026-10-16): satu sesi laci per TANGGAL dijaga DATABASE, bukan hanya
+    # "cek lalu insert" (dua klik bersamaan sama-sama lolos). Pagar ini sengaja dideklarasikan
+    # di MODEL juga — pagar yang hanya hidup di migrasi hilang dari DB `create_all()` (T34).
+    # Nama indeks dipakai KasirClosingService untuk mengenali pelanggarannya.
+    __table_args__ = (
+        UniqueConstraint("tanggal_sesi", name="ux_kasir_closing_tanggal"),
+    )
 
     id_closing: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_staf_kasir: Mapped[int] = mapped_column(
@@ -319,6 +328,11 @@ class KasirClosing(Base):
     shift_tutup: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True,
         comment="Waktu Tutup Kasir (NULL selama status OPEN)",
+    )
+    # Kolom TERHITUNG (STORED) — tidak pernah ditulis aplikasi. Migrasi 20261016_0100.
+    tanggal_sesi: Mapped[Optional[date]] = mapped_column(
+        Date, Computed("(cast(`shift_mulai` as date))", persisted=True),
+        comment="Tanggal sesi laci = DATE(shift_mulai). UNIK (Audit T4-6).",
     )
     status: Mapped[str] = mapped_column(
         String(20), default="OPEN", server_default="OPEN", nullable=False,

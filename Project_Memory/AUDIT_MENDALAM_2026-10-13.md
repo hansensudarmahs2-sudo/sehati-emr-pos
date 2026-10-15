@@ -514,9 +514,32 @@ Uji: 2 test urutan SQL (keduanya GAGAL di kode lama). Bukti DUA KONEKSI (data di
 commit saat void berjalan → dengan perbaikan void DITOLAK (sudah ada refund #…); commit di
 void dicabut → **VOID diterima, refund 1** (uang keluar dua kali).
 
-**T4-6 Buka Kasir ganda.** Cek "sudah ada sesi" (`kasir_closing_service.py:206, 219`) tanpa
+**T4-6 ✅ DIPERBAIKI 2026-10-16 — Buka Kasir ganda.** Cek "sudah ada sesi" (`kasir_closing_service.py:206, 219`) tanpa
 kunci, indeks tidak unik → dua sesi OPEN satu tanggal; satu tertinggal OPEN memblokir esok
 hari, laporan tutup kasir menghitung hari itu dua kali.
+ Perbaikan (migrasi disetujui dr. Hansen 2026-10-16): `20261016_0100` — kolom TERHITUNG
+`kasir_closing.tanggal_sesi` = DATE(shift_mulai) + indeks UNIK `ux_kasir_closing_tanggal`;
+migrasi BERHENTI bila data sudah punya dua sesi di satu tanggal (dev: 0). Pagar dideklarasikan
+di MODEL juga (pelajaran T34). `buka_kasir` mengenali pelanggaran dari NAMA indeksnya → pesan
+"sudah dibuka petugas lain"; error integritas lain tetap dilempar. `tutup_kasir` membaca sesi
+berkunci & segar. Kunci bernama MySQL (`GET_LOCK`) DITOLAK: melekat pada koneksi, yang kembali
+ke pool sesudah commit — gembok bisa tertinggal.
+Uji: 3 test (DB menolak dua sesi satu tanggal; yang kalah balapan dapat pesan rapi; tutup
+kasir berkunci) — ketiganya GAGAL di kode lama. Migrasi diuji maju-mundur di dev.
+
+⚠ **Kesalahan saya, ditemukan saat T4-6 (2026-10-16):** pola "commit di awal" (T4-1/2/5/6)
+MEN-COMMIT pekerjaan pemanggil. `test_tutup_kasir_block_antri.py` memakai sesi ber-commit
+SUNGGUHAN; perubahan ujinya (kunjungan #1 → ANTRI_OBAT hari ini, sesi kasir #306 OPEN) jadi
+permanen di DB dev. Dibereskan atas izin dr. Hansen (sesi dihapus; kunjungan #1 → COMPLETED,
+tanggal = created_at — keadaan aslinya TIDAK tercatat di mana pun, jadi tak bisa dipulihkan
+persis; kunjungan itu tanpa resep/tindakan/SOAP). Semua route pemanggil diperiksa: tidak ada
+yang menulis sebelum memanggil — alur aplikasi tidak terdampak. Perbaikan: kelima tempat kini
+memakai SATU fungsi `app/services/_baca_segar.py::mulai_baca_segar` yang MENOLAK sesi dengan
+perubahan belum di-flush dan mendokumentasikan kontraknya; fixture test itu kini flush.
+Catatan uji: `test_bayar_sesudah_tutup…` rapuh di sekitar tengah malam (sesi "2 jam lalu"
+jatuh di tanggal kemarin) dan `test_sesi_kemarin…` terhalang kunjungan "Booking Test" yang
+ditinggalkan `test_booking_service` (kebocoran yang sudah tercatat di CLAUDE.md §8) — keduanya
+gagal karena jam & data, bukan karena T4-6.
 
 **T4-7 Nota: diskon member TINDAKAN dikurangkan dua kali.** `transaksi_detail_tindakan.subtotal`
 = BERSIH (`kasir_service.py:894`), produk & racikan di nota = KOTOR. Nota menjumlah baris jadi

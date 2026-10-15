@@ -284,8 +284,10 @@ estetik internal) · tindakan · resep & racikan · apotek (termasuk tebus resep
 penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Finance
 (file-drop harian) · backup terenkripsi terjadwal.
 
-**Migrasi terakhir (dev):** `20261013_0100` — `kunjungan_resep.id_transaksi` + backfill (Audit
-T2-2, void per transaksi; `AUDIT_MENDALAM_2026-10-13.md`). **BELUM di mini PC.**
+**Migrasi terakhir (dev):** `20261016_0100` — `kasir_closing.tanggal_sesi` + indeks UNIK, satu sesi
+laci per tanggal (Audit T4-6). Sebelumnya `20261013_0100` — `kunjungan_resep.id_transaksi` + backfill
+(Audit T2-2). **Keduanya BELUM di mini PC** — `20261016_0100` berhenti sendiri bila mini PC
+punya dua sesi kasir di satu tanggal; periksa dulu sebelum deploy.
 Sebelumnya `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
 (Sehati jadi sumber No. RM Omnicare selama input ganda; `DESAIN_NO_RM_OMNICARE.md`).
 **Di mini PC sejak 2026-10-07 09:41** (backup `sehati_db_20261007_094058`). Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi

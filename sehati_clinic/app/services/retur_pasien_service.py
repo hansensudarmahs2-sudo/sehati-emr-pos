@@ -70,6 +70,7 @@ from app.db.models import (
 )
 from app.db.models.racikan import KunjunganRacikan
 from app.repositories.inventory_repo import InventoryRepository
+from app.services._baca_segar import mulai_baca_segar
 from app.services.audit_service import AuditService
 from app.services.kasir_service import KasirService
 from app.services.komisi_service import KomisiService
@@ -497,8 +498,7 @@ class ReturPasienService:
         # bawah bukan pembacaan konsisten, jadi potret baru dibuat SESUDAH kunci didapat.
         # `expire_all`: objek yang sudah dimuat (expire_on_commit=False) dibaca ulang.
         # ⚠ Jangan sisipkan SELECT biasa di antara commit ini dan kunci item.
-        self.db.commit()
-        self.db.expire_all()
+        mulai_baca_segar(self.db)   # lihat app/services/_baca_segar.py
         if id_resep is not None:
             item = self.db.execute(select(KunjunganResep)
                                    .where(KunjunganResep.id_resep == id_resep)

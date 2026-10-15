@@ -228,3 +228,80 @@ def test_refund_tertunda_mengunci_kunjungan_dulu(db):
     i_item = q.index(_berkunci(q, "kunjungan_resep")[0])
     assert i_commit < i_kj < i_item                   # dulu: kunjungan tak dikunci
     assert not [x for x in q[i_commit + 1:i_kj] if x.startswith("SELECT")]
+
+
+# ---------------------------------------------------------------- T4-6
+# Cek "sudah ada sesi hari ini" = SELECT biasa lalu INSERT, tanpa pagar unik: dua klik Buka
+# Kasir (atau Kasir + Admin) bersamaan → dua sesi OPEN satu tanggal; satu tertinggal OPEN
+# memblokir esok hari, laporan tutup kasir menghitung hari itu dua kali. Perbaikan (disetujui
+# dr. Hansen 2026-10-16): indeks UNIK `tanggal_sesi` — database sendiri yang menolak.
+def _hari_ini_kosong(db):
+    from datetime import datetime as _dt
+    from app.db.models import KasirClosing
+    if db.execute(select(KasirClosing).where(
+            KasirClosing.shift_mulai >= _dt.combine(_dt.now().date(), _dt.min.time()))).first():
+        pytest.skip("Hari ini sudah ada sesi kasir di DB dev — test ini butuh hari yang kosong.")
+
+
+def test_dua_sesi_satu_tanggal_ditolak_database(db):
+    from datetime import datetime as _dt, timedelta
+    from sqlalchemy.exc import IntegrityError
+    from app.db.models import KasirClosing
+    staf, _k = _siapkan(db)
+    tgl = _dt(2031, 1, 1, 9, 0)                      # tanggal yang pasti kosong
+    db.add(KasirClosing(id_staf_kasir=staf.id_staf, shift_mulai=tgl, status="OPEN", modal_awal=0))
+    db.flush()
+    db.add(KasirClosing(id_staf_kasir=staf.id_staf, shift_mulai=tgl + timedelta(hours=2),
+                        status="OPEN", modal_awal=0))
+    with pytest.raises(IntegrityError) as e:         # dulu: diterima
+        db.flush()
+    assert "ux_kasir_closing_tanggal" in str(e.value.orig)
+
+
+def test_buka_kasir_yang_kalah_balapan_dapat_pesan_rapi(db, monkeypatch):
+    """Permintaan kedua lolos cek (potret basi) — sesi pemenang baru saja masuk."""
+    from datetime import datetime as _dt
+    from app.db.models import KasirClosing
+    from app.services.kasir_closing_service import KasirClosingService
+    _hari_ini_kosong(db)
+    staf, _k = _siapkan(db)
+    db.add(KasirClosing(id_staf_kasir=staf.id_staf, shift_mulai=_dt.now(), status="OPEN",
+                        modal_awal=0))                # pemenang
+    db.flush()
+    svc = KasirClosingService(db)
+    monkeypatch.setattr(svc, "get_open_session", lambda *a, **k: None)
+    monkeypatch.setattr(svc, "_sesi_pada_tanggal", lambda *a, **k: None)
+    with pytest.raises(HTTPException) as e:
+        svc.buka_kasir(id_staf_kasir=staf.id_staf, modal_awal=0)
+    assert e.value.status_code == 400 and "sudah dibuka" in e.value.detail
+
+
+def test_tutup_kasir_membaca_sesi_berkunci(db):
+    from datetime import datetime as _dt, timedelta
+    from app.db.models import KasirClosing
+    from app.services.kasir_closing_service import KasirClosingService
+    staf, k = _siapkan(db)
+    k.status_antrian = "COMPLETED"; db.flush()
+    if db.execute(select(KasirClosing).where(KasirClosing.status == "OPEN")).first():
+        pytest.skip("DB dev sudah punya sesi kasir OPEN.")
+    db.add(KasirClosing(id_staf_kasir=staf.id_staf, shift_mulai=_dt(2031, 1, 2, 9, 0),
+                        status="OPEN", modal_awal=0))
+    db.flush()
+    def _tutup():
+        try:
+            KasirClosingService(db).tutup_kasir(staf.id_staf, {"TUNAI": 0})
+        except HTTPException:
+            pass            # pagar antrian DB dev boleh menolak; yang diuji urutan kuncinya
+    q = _rekam_dengan_commit(db, _tutup)
+    i_commit, i_kunci = _urutan(q, lambda x: x == "<<COMMIT>>",
+                                lambda x: "FROM kasir_closing" in x and "FOR UPDATE" in x)
+    assert i_commit < i_kunci                         # dulu: sesi dibaca tanpa kunci
+
+
+def test_baca_segar_menolak_sesi_dengan_perubahan_tertunda(db):
+    """Pola commit-di-awal tidak boleh diam-diam meng-commit pekerjaan pemanggil."""
+    from app.services._baca_segar import mulai_baca_segar
+    staf, k = _siapkan(db)
+    k.status_antrian = "ANTRI_OBAT"                   # belum di-flush
+    with pytest.raises(RuntimeError):
+        mulai_baca_segar(db)

@@ -23,10 +23,12 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import KasirClosing, TransaksiKasir, TransaksiPembayaran
 from app.repositories.staf_repo import StafRepository
+from app.services._baca_segar import mulai_baca_segar
 from app.services.audit_service import AuditService
 
 
@@ -55,11 +57,12 @@ class KasirClosingService:
     #            sesi sendiri — di DB dev 25 dari 28 transaksi diproses bukan oleh kasir.
     # `id_staf_kasir` di baris sesi kini berarti "yang MEMBUKA laci", bukan pemilik uang.
     # -------------------------------------------------------------------------
-    def get_open_session(self, id_staf_kasir: Optional[int] = None) -> Optional[KasirClosing]:
+    def get_open_session(self, id_staf_kasir: Optional[int] = None,
+                         kunci: bool = False) -> Optional[KasirClosing]:
         """Sesi laci yang masih OPEN (paling baru), siapa pun yang membukanya.
 
         `id_staf_kasir` diabaikan sejak T28 — dipertahankan agar pemanggil lama tidak
-        patah. Satu laci = satu sesi terbuka.
+        patah. Satu laci = satu sesi terbuka. `kunci=True`: FOR UPDATE + segar (tutup kasir).
         """
         stmt = (
             select(KasirClosing)
@@ -67,7 +70,18 @@ class KasirClosingService:
             .order_by(KasirClosing.id_closing.desc())
             .limit(1)
         )
+        if kunci:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return self.db.execute(stmt).scalar_one_or_none()
+
+    def _sesi_pada_tanggal(self, tgl) -> Optional[int]:
+        """id sesi (OPEN/CLOSED) yang dibuka pada tanggal `tgl`, atau None."""
+        return self.db.execute(
+            select(KasirClosing.id_closing)
+            .where(KasirClosing.shift_mulai >= datetime.combine(tgl, _time.min))
+            .where(KasirClosing.shift_mulai <= datetime.combine(tgl, _time.max))
+            .limit(1)
+        ).scalar_one_or_none()
 
     @staticmethod
     def _rentang_tanggal(sesi: KasirClosing) -> tuple:
@@ -216,12 +230,7 @@ class KasirClosingService:
             raise HTTPException(400, "Modal awal tidak boleh negatif.")
 
         now = datetime.now()
-        sudah = self.db.execute(
-            select(KasirClosing.id_closing)
-            .where(KasirClosing.shift_mulai >= datetime.combine(now.date(), _time.min))
-            .where(KasirClosing.shift_mulai <= datetime.combine(now.date(), _time.max))
-            .limit(1)
-        ).scalar_one_or_none()
+        sudah = self._sesi_pada_tanggal(now.date())
         if sudah is not None:
             raise HTTPException(
                 400,
@@ -238,7 +247,21 @@ class KasirClosingService:
             id_staf_buka=actor,
         )
         self.db.add(sesi)
-        self.db.flush()
+        # Audit T4-6 (2026-10-16): cek di atas = SELECT biasa; dua klik bersamaan sama-sama
+        # lolos. Pagar sebenarnya: indeks UNIK `ux_kasir_closing_tanggal`. Yang kalah balapan
+        # mendapat pesan yang sama dengan cek di atas. Dikenali dari NAMA indeksnya — bukan
+        # IntegrityError apa pun (pelajaran T34: pesan generik bisa berbohong).
+        try:
+            self.db.flush()
+        except IntegrityError as e:
+            if "ux_kasir_closing_tanggal" not in str(getattr(e, "orig", e)):
+                raise
+            self.db.rollback()
+            raise HTTPException(
+                400,
+                "Kasir hari ini sudah dibuka oleh petugas lain beberapa detik yang lalu. "
+                "Muat ulang halaman — satu laci, satu sesi per hari.",
+            )
         self.audit.log(
             aksi="BUKA_KASIR",
             id_staf=actor,
@@ -317,9 +340,14 @@ class KasirClosingService:
         counted_per_metode = {"TUNAI": 500000, "QRIS": 0, ...} (boleh sebagian).
         Catatan WAJIB kalau total_selisih != 0.
         """
-        sesi = self.get_open_session(id_staf_kasir)
+        # Audit T4-6: sesi dibaca BERKUNCI & segar sesudah transaksi baca ditutup (pola
+        # T4-1). Dulu klik ganda "Tutup Kasir" dua-duanya menulis (yang terakhir menang, dua
+        # entri audit) — dan perhitungan memakai potret awal permintaan.
+        mulai_baca_segar(self.db)   # lihat app/services/_baca_segar.py
+        sesi = self.get_open_session(id_staf_kasir, kunci=True)
         if sesi is None:
-            raise HTTPException(400, "Belum ada sesi kasir OPEN untuk ditutup.")
+            raise HTTPException(400, "Belum ada sesi kasir OPEN untuk ditutup "
+                                     "(mungkin baru saja ditutup petugas lain).")
 
         # HARD BLOCK (2026-07-10): tolak tutup kasir kalau masih ada pasien antri hari ini.
         # Status antri yang tertinggal tak auto-transisi → wajib diselesaikan (bayar/serah)
