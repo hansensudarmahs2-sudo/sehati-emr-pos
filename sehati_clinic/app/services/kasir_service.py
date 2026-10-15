@@ -318,12 +318,11 @@ class KasirService:
                 rencana = self.db.get(_PRT, tindakan.id_rencana)
                 if rencana is not None:
                     if rencana.urutan_sesi == 1:
-                        total_sesi = self.db.execute(
-                            _sel(_func.count(_PRT.id_rencana))
-                            .where(_PRT.id_pasien == rencana.id_pasien)
-                            .where(_PRT.id_treatment == rencana.id_treatment)
-                            .where(_PRT.id_kunjungan_pembuat == rencana.id_kunjungan_pembuat)
-                        ).scalar() or 1
+                        # Audit T4-11: anggota SERIES INI saja (app/services/_series.py). Dulu
+                        # semua rencana treatment yang sama dari kunjungan ini — dua series
+                        # di satu kunjungan → sesi 1 ditagih N1+N2 sesi.
+                        from app.services._series import jumlah_sesi as _jumlah_sesi
+                        total_sesi = _jumlah_sesi(self.db, rencana)
                         per_sesi = (
                             Decimal(str(treatment.harga_paket))
                             if treatment.harga_paket is not None
@@ -2015,17 +2014,33 @@ class KasirService:
         Return count."""
         from app.db.models import PasienRencanaTreatment, StatusRencanaTreatmentEnum
         from sqlalchemy import select
-        if not self._lingkup_void(trx)["series_pembuat"]:
+        _lk = self._lingkup_void(trx)
+        if not _lk["series_pembuat"]:
             return 0
+        _aktif = (StatusRencanaTreatmentEnum.PENDING, StatusRencanaTreatmentEnum.SCHEDULED)
         id_kunjungan = trx.id_kunjungan
-        stmt = select(PasienRencanaTreatment).where(
-            PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan,
-            PasienRencanaTreatment.status.in_([
-                StatusRencanaTreatmentEnum.PENDING,
-                StatusRencanaTreatmentEnum.SCHEDULED,
-            ]),
-        )
-        rencana_list = list(self.db.execute(stmt).scalars().all())
+        if _lk["tunggal"]:
+            # Satu transaksi di kunjungan → semua series yang lahir di sini dibayar olehnya.
+            stmt = select(PasienRencanaTreatment).where(
+                PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan,
+                PasienRencanaTreatment.status.in_(_aktif),
+            )
+            rencana_list = list(self.db.execute(stmt).scalars().all())
+        else:
+            # Audit T4-11: hanya series yang SESI 1-nya ditagih transaksi ini — dulu semua
+            # rencana kunjungan, termasuk sisa sesi series lain yang sudah lunas di transaksi
+            # lain (reopen). Anggota series: app/services/_series.py.
+            from app.db.models import KunjunganTindakan as _KT
+            from app.services._series import anggota as _anggota
+            sesi1_list = self.db.execute(
+                select(PasienRencanaTreatment)
+                .join(_KT, _KT.id_rencana == PasienRencanaTreatment.id_rencana)
+                .where(_KT.id_kunjungan_tindakan.in_(_lk["tindakan"] or {-1}))
+                .where(PasienRencanaTreatment.urutan_sesi == 1)
+                .where(PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan)
+            ).scalars().all()
+            rencana_list = [r for s1 in sesi1_list for r in _anggota(self.db, s1)
+                            if r.status in _aktif]
         for rencana in rencana_list:
             old_status = rencana.status
             rencana.status = StatusRencanaTreatmentEnum.CANCELLED

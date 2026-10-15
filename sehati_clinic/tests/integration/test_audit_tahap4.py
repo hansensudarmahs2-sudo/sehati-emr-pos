@@ -6,6 +6,7 @@ URUTAN pembacaan & penulisan yang membuat balapan itu aman — bukti dua koneksi
 terpisah di DB dev (dicatat di dokumen audit).
 """
 import secrets
+from datetime import datetime
 
 import pytest
 from fastapi import HTTPException
@@ -412,3 +413,88 @@ def test_harga_pengganti_tukar_diskon_semua_produk(db, monkeypatch):
         d["trx"], [{"id_produk": d["produk"].id_produk, "qty": 1}])
     (_p, _q, harga, sub, disk), = rows
     assert (sub, disk, total) == (D("100000.00"), D("10000.00"), D("90000.00"))  # dulu diskon 0
+
+
+# ---------------------------------------------------------------- T4-11
+# Harga sesi 1 series = per_sesi × JUMLAH rencana dengan kunci (pasien, treatment, kunjungan
+# pembuat) — tanpa pengelompokan per series. Dua series treatment yang sama di satu kunjungan
+# (SOAP berisi dua, atau reopen) → sesi 1 masing-masing ditagih N1+N2 sesi.
+def _series(db, k, tr, n, status_s1="SCHEDULED"):
+    from app.db.models import KunjunganTindakan, PasienRencanaTreatment
+    r1 = PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=tr.id_treatment, urutan_sesi=1,
+                                nama_tindakan=tr.nama_treatment, id_kunjungan_pembuat=k.id_kunjungan,
+                                status=status_s1)
+    db.add(r1); db.flush()
+    for i in range(2, n + 1):
+        db.add(PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=tr.id_treatment,
+                                      urutan_sesi=i, nama_tindakan=tr.nama_treatment,
+                                      id_kunjungan_pembuat=k.id_kunjungan, status="PENDING"))
+    db.flush()
+    kt = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
+                           id_rencana=r1.id_rencana, status_tindakan="SELESAI",
+                           waktu_selesai=datetime.now())
+    db.add(kt); db.flush()
+    return kt
+
+
+def test_harga_sesi1_series_hanya_menghitung_seriesnya_sendiri(db):
+    from decimal import Decimal as D
+    from app.db.models import MasterTreatment
+    staf, k = _siapkan(db)
+    tr = MasterTreatment(nama_treatment="ZZ Laser T4-11", harga=D("500000"), harga_paket=D("400000"),
+                         role_pelaksana="Dokter", durasi_menit=30)
+    db.add(tr); db.flush()
+    kt_a = _series(db, k, tr, 4)
+    kt_b = _series(db, k, tr, 2)
+    harga = {r.id_kunjungan_tindakan: r.harga for r in
+             KasirService(db).get_tagihan(k.id_kunjungan).rincian_tindakan}
+    assert harga[kt_a.id_kunjungan_tindakan] == D("1600000")      # 4 × 400.000 (dulu 6 ×)
+    assert harga[kt_b.id_kunjungan_tindakan] == D("800000")       # 2 × 400.000 (dulu 6 ×)
+
+
+def _dua_series(db):
+    from decimal import Decimal as D
+    from app.db.models import MasterTreatment, PasienRencanaTreatment, TransaksiDetailTindakan, TransaksiKasir
+    staf, k = _siapkan(db)
+    tr = MasterTreatment(nama_treatment="ZZ Laser T4-11b", harga=D("500000"), harga_paket=D("400000"),
+                         role_pelaksana="Dokter", durasi_menit=30)
+    db.add(tr); db.flush()
+    kt_a = _series(db, k, tr, 3)
+    kt_b = _series(db, k, tr, 2)
+    t_a = TransaksiKasir(id_kunjungan=k.id_kunjungan, id_pasien=k.id_pasien, id_staf_kasir=staf.id_staf,
+                         rincian_tagihan="uji T4-11", subtotal=1200000, nominal_diskon=0,
+                         total_tagihan=1200000, status_transaksi="BAYAR", waktu_bayar=datetime.now())
+    db.add(t_a); db.flush()
+    db.add(TransaksiDetailTindakan(id_transaksi=t_a.id_transaksi, id_kunjungan_tindakan=kt_a.id_kunjungan_tindakan,
+                                   id_treatment=tr.id_treatment, qty=1, harga_satuan=1200000,
+                                   diskon_item=0, subtotal=1200000))
+    db.flush()
+    rencana = lambda kt: db.execute(select(PasienRencanaTreatment).where(   # noqa: E731
+        PasienRencanaTreatment.id_rencana >= kt.id_rencana).where(
+        PasienRencanaTreatment.id_kunjungan_pembuat == k.id_kunjungan).order_by(
+        PasienRencanaTreatment.id_rencana)).scalars().all()
+    semua = rencana(kt_a)
+    a = [r for r in semua if r.id_rencana < kt_b.id_rencana]
+    b = [r for r in semua if r.id_rencana >= kt_b.id_rencana]
+    return staf, k, kt_a, kt_b, a, b
+
+
+def test_sesi2_series_belum_dibayar_tidak_lolos_karena_series_lain_lunas(db):
+    from app.services.series_service import SeriesService
+    _staf, _k, _kt_a, _kt_b, _a, b = _dua_series(db)
+    with pytest.raises(HTTPException):                        # dulu: lolos (sesi 1 A lunas)
+        SeriesService(db)._pagari_sesi_1_lunas(b[1])
+
+
+def test_void_hanya_membatalkan_series_yang_ditagih_transaksinya(db, monkeypatch):
+    staf, k, _kt_a, kt_b, a, b = _dua_series(db)
+    svc = KasirService(db)
+    monkeypatch.setattr(svc, "_lingkup_void", lambda trx: {
+        "tunggal": False, "resep": set(), "racikan": set(),
+        "tindakan": {kt_b.id_kunjungan_tindakan}, "series_pembuat": True})
+    trx_b = _trx_terakhir(db, k)
+    svc._cancel_series_sesi_pending(trx_b, staf.id_staf, None)
+    for r in a + b:
+        db.refresh(r)
+    assert [V(r.status) for r in a[1:]] == ["PENDING", "PENDING"]   # dulu CANCELLED (sudah lunas)
+    assert [V(r.status) for r in b] == ["CANCELLED", "CANCELLED"]

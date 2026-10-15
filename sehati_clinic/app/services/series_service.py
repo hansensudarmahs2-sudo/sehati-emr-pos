@@ -134,14 +134,11 @@ class SeriesService:
         from app.db.models import TransaksiDetailTindakan, TransaksiKasir
         if (rencana.urutan_sesi or 1) <= 1 or not rencana.id_kunjungan_pembuat:
             return
-        sesi1 = self.db.execute(
-            select(PasienRencanaTreatment)
-            .where(PasienRencanaTreatment.id_pasien == rencana.id_pasien)
-            .where(PasienRencanaTreatment.id_treatment == rencana.id_treatment)
-            .where(PasienRencanaTreatment.id_kunjungan_pembuat == rencana.id_kunjungan_pembuat)
-            .where(PasienRencanaTreatment.urutan_sesi == 1)
-            .limit(1)
-        ).scalar_one_or_none()
+        # Audit T4-11: sesi 1 SERIES INI (app/services/_series.py). Dulu `limit(1)` atas semua
+        # sesi 1 dengan kunci yang sama: dua series treatment yang sama di satu kunjungan →
+        # sesi 2 series yang BELUM dibayar lolos karena sesi 1 series lain sudah lunas.
+        from app.services._series import sesi1_dari
+        sesi1 = sesi1_dari(self.db, rencana)
         if sesi1 is None:
             return
         k = rencana.id_kunjungan_pembuat

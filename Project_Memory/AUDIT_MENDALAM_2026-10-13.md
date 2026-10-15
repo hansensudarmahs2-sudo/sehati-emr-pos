@@ -588,9 +588,21 @@ diselaraskan: harga pengganti TUKAR (`_harga_pengganti`) kini mendiskon semua pr
 "tidak dipakai untuk harga" (tetap ada, tanpa migrasi; tidak tampil di layar mana pun).
 Uji: test produk tak bertanda ditukar oleh member 10% → diskon 10.000 (GAGAL di kode lama: 0).
 
-**T4-11 Harga sesi 1 series menghitung SEMUA rencana dengan kunci (pasien, treatment,
+**T4-11 ✅ DIPERBAIKI 2026-10-16 — Harga sesi 1 series menghitung SEMUA rencana dengan kunci (pasien, treatment,
 kunjungan pembuat)** (`_compute_charge` :319), tanpa status/kelompok. Series kedua untuk
 treatment sama di kunjungan sama (reopen) → sesi 1 baru ditagih N1+N2 sesi.
+ Perbaikan: SATU definisi anggota series — `app/services/_series.py` (`sesi1_dari`,
+`jumlah_sesi`, `anggota`): rencana dengan kunci sama dari sesi 1 sampai SEBELUM sesi 1
+berikutnya (SOAP membuat satu series berurutan). Dipakai di tiga tempat yang ternyata punya
+cacat yang sama:
+- harga sesi 1 (`_compute_charge`);
+- pagar "sesi 1 lunas" (`SeriesService._pagari_sesi_1_lunas`, T2-6) — dulu `limit(1)` bisa
+  memakai sesi 1 series LAIN yang lunas → sesi 2 series yang belum dibayar dipakai gratis;
+- pembatalan sisa sesi saat void dengan >1 transaksi — dulu SEMUA rencana kunjungan, termasuk
+  series lain yang sudah lunas. (Kini praktis tak terpicu karena void ditolak bila tindakan
+  SELESAI; akan terpicu di alur bayar-dulu.)
+Uji: 3 test, ketiganya GAGAL di kode lama. DB dev: tidak ada kunjungan dengan dua series
+treatment yang sama → tidak ada harga data lama yang berubah.
 
 ### Keputusan dr. Hansen 2026-10-15
 - **T4-10:** diskon member produk berlaku untuk SEMUA produk (perilaku sekarang dipertahankan;
