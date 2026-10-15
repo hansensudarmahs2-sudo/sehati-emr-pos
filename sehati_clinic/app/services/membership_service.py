@@ -713,6 +713,32 @@ class MembershipService:
         except Exception as e:
             raise HTTPException(500, f"Gagal revert PAID->PENDING: {e!s}")
 
+    def membership_yang_digantikan(self, id_transaksi: int) -> list:
+        """History LAIN yang dinonaktifkan oleh aktivasi milik transaksi ini.
+
+        Audit T4-3 (2026-10-15): aktivasi perpanjangan/upgrade menonaktifkan SEMUA membership
+        aktif lain pasien (status EXPIRED, catatan "REPLACED oleh … (aktivasi #<id>)") dan
+        memindahkan sisa kuota TOTAL_PAKET ke history baru. `revert_active_to_pending` hanya
+        me-revert history baru — yang lama tidak pernah dipulihkan, sisa kuotanya ikut mati,
+        dan pasien jadi REGULAR. Tidak ada kolom yang mencatat apa yang digantikan; satu-
+        satunya jejak adalah teks catatan itu (ditulis `activate_membership`, format TETAP —
+        ⚠ kalau mengubah teks REPLACED di sana, ubah juga pencarian ini).
+        """
+        hist = self.db.execute(
+            select(PasienMembershipHistory)
+            .where(PasienMembershipHistory.id_transaksi_aktivasi == id_transaksi)
+            .where(PasienMembershipHistory.is_active.is_(True))
+            .limit(1)
+        ).scalar_one_or_none()
+        if hist is None:
+            return []
+        return list(self.db.execute(
+            select(PasienMembershipHistory)
+            .where(PasienMembershipHistory.id_pasien == hist.id_pasien)
+            .where(PasienMembershipHistory.id_history != hist.id_history)
+            .where(PasienMembershipHistory.catatan.like(f"%(aktivasi #{hist.id_history})%"))
+        ).scalars().all())
+
     def revert_active_to_pending(
         self,
         id_transaksi: int,

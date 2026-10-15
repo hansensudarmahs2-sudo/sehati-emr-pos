@@ -2644,6 +2644,30 @@ class KasirService:
             ),
         )
 
+    def _pagari_void_membership_pengganti(self, trx) -> None:
+        """Tolak void transaksi yang aktivasinya MENGGANTIKAN membership lain (perpanjangan /
+        upgrade yang sudah diaktifkan CS). Audit T4-3, keputusan dr. Hansen 2026-10-15
+        (pilihan b): revert hanya membatalkan history baru, membership LAMA yang sudah
+        dibayar tidak dipulihkan dan sisa kuotanya ikut mati — pasien jadi REGULAR.
+        Aktivasi pertama (tidak menggantikan apa pun) tetap boleh di-void.
+        Dipanggil di KEDUA jalur void.
+        """
+        lama = self.membership.membership_yang_digantikan(trx.id_transaksi)
+        if not lama:
+            return
+        daftar = ", ".join(f"#{h.id_history}" for h in lama[:4])
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Transaksi #{trx.id_transaksi} adalah perpanjangan/upgrade membership yang "
+                f"SUDAH diaktifkan dan menggantikan membership lama pasien ({daftar}). Void "
+                f"akan menghapus membership lama yang sudah dibayar beserta sisa kuotanya, "
+                f"jadi ditolak. Belum ada fitur pembatalan aktivasi — kalau memang harus "
+                f"dibatalkan, catat nomor transaksi & history ini dan hubungi Superadmin "
+                f"untuk koreksi manual."
+            ),
+        )
+
     def _pagari_void_sudah_refund(self, trx) -> None:
         """Tolak void bila transaksi SUDAH punya refund (T32, keputusan dr. Hansen 2026-10-05).
 
@@ -2756,6 +2780,7 @@ class KasirService:
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
         self._pagari_void_sudah_refund(trx)
+        self._pagari_void_membership_pengganti(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar
@@ -2883,6 +2908,7 @@ class KasirService:
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
         self._pagari_void_sudah_refund(trx)
+        self._pagari_void_membership_pengganti(trx)
 
         now = self._now_utc7()
         trx_dt = trx.waktu_bayar

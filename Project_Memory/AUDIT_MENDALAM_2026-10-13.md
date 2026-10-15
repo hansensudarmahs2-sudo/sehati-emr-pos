@@ -473,13 +473,27 @@ perbaikan → retur kedua ditolak "sudah diretur seluruhnya", 1 refund, lot 10, 
 dicabut → **2 refund, lot 13 (stok hantu +3), cache 10** — cache & lot berselisih karena kunci
 produk mengembalikan objek basi dari sesi (cacat kedua, kini ditutup `populate_existing`).
 
-**T4-3 Void perpanjangan/upgrade membership menghapus membership LAMA yang sudah dibayar.**
+**T4-3 ✅ DIPAGARI 2026-10-15 (pilihan b) — Void perpanjangan/upgrade membership menghapus membership LAMA yang sudah dibayar.**
 Aktivasi menonaktifkan SEMUA history aktif lain (`membership_service.py:609`, termasuk
 RENEWAL); RENEWAL memindahkan baris kuota lama ke history baru dan menambah totalnya
 (`kasir_service.py:688-694`). Void → `revert_active_to_pending` (:737) menonaktifkan semua
 kuota history itu (termasuk saldo lama) dan mencari history aktif lain (tidak ada — sudah
 EXPIRED) → pasien jadi REGULAR, kuota lama hilang. Bertentangan dengan
 `MEMBERSHIP_AKTIVASI_CS_DESIGN.md:112`. Kedua jalur void sama.
+ Perbaikan (keputusan dr. Hansen 2026-10-15, pilihan b — tanpa migrasi):
+`KasirService._pagari_void_membership_pengganti` di KEDUA jalur void → 409 bila aktivasi
+transaksi itu menggantikan membership lain. Penentunya `MembershipService.
+membership_yang_digantikan`: history lain pasien yang catatannya memuat "(aktivasi #<id>)" —
+satu-satunya jejak, ditulis `activate_membership` (⚠ format teks itu kini kontrak). Aktivasi
+pertama tetap boleh di-void. Belum ada fitur "batalkan aktivasi": pesan meminta petugas
+mencatat nomor & menghubungi Superadmin. Pilihan (a) — void memulihkan membership lama +
+sisa kuota — butuh kolom baru; belum dikerjakan.
+Ikut diperbaiki: route void (dan 8 route dokter) menempel `?err={e.detail}` MENTAH — pesan
+ber-'#' ("Transaksi #12 …", juga pesan pagar refund T32) terpotong di layar karena '#' dibaca
+sebagai fragmen URL. Kini `_q_err` (di-encode).
+Uji: 4 test (void perpanjangan ditolak — GAGAL di kode lama; aktivasi pertama tetap boleh;
+jalur hari lampau ditolak — suntikan "pagar dicabut di jalur itu" tertangkap; pesan URL
+utuh). Uji layar: **U61** di bawah.
 
 ### 🟠 Sedang
 

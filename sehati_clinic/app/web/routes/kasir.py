@@ -16,6 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
+from urllib.parse import quote as _q_url
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.core.deps import DbSession
@@ -39,6 +40,13 @@ from app.web.routes._shared import (
     require_kasir_role,
     templates,
 )
+
+
+def _q_err(detail) -> str:
+    """Pesan error untuk `?err=` — DI-ENCODE. Audit T4-3 (2026-10-15): pesan yang memuat
+    '#' ("Transaksi #123 …") dulu terpotong karena browser membaca '#' sebagai awal
+    fragmen; '&' dan '+' juga merusak."""
+    return _q_url(str(detail))
 
 
 router = APIRouter(tags=["Web Kasir"])
@@ -738,7 +746,7 @@ async def kasir_void_transaksi(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/kasir/bayar/sukses/{id_transaksi}?err={e.detail}",
+            url=f"/web/kasir/bayar/sukses/{id_transaksi}?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -797,7 +805,7 @@ def kasir_force_past_day_void(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/kasir/antrian?err={e.detail}",
+            url=f"/web/kasir/antrian?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:

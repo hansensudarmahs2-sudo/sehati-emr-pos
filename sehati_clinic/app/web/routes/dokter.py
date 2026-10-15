@@ -7,6 +7,7 @@ Antrian Dokter:
 """
 
 from fastapi import APIRouter, HTTPException, Request, status
+from urllib.parse import quote as _q_url
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.core.deps import DbSession
@@ -36,6 +37,13 @@ from app.web.routes._shared import (
     require_dokter_antrian_role,
     templates,
 )
+
+
+def _q_err(detail) -> str:
+    """Pesan error untuk `?err=` — DI-ENCODE. Audit T4-3 (2026-10-15): pesan yang memuat
+    '#' ("Transaksi #123 …") dulu terpotong karena browser membaca '#' sebagai awal
+    fragmen; '&' dan '+' juga merusak."""
+    return _q_url(str(detail))
 
 
 router = APIRouter(tags=["Web Dokter"])
@@ -1017,7 +1025,7 @@ async def dokter_alergi_tambah(
         PasienService(db).tambah_alergi(payload, id_staf=user.id_staf, request=request)
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1055,7 +1063,7 @@ async def dokter_alergi_ubah(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1084,7 +1092,7 @@ def dokter_alergi_hapus(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1126,7 +1134,7 @@ async def dokter_penyakit_kronis_tambah(
         PasienService(db).tambah_penyakit_kronis(payload, id_staf=user.id_staf, request=request)
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1160,7 +1168,7 @@ async def dokter_penyakit_kronis_ubah(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1189,7 +1197,7 @@ def dokter_penyakit_kronis_hapus(
         )
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1241,7 +1249,7 @@ async def dokter_antropometri_ubah(
         AntropometriService(db).upsert(payload, id_staf=user.id_staf, request=request)
     except HTTPException as e:
         return RedirectResponse(
-            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={e.detail}",
+            url=f"/web/dokter/kunjungan/{id_kunjungan}/soap?err={_q_err(e.detail)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except Exception as e:
@@ -1280,7 +1288,7 @@ async def dokter_penyakit_kronis_set(id_kunjungan: int, request: Request, db: Db
     try:
         PenyakitKronisService(db).set_state(int(id_pasien_str), codes, others, actor_id_staf=user.id_staf, request=request)
     except HTTPException as e:
-        return RedirectResponse(url=f"{nxt}?err={e.detail}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url=f"{nxt}?err={_q_err(e.detail)}", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as e:
         return RedirectResponse(url=f"{nxt}?err=Gagal:%20{e!s}", status_code=status.HTTP_303_SEE_OTHER)
     return RedirectResponse(url=f"{nxt}?ok=Penyakit%20kronis%20disimpan", status_code=status.HTTP_303_SEE_OTHER)

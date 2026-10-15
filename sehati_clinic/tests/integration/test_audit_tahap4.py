@@ -116,3 +116,68 @@ def test_retur_mengakhiri_potret_sebelum_mengunci_item(db):
     i_kunci = next(i for i, x in enumerate(q) if "FROM kunjungan_resep" in x and "FOR UPDATE" in x)
     assert i_commit < i_kunci                         # dulu: tak ada commit sebelum kunci
     assert not [x for x in q[i_commit + 1:i_kunci] if x.startswith("SELECT")]
+
+
+# ---------------------------------------------------------------- T4-3
+# Aktivasi perpanjangan/upgrade menonaktifkan membership LAMA dan memindahkan sisa kuotanya
+# ke history baru. Void dulu me-revert history baru saja → pasien jadi REGULAR, kuota lama
+# hilang. Keputusan dr. Hansen 2026-10-15 (pilihan b): void seperti itu DITOLAK.
+def _member(db, staf, id_pasien, aksi, id_membership=1):
+    from app.services.membership_service import MembershipService
+    m = MembershipService(db)
+    h = m.create_pending(id_pasien=id_pasien, id_membership=id_membership,
+                         actor_id_staf=staf.id_staf, action_type=aksi)
+    harga = m.bayar_membership(h.id_history, [PembayaranItem(metode_bayar="TUNAI", nominal=10**7)],
+                               staf.id_staf, idempotency_key=secrets.token_hex(8))
+    m.activate_membership(h.id_history, staf.id_staf)
+    return h, harga["id_transaksi"]
+
+
+def test_void_perpanjangan_membership_aktif_ditolak(db):
+    from app.db.models import Pasien
+    staf, k = _siapkan(db)
+    h1, _t1 = _member(db, staf, k.id_pasien, "ACTIVATION")
+    h2, t2 = _member(db, staf, k.id_pasien, "RENEWAL")
+    with pytest.raises(HTTPException) as e:
+        KasirService(db).void_transaksi(t2, "SALAH_INPUT", "uji T4-3", [], staf.id_staf)
+    assert e.value.status_code == 409
+    db.refresh(h2)
+    assert h2.is_active                                # tidak di-revert
+    assert V(db.get(Pasien, k.id_pasien).tipe_membership) == "VIP"   # dulu REGULAR
+
+
+def test_void_aktivasi_pertama_tetap_boleh(db):
+    from app.db.models import Pasien
+    staf, k = _siapkan(db)
+    h1, t1 = _member(db, staf, k.id_pasien, "ACTIVATION")
+    KasirService(db).void_transaksi(t1, "SALAH_INPUT", "uji T4-3", [], staf.id_staf)
+    db.refresh(h1)
+    assert not h1.is_active
+    assert V(db.get(Pasien, k.id_pasien).tipe_membership) == "REGULAR"
+
+
+def test_void_hari_lampau_perpanjangan_membership_juga_ditolak(db):
+    from datetime import timedelta
+    from app.db.models import TransaksiKasir
+    from app.db.models._enums import StafRoleEnum
+    staf, k = _siapkan(db)
+    _member(db, staf, k.id_pasien, "ACTIVATION")
+    _h2, t2 = _member(db, staf, k.id_pasien, "RENEWAL")
+    trx = db.get(TransaksiKasir, t2)
+    trx.waktu_bayar = trx.waktu_bayar - timedelta(days=1); db.flush()
+    with pytest.raises(HTTPException) as e:
+        KasirService(db).force_past_day_void(t2, "SALAH_INPUT", "uji T4-3", [], staf.id_staf, StafRoleEnum.SUPERADMIN)
+    assert e.value.status_code == 409
+
+
+def test_pesan_error_di_url_tidak_terpotong():
+    """Route void dulu menempel `?err={e.detail}` mentah: # memotong pesan (fragmen URL)."""
+    from urllib.parse import urlsplit
+    from starlette.datastructures import QueryParams
+    from app.web.routes.kasir import _q_err as q_kasir
+    from app.web.routes.dokter import _q_err as q_dokter
+    pesan = "Transaksi #12 menggantikan membership lama (#7, #8) & sisa kuota +3 hilang"
+    for q in (q_kasir, q_dokter):
+        url = urlsplit(f"/web/kasir/bayar/sukses/12?err={q(pesan)}")
+        assert url.fragment == ""
+        assert QueryParams(url.query)["err"] == pesan
