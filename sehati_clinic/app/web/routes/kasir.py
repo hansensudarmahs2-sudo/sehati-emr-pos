@@ -179,6 +179,8 @@ async def kasir_bayar(id_kunjungan: int, request: Request, db: DbSession):
     # saat render, BUKAN "tanpa pemeriksaan" — hanya field yang tak ada yang jadi None.
     sidik = form_data.get("sidik")
     sidik = sidik.strip() if isinstance(sidik, str) else None
+    # Bayar dulu T2-2: checkbox "dibayar di muka" (value "1"); tak dicentang = field tak terkirim.
+    konfirmasi_prabayar = form_data.get("konfirmasi_prabayar") == "1"
 
     pembayaran_items = []
     for i, metode in enumerate(metode_list):
@@ -225,6 +227,7 @@ async def kasir_bayar(id_kunjungan: int, request: Request, db: DbSession):
             keterangan_promo=keterangan_promo,
             idempotency_key=idempotency_key,
             sidik=sidik,
+            konfirmasi_prabayar=konfirmasi_prabayar,
         )
         result = KasirService(db).proses_bayar(
             payload=payload,

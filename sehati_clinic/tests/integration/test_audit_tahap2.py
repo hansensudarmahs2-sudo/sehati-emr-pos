@@ -75,12 +75,15 @@ def _tindakan_selesai(db, k, detik=5):
     db.flush()
 
 
-def _bayar(db, k, staf):
+def _bayar(db, k, staf, konfirmasi_prabayar=False):
+    # Bayar dulu T2-2: default False = perilaku lama. Test yang SENGAJA membayar tindakan yang
+    # belum dikerjakan (dibayar di muka) harus menyatakannya -- server menolak tanpa itu.
     svc = KasirService(db)
     total = svc.get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan
     pemb = [PembayaranItem(metode_bayar="TUNAI", nominal=total)] if total > 0 else []
     svc.proses_bayar(BayarRequest(id_kunjungan=k.id_kunjungan, pembayaran=pemb,
-                                  idempotency_key=secrets.token_hex(8)), staf.id_staf)
+                                  idempotency_key=secrets.token_hex(8),
+                                  konfirmasi_prabayar=konfirmasi_prabayar), staf.id_staf)
     db.refresh(k)
 
 

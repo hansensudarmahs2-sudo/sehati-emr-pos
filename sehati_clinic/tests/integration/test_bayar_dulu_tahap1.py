@@ -301,7 +301,7 @@ def test_t44_bayar_saat_tindakan_pending_tetap_di_jalur_perawat(db):
     _soap(db, k, staf)
     _tindakan_selesai(db, k, detik=-5)               # A
     b = _tindakan_baru(db, k, "PENDING")             # B
-    _bayar(db, k, staf)                              # menagih A DAN B (prabayar)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)                            # menagih A DAN B (prabayar)
     db.refresh(b)
     assert b.id_transaksi == _trx_terakhir(db, k).id_transaksi
     assert V(k.status_antrian) == "ANTRI_TREATMENT"  # dulu COMPLETED
@@ -570,7 +570,7 @@ def test_antrian_kasir_dari_item_belum_ditagih(db):
     _tindakan_selesai(db, k, detik=-5)
     _tindakan_baru(db, k, "PROSES")
     assert _di_antrian(db, k) == {"perawat", "kasir"}
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     assert V(k.status_antrian) == "ON_TREATMENT"
     assert _di_antrian(db, k) == {"perawat"}
 

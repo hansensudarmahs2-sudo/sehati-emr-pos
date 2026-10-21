@@ -228,6 +228,10 @@ class BayarRequest(BaseModel):
     # Bayar dulu T1-6: sidik himpunan item yang DILIHAT kasir di halaman tagihan
     # (`KasirService.sidik_tagihan`). None = klien tanpa halaman (API v1 lama) -> tidak diperiksa.
     sidik: Optional[str] = Field(default=None, max_length=2000)
+    # Bayar dulu T2-2: kasir menegaskan tagihan memuat tindakan yang BELUM dikerjakan (dibayar
+    # di muka). Default False -> klien lama (API v1) ditolak bila ada tindakan semacam itu;
+    # itu sengaja: persetujuan tak boleh terjadi "diam-diam" lewat nilai bawaan.
+    konfirmasi_prabayar: bool = False
 
 
 class BayarResponse(BaseModel):

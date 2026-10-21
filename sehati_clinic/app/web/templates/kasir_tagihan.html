@@ -378,7 +378,7 @@
             <tbody class="divide-y divide-slate-100">
                 {% for t in tagihan.rincian_tindakan %}
                 <tr>
-                    <td class="py-2 text-slate-700">{{ t.nama_treatment }}</td>
+                    <td class="py-2 text-slate-700">{{ t.nama_treatment }}{% if t.status_tindakan != "SELESAI" %} <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-medium">belum dikerjakan</span>{% endif %}</td>
                     <td class="py-2 text-right text-slate-700">Rp {{ "{:,.0f}".format(t.harga|float).replace(",", ".") }}</td>
                 </tr>
                 {% endfor %}
@@ -645,6 +645,7 @@
 
     {# Form bayar - hanya kalau belum lunas #}
     {% if not tagihan.sudah_lunas %}
+    {% set tindakan_prabayar = tagihan.rincian_tindakan|rejectattr("status_tindakan", "equalto", "SELESAI")|list %}
     {% set total_check = tagihan.ringkasan_biaya.total_tagihan|float %}
     {% if total_check == 0 %}
     {# Total Rp 0 — series sesi 2..N sudah lunas di sesi 1. Skip form pembayaran. #}
@@ -654,6 +655,18 @@
         <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
         <input type="hidden" name="sidik" value="{{ sidik }}">
         <input type="hidden" name="keterangan_promo" value="Lanjutan Series — lunas di sesi 1">
+        {% if tindakan_prabayar %}
+        <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-4 text-sm text-amber-900">
+            <p class="font-semibold mb-1">Tindakan berikut belum dikerjakan — dibayar di muka.</p>
+            <ul class="list-disc list-inside mb-2">
+                {% for t in tindakan_prabayar %}<li>{{ t.nama_treatment }}</li>{% endfor %}
+            </ul>
+            <label class="flex items-center gap-2 font-medium">
+                <input type="checkbox" name="konfirmasi_prabayar" value="1" required>
+                Ya, pasien membayar di muka untuk tindakan di atas
+            </label>
+        </div>
+        {% endif %}
         <div class="flex items-start gap-3">
             <div class="text-3xl">✅</div>
             <div class="flex-1">
@@ -681,6 +694,18 @@
         {{ csrf_input(request) }}
         <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
         <input type="hidden" name="sidik" value="{{ sidik }}">
+        {% if tindakan_prabayar %}
+        <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-4 text-sm text-amber-900">
+            <p class="font-semibold mb-1">Tindakan berikut belum dikerjakan — dibayar di muka.</p>
+            <ul class="list-disc list-inside mb-2">
+                {% for t in tindakan_prabayar %}<li>{{ t.nama_treatment }}</li>{% endfor %}
+            </ul>
+            <label class="flex items-center gap-2 font-medium">
+                <input type="checkbox" name="konfirmasi_prabayar" value="1" required>
+                Ya, pasien membayar di muka untuk tindakan di atas
+            </label>
+        </div>
+        {% endif %}
 
         <h3 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
             💰 Pembayaran

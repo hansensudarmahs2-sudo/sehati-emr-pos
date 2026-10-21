@@ -25,7 +25,7 @@ def test_bayar_menagih_tindakan_pending(db):
     baris = [r for r in tagihan.rincian_tindakan if r.id_kunjungan_tindakan == t.id_kunjungan_tindakan]
     assert len(baris) == 1 and baris[0].status_tindakan == "PENDING"
     assert tagihan.ringkasan_biaya.subtotal_tindakan > 0
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     db.refresh(t)
     assert t.id_transaksi == _trx_terakhir(db, k).id_transaksi
     assert V(k.status_antrian) == "ANTRI_TREATMENT"   # masih harus dikerjakan
@@ -57,7 +57,7 @@ def test_tindakan_batal_tidak_ditagih(db):
     tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
     ids = [r.id_kunjungan_tindakan for r in tagihan.rincian_tindakan]
     assert ids == [hidup.id_kunjungan_tindakan]
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     db.refresh(batal)
     assert batal.id_transaksi is None
 
@@ -74,7 +74,7 @@ def test_kondisi_K_tindakan_pending_belum_ditagih(db):
     _tindakan_baru(db, k, "PENDING")
     assert sk.ringkasan(db, k.id_kunjungan)["K"] is True
     _tindakan_baru(db, k, "BATAL")
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     assert sk.ringkasan(db, k.id_kunjungan)["K"] is False   # BATAL tidak menahan (K)
 
 
@@ -86,7 +86,7 @@ def test_view_only_menampilkan_tindakan_yang_dibayar(db):
     _tindakan_selesai(db, k, detik=-5)
     p = _tindakan_baru(db, k, "PENDING")
     batal = _tindakan_baru(db, k, "BATAL")
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
     assert tagihan.sudah_lunas is True
     status = {r.id_kunjungan_tindakan: r.status_tindakan for r in tagihan.rincian_tindakan}
@@ -139,6 +139,7 @@ def test_tindakan_dibatalkan_saat_bayar_ditolak_409(db, monkeypatch):
     t = _tindakan_baru(db, k, "PENDING")
     svc = KasirService(db)
     req = _bayar_req(svc, k)
+    req.konfirmasi_prabayar = True                    # T2-2: tagihan memuat tindakan PENDING
     asli = KasirService.get_tagihan
     kejadian = []
 
@@ -183,7 +184,7 @@ def test_series_sesi_1_prabayar_ditagih_sekali(db):
     harapan = per_sesi * jumlah_sesi(db, s1)
     tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
     assert [r.harga for r in tagihan.rincian_tindakan] == [harapan]
-    _bayar(db, k, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
     svc = TreatmentService(db)
     svc.start_tindakan(t.id_kunjungan_tindakan, staf.id_staf)
     svc.end_tindakan(t.id_kunjungan_tindakan, staf.id_staf)
@@ -196,3 +197,152 @@ def test_series_sesi_1_prabayar_ditagih_sekali(db):
     n = db.execute(select(TransaksiDetailTindakan).where(
         TransaksiDetailTindakan.id_kunjungan_tindakan == t.id_kunjungan_tindakan)).all()
     assert len(n) == 1
+
+
+# ---------------------------------------------------------------- T2-2 konfirmasi dibayar di muka
+_PESAN_PRABAYAR = ("Ada tindakan yang belum dikerjakan di tagihan ini. Centang konfirmasi "
+                   "'dibayar di muka' untuk melanjutkan.")
+
+
+def _req(svc, k, **kw):
+    import secrets
+    from app.schemas.kasir import BayarRequest, PembayaranItem
+    total = svc.get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan
+    pemb = [PembayaranItem(metode_bayar="TUNAI", nominal=total)] if total > 0 else []
+    return BayarRequest(id_kunjungan=k.id_kunjungan, pembayaran=pemb,
+                        idempotency_key=secrets.token_hex(8), **kw)
+
+
+def test_bayar_prabayar_ditolak_tanpa_konfirmasi(db):
+    import pytest
+    from fastapi import HTTPException
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_baru(db, k, "PENDING")
+    svc = KasirService(db)
+    with pytest.raises(HTTPException) as e:
+        svc.proses_bayar(_req(svc, k), staf.id_staf)           # API v1: field tak dikirim
+    assert e.value.status_code == 400 and e.value.detail == _PESAN_PRABAYAR
+    assert _trx_terakhir(db, k) is None                         # tak ada tulisan sama sekali
+
+
+def test_bayar_prabayar_diterima_dengan_konfirmasi(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PROSES")
+    svc = KasirService(db)
+    svc.proses_bayar(_req(svc, k, konfirmasi_prabayar=True), staf.id_staf)
+    db.refresh(t)
+    assert t.id_transaksi == _trx_terakhir(db, k).id_transaksi
+
+
+def test_bayar_tanpa_prabayar_tidak_butuh_konfirmasi(db):
+    """Hanya tindakan SELESAI (atau tanpa tindakan): perilaku lama, tanpa konfirmasi."""
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k)
+    svc = KasirService(db)
+    svc.proses_bayar(_req(svc, k), staf.id_staf)
+    assert _trx_terakhir(db, k) is not None
+
+
+def _masuk(c):
+    import os, re
+    hal = c.get("/web/login")
+    data = {"username": os.environ["TEST_USERNAME"], "password": os.environ["TEST_PASSWORD"]}
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', hal.text)
+    if m:
+        data["csrf_token"] = m.group(1)
+    c.post("/web/login", data=data)
+
+
+def _klien(db):
+    import os
+    import pytest
+    from fastapi.testclient import TestClient
+    from app.core.deps import get_db
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+
+    def _db():
+        yield db
+    app.dependency_overrides[get_db] = _db
+    return TestClient(app, follow_redirects=False), app, get_db
+
+
+def test_layar_kasir_memuat_kotak_dan_centang_di_kedua_form(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_baru(db, k, "PENDING")
+    c, app, get_db = _klien(db)
+    try:
+        _masuk(c)
+        r = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+        assert r.status_code == 200
+        if 'name="idempotency_key"' not in r.text:
+            import pytest
+            pytest.skip("akun uji tidak berhak melihat form bayar")
+        assert "Tindakan berikut belum dikerjakan — dibayar di muka." in r.text
+        assert r.text.count('name="konfirmasi_prabayar"') == 1 and "belum dikerjakan</span>" in r.text
+        # Form Rp 0: tindakan prabayar harga 0 -> pakai treatment gratis bila ada.
+        from sqlalchemy import update
+        from app.db.models import MasterTreatment
+        t0 = KunjunganTindakan  # noqa: F841
+        # Rp 0 dicapai lewat harga snapshot nol: ubah harga treatment di sesi test (rollback).
+        tr_id = db.execute(select(KunjunganTindakan.id_treatment).where(
+            KunjunganTindakan.id_kunjungan == k.id_kunjungan)).scalar_one()
+        db.execute(update(MasterTreatment).where(MasterTreatment.id_treatment == tr_id)
+                   .values(harga=0, harga_paket=0)); db.flush()
+        r0 = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+        assert "Tidak Ada Tagihan" in r0.text
+        assert r0.text.count("name=\"konfirmasi_prabayar\"") == 1
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_layar_kasir_tanpa_prabayar_tidak_memuat_kotak(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k)
+    c, app, get_db = _klien(db)
+    try:
+        _masuk(c)
+        r = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+        assert r.status_code == 200
+        assert 'name="konfirmasi_prabayar"' not in r.text
+        assert "dibayar di muka" not in r.text
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_route_bayar_tanpa_centang_redirect_error_dan_dengan_centang_lolos(db):
+    from urllib.parse import quote
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_baru(db, k, "PENDING")
+    svc = KasirService(db)
+    total = svc.get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan
+    c, app, get_db = _klien(db)
+    try:
+        _masuk(c)
+        hal = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+        if 'name="idempotency_key"' not in hal.text:
+            import pytest
+            pytest.skip("akun uji tidak berhak membayar")
+        import re
+        csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', hal.text)
+        form = {"metode_bayar": "TUNAI", "nominal": str(total), "sidik": svc.sidik_tagihan(
+            svc.get_tagihan(k.id_kunjungan))}
+        if csrf:
+            form["csrf_token"] = csrf.group(1)
+        r = c.post(f"/web/kasir/tagihan/{k.id_kunjungan}/bayar", data=form)
+        assert r.status_code == 303
+        assert r.headers["location"].endswith("?err=" + quote(_PESAN_PRABAYAR))
+        assert _trx_terakhir(db, k) is None
+        r2 = c.post(f"/web/kasir/tagihan/{k.id_kunjungan}/bayar",
+                    data={**form, "konfirmasi_prabayar": "1"})
+        assert r2.status_code == 303 and "/bayar/sukses/" in r2.headers["location"]
+        assert _trx_terakhir(db, k) is not None
+    finally:
+        app.dependency_overrides.pop(get_db, None)

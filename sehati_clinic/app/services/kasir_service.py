@@ -799,6 +799,17 @@ class KasirService:
                 detail=self._PESAN_TAGIHAN_BERUBAH,
             )
 
+        # Bayar dulu T2-2: tindakan yang belum dikerjakan ikut ditagih (dibayar di muka). Server
+        # menolak tanpa konfirmasi -- centang di halaman saja bisa dilewati klien lain. Diletakkan
+        # sesudah sidik (data segar, terkunci) dan sebelum tulisan apa pun.
+        if (any(t.status_tindakan != "SELESAI" for t in tagihan.rincian_tindakan)
+                and not payload.konfirmasi_prabayar):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=("Ada tindakan yang belum dikerjakan di tagihan ini. Centang konfirmasi "
+                        "'dibayar di muka' untuk melanjutkan."),
+            )
+
         total_tagihan = tagihan.ringkasan_biaya.total_tagihan
         total_bayar = sum((p.nominal for p in payload.pembayaran), Decimal("0"))
 
