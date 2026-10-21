@@ -306,9 +306,11 @@ def test_sesudah_tukar_transaksi_asal_dan_pengganti_tetap_terlacak(db):
     h2 = _retur(db, d, qty=1, id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
     assert h2["nilai"] == 100000                                   # dari penjualan ASLI
     ry = db.execute(select(KunjunganResep).where(KunjunganResep.id_produk == y.id_produk)).scalar_one()
+    # K4-2 (2026-10-21): uang kembali atas obat PENGGANTI hasil tukar kini wajib PIN.
     h3 = ReturPasienService(db).buat_retur(
         id_resep=ry.id_resep, jenis="REFUND", alasan_kode="TIDAK_PUAS", alasan_teks="uji",
-        stok_kembali=True, actor_id_staf=d["kasir"].id_staf)
+        stok_kembali=True, actor_id_staf=d["kasir"].id_staf,
+        id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
     assert h3["nilai"] == 250000                                   # dari transaksi TUKAR
 
 

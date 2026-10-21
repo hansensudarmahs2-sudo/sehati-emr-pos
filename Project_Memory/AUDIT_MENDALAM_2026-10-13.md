@@ -640,8 +640,13 @@ treatment yang sama → tidak ada harga data lama yang berubah.
   omzet hari asal turun & hari void tetap); semua pembaca sepakat di hari asal & hari void
   (suntikan "satu pembaca lama" tertangkap); migrasi mengisi + aman dijalankan ulang; layar
   dirender lewat aplikasi (sesi test di-rollback). Uji layar **U62**.
-- **K4-2 Rantai tukar→refund:** X ditukar Y (komisi X tetap, keputusan 3), lalu Y dikembalikan
+- **K4-2 ✅ DIKERJAKAN 2026-10-21 (wajib PIN) — Rantai tukar→refund:** X ditukar Y (komisi X tetap, keputusan 3), lalu Y dikembalikan
   uang → komisi X tetap AKTIF. Setiap tukar memulai ulang batas 7 hari (`waktu_serah=now`).
+  **Keputusan dr. Hansen:** dibiarkan untuk sementara, tapi WAJIB PIN. Dikerjakan: `buat_retur` —
+  retur jenis REFUND atas item yang transaksi asalnya berjenis TUKAR (obat pengganti) memakai
+  pagar PIN T32 (penyetuju ≠ pemroses), sebab "Uang kembali atas obat PENGGANTI hasil tukar".
+  Tukar ulang tetap tanpa PIN. Komisi X & batas 7 hari TIDAK diubah. Uji: 3 test (2 GAGAL di kode
+  lama); `test_sesudah_tukar_…` disesuaikan (kini memakai PIN). Uji layar **U72**.
 - **K4-3 Kuota BULANAN** mulai penuh lagi saat perpanjangan/upgrade di tengah bulan.
 
 ### 🟡 Ringan

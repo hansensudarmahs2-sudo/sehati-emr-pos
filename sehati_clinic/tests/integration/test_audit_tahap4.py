@@ -681,3 +681,55 @@ def test_layar_void_lampau_meminta_penyetuju_dan_pin(db):
     assert 'name="id_staf_otorisasi"' in r.text and 'name="pin_otorisasi"' in r.text
     assert f'value="{sup.id_staf}"' in r.text                 # penyetuju lain ditawarkan
     assert "dicatat KELUAR HARI INI" in r.text
+
+
+# ---------------------------------------------------------------- K4-2 tukar lalu refund
+# Keputusan dr. Hansen 2026-10-15: rantai "tukar lalu uang kembali" dibiarkan (komisi obat
+# asal tetap, batas 7 hari mulai ulang dari serah pengganti), TAPI wajib PIN penyetuju ≠
+# pemroses — uang keluar atas obat pengganti, yang asalnya sudah pernah dikembalikan sekali.
+def _sudah_ditukar(db):
+    from app.db.models import KunjunganResep
+    from tests.integration.test_retur_pasien import PIN, _produk_y, _retur, _setup
+    d = _setup(db)
+    y, _ = _produk_y(db, "250000")
+    _retur(db, d, jenis="TUKAR", qty=1, metode_refund="TUNAI",
+           pengganti=[{"id_produk": y.id_produk, "qty": 1}],
+           id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
+    ry = db.execute(select(KunjunganResep).where(KunjunganResep.id_produk == y.id_produk)).scalar_one()
+    return d, ry
+
+
+def _retur_pengganti(db, d, ry, **kw):
+    from app.services.retur_pasien_service import ReturPasienService
+    arg = dict(id_resep=ry.id_resep, jenis="REFUND", alasan_kode="TIDAK_PUAS",
+               alasan_teks="uji K4-2", stok_kembali=True, actor_id_staf=d["kasir"].id_staf)
+    arg.update(kw)
+    return ReturPasienService(db).buat_retur(**arg)
+
+
+def test_refund_obat_pengganti_tukar_tanpa_pin_ditolak(db):
+    d, ry = _sudah_ditukar(db)
+    with pytest.raises(HTTPException) as e:
+        _retur_pengganti(db, d, ry)
+    assert e.value.status_code == 401                     # dulu: diterima tanpa penyetuju
+    assert "tukar" in e.value.detail.lower()
+
+
+def test_refund_obat_pengganti_tukar_dengan_pin_orang_lain(db):
+    from app.db.models import TransaksiRefund
+    from tests.integration.test_retur_pasien import PIN
+    d, ry = _sudah_ditukar(db)
+    h = _retur_pengganti(db, d, ry, id_staf_otorisasi=d["admin"].id_staf, pin_otorisasi=PIN)
+    assert h["nilai"] == 250000
+    ref = db.execute(select(TransaksiRefund).where(TransaksiRefund.id_resep == ry.id_resep)).scalar_one()
+    assert ref.id_staf_otorisasi == d["admin"].id_staf
+
+
+def test_tukar_ulang_obat_pengganti_tidak_butuh_pin(db):
+    """Yang diwajibkan PIN hanya UANG kembali; tukar ke produk lain tetap seperti sebelumnya."""
+    from tests.integration.test_retur_pasien import _produk_y
+    d, ry = _sudah_ditukar(db)
+    z, _ = _produk_y(db, "250000")
+    h = _retur_pengganti(db, d, ry, jenis="TUKAR", metode_refund="TUNAI",
+                         pengganti=[{"id_produk": z.id_produk, "qty": 1}])
+    assert h["nilai"] == 250000

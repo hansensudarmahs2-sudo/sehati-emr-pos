@@ -608,9 +608,18 @@ class ReturPasienService:
         hari_lampau = trx.waktu_bayar is not None and not KasirService._is_same_calendar_day_utc7(
             trx.waktu_bayar, KasirService._now_utc7())
         id_penyetuju = None
-        if is_sebagian or hari_lampau:
+        # K4-2 (keputusan dr. Hansen 2026-10-15): UANG kembali atas obat PENGGANTI hasil tukar
+        # (transaksi asalnya berjenis TUKAR) wajib PIN penyetuju ≠ pemroses. Rantai tukar →
+        # uang kembali dibiarkan untuk sementara (komisi obat asal tetap; batas 7 hari mulai
+        # ulang dari serah pengganti), tapi tidak lagi tanpa empat mata. Tukar ulang tetap
+        # tanpa PIN — yang dijaga uang keluar, bukan pertukaran barang.
+        refund_pengganti = (not is_tukar
+                            and str(getattr(trx, "jenis_transaksi", "") or "").upper() == "TUKAR")
+        if is_sebagian or hari_lampau or refund_pengganti:
             sebab = ("Retur SEBAGIAN" if is_sebagian else
-                     f"Transaksi dibayar {trx.waktu_bayar:%d/%m/%Y} (hari lampau). Retur")
+                     f"Transaksi dibayar {trx.waktu_bayar:%d/%m/%Y} (hari lampau). Retur"
+                     if hari_lampau else
+                     "Uang kembali atas obat PENGGANTI hasil tukar —")
             id_penyetuju = self.kasir._otorisasi_refund_lampau(
                 trx=trx, label=label, actor_id_staf=actor_id_staf,
                 id_staf_otorisasi=id_staf_otorisasi, pin_otorisasi=pin_otorisasi,
