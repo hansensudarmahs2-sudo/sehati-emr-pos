@@ -151,6 +151,8 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | U67 | Bayar dulu T1: tutup kasir saat ada kunjungan hari ini yang menggantung (belum ditagih/belum selesai) | Tetap ditolak dengan daftar kunjungan yang menahan | — | ⏳ belum diuji di layar (logikanya ditutup test tahap 1) |
 | U68 | Bayar dulu T1 (Ruling 10): pasien sedang KONSULTASI (belum SOAP) | Perawat MASIH melihat pasien itu di daftarnya dan bisa membuka form upsell tindakan | — | ⏳ belum diuji di layar (logikanya ditutup test tahap 1) |
 | U69 | Bayar dulu T1 (Ruling 9): apotek klik Tunda pada pasien yang tindakannya masih berjalan | Tunda diterima (meja apotek menampilkan pasien itu, jadi bisa menangani obatnya); `tgl_janji_kirim` terpasang, tindakan tidak terganggu | — | ⏳ belum diuji di layar (logikanya ditutup test tahap 1) |
+| U70 | Bayar dulu T1 (Ruling 12): konsul/obat sudah dibayar, pasien MENOLAK tindakan yang belum dikerjakan → perawat isi alasan lalu klik ✗ Batalkan di halaman tindakan | Tindakan jadi Batal, kuota member kembali, pasien hilang dari antrian perawat, kunjungan COMPLETED → **tutup kasir bisa**. Tindakan yang SUDAH dibayar tidak punya tombol Batalkan; tindakan PROSES/SELESAI ditolak | — | ⏳ belum diuji di layar (logikanya ditutup test tahap 1) |
+| U71 | Bayar dulu T1 (I6): kasir membuka antrian bayar untuk pasien yang tindakan lainnya masih PENDING/berjalan | Baris pasien memuat penanda kuning "⏳ tindakan belum selesai" (akan ada tagihan susulan); pasien tanpa tindakan tersisa tidak bertanda | — | ⏳ belum diuji di layar (logikanya ditutup test tahap 1) |
 
 ## F. Pengamatan — temuan yang SENGAJA belum diperbaiki (lihat saja, jangan dianggap gagal)
 
