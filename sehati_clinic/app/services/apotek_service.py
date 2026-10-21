@@ -391,7 +391,18 @@ class ApotekService:
         # Task #54: setelah serah SEBAGIAN kunjungan sudah COMPLETED, tapi sisa itemnya
         # masih perlu bisa dijadwalkan ulang. Yang menentukan bukan status kunjungan,
         # melainkan apakah masih ada item DIBAYAR yang belum diserahkan.
-        if kunjungan.status_antrian not in ("ANTRI_OBAT", "COMPLETED"):
+        # Ruling 9 (bayar dulu T1-5): pintu tunda menerima kunjungan yang SAMA dengan
+        # antrian apotek — bukan BATAL dan (O) benar (obat DIBAYAR belum diserahkan,
+        # tanpa janji) — di samping ANTRI_OBAT/COMPLETED yang lama. Tanpa ini apoteker
+        # melihat pasien di antriannya (mis. masih ditindak, label ON_TREATMENT) tapi
+        # tombol Tunda ditolak. Statusnya dihitung ulang dari isi di bawah (tindakan
+        # yang masih jalan tetap ON_TREATMENT).
+        from app.services._status_kunjungan import ringkasan as ringkasan_status
+        _boleh_tunda = kunjungan.status_antrian != "BATAL" and (
+            kunjungan.status_antrian in ("ANTRI_OBAT", "COMPLETED")
+            or ringkasan_status(self.db, id_kunjungan)["O"]
+        )
+        if not _boleh_tunda:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 f"Kunjungan '{kunjungan.status_antrian}' tidak bisa ditunda.",

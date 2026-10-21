@@ -149,8 +149,21 @@ def kondisi_ada_isi():
 # Kunci dict = `badge_status` di app/web/menu.py — JANGAN diganti tanpa mengubah menu.
 # Dokter TIDAK di sini: antrian dokter tetap membaca label (spec §3.3).
 # ---------------------------------------------------------------------------------
+def kondisi_meja_perawat():
+    """Antrian perawat = (T) ATAU label KONSULTASI (Ruling 10, bayar dulu T1-5).
+
+    Kenapa label KONSULTASI ikut (satu-satunya label di antrian meja): tautan "Kerjakan"
+    di antrian perawat adalah SATU-SATUNYA pintu ke form upsell perawat. Pasien yang
+    sedang konsultasi tampil di sana supaya perawat bisa menambahkan tindakan PERTAMA
+    selama konsultasi — saat itu belum ada tindakan, jadi (T) saja tidak akan
+    menampilkannya. Membuang klausa ini = perawat kehilangan jalan masuk ke upsell.
+    ANTRI_KONSULTASI sengaja TIDAK (TODO-NEW-4/DEC-063: pasien belum dipanggil dokter).
+    """
+    return or_(kondisi_T(), Kunjungan.status_antrian == "KONSULTASI")
+
+
 KONDISI_MEJA = {
-    "ANTRI_TREATMENT": kondisi_T,   # perawat: tindakan PENDING/PROSES
+    "ANTRI_TREATMENT": kondisi_meja_perawat,  # perawat: tindakan PENDING/PROSES, atau sedang konsul
     "ANTRI_BAYAR": kondisi_K,       # kasir: ada yang belum ditagih
     "ANTRI_OBAT": kondisi_O,        # apotek: obat DIBAYAR, belum diserahkan, tanpa janji
 }

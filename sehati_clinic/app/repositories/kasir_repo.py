@@ -73,6 +73,10 @@ class KasirRepository:
                 select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
                 .where(KunjunganTindakan.id_kunjungan == kunjungan.id_kunjungan)
                 .where(KunjunganTindakan.status_tindakan == "SELESAI")
+                # Bayar dulu T1-5: hanya yang BISA DITAGIH (belum punya transaksi) —
+                # arti yang sama dengan (K). Dulu tagihan susulan ikut menghitung
+                # tindakan yang sudah lunas.
+                .where(KunjunganTindakan.id_transaksi.is_(None))
             ).scalar() or 0
             n_resep = self.db.execute(
                 select(func.count(KunjunganResep.id_resep))

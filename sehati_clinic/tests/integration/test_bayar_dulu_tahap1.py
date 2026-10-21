@@ -576,7 +576,59 @@ def test_antrian_kasir_tindakan_selesai_sebelum_soap(db):
     hitung_ulang_status(db, k.id_kunjungan)
     db.refresh(k)
     assert V(k.status_antrian) == "KONSULTASI"
-    assert _di_antrian(db, k) == {"kasir"}
+    # Perawat juga: label KONSULTASI tetap di antrian perawat (Ruling 10).
+    assert _di_antrian(db, k) == {"kasir", "perawat"}
+
+
+def test_antrian_perawat_tetap_menampilkan_konsultasi_tanpa_tindakan(db):
+    """Ruling 10: tautan Kerjakan di antrian perawat satu-satunya pintu ke form upsell —
+    pasien yang sedang konsul (belum ada tindakan) harus tetap tampil."""
+    staf, k = _siapkan(db, "KONSULTASI")
+    assert _di_antrian(db, k) == {"perawat"}
+    staf, k2 = _siapkan(db, "ANTRI_KONSULTASI")
+    assert _di_antrian(db, k2) == set()          # belum dipanggil dokter (DEC-063)
+
+
+def test_tunda_saat_label_on_treatment(db):
+    """Ruling 9: obat lunas + tindakan PROSES (label ON_TREATMENT) tampil di apotek, jadi
+    Tunda harus diterima. Dulu ditolak 400 ("tidak bisa ditunda")."""
+    from datetime import date
+    from app.services.apotek_service import ApotekService
+    staf, k, r, _ = _obat_lunas_lalu_tindakan(db, "PROSES")
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    janji = date.today() + timedelta(days=2)
+    ApotekService(db).tunda_serah_obat(k.id_kunjungan, janji, "uji", staf.id_staf)
+    db.refresh(k); db.refresh(r)
+    assert k.tgl_janji_kirim == janji
+    assert V(r.status_item) == "DIBAYAR"
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    assert _di_antrian(db, k) == {"perawat"}     # keluar dari apotek → Obat Tertunda
+
+
+def test_tunda_ditolak_untuk_kunjungan_batal(db):
+    from datetime import date
+    from fastapi import HTTPException
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db, "BATAL")
+    _isi(db, k, staf, soap=True, resep=["DIBAYAR"], bayar=True)
+    with pytest.raises(HTTPException) as e:
+        ApotekService(db).tunda_serah_obat(k.id_kunjungan, date.today(), None, staf.id_staf)
+    assert e.value.status_code == 400
+
+
+def test_hitungan_tindakan_kasir_hanya_yang_bisa_ditagih(db):
+    """Kolom jumlah tindakan di antrian kasir = tindakan SELESAI tanpa transaksi (arti K);
+    dulu tagihan susulan ikut menghitung tindakan yang sudah lunas."""
+    from datetime import date
+    from app.repositories.kasir_repo import KasirRepository
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    _tindakan_selesai(db, k, detik=5)                # susulan
+    baris = [r for r in KasirRepository(db).list_antrian_bayar(today=date.today())
+             if r[0].id_kunjungan == k.id_kunjungan]
+    assert len(baris) == 1 and baris[0][2] == 1
 
 
 def test_antrian_perawat_tindakan_series_sebelum_konsultasi(db):
@@ -622,6 +674,7 @@ def test_lencana_meja_sama_dengan_panjang_antrian(db):
     _soap(db, k, staf)
     _tindakan_selesai(db, k, detik=-5)
     _tindakan_baru(db, k, "PROSES")
+    _siapkan(db, "KONSULTASI")                       # Ruling 10: lencana ikut menghitungnya
     hari_ini = date.today()
     n = hitung_antrian_meja(db, hari_ini)
     assert n["ANTRI_TREATMENT"] == len(TreatmentRepository(db).list_antrian_ruang_tindakan(today=hari_ini))

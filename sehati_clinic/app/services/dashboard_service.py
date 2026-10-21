@@ -171,7 +171,7 @@ class DashboardService:
         return {
             "role": "Perawat",
             "kpi": [
-                {"label": "Antrian Tindakan", "value": self._count_antrian_status(today, "ANTRI_TREATMENT"), "icon": "💉", "color": "purple"},
+                {"label": "Antrian Tindakan", "value": self._count_meja(today, "ANTRI_TREATMENT"), "icon": "💉", "color": "purple"},
                 {"label": "Sedang Dikerjakan", "value": self._count_antrian_status(today, "ON_TREATMENT"), "icon": "⏳", "color": "amber"},
                 {"label": "Tindakan PENDING", "value": self._count_tindakan_status(today, "PENDING"), "icon": "📋", "color": "blue"},
                 {"label": "Tindakan SELESAI Hari Ini", "value": self._count_tindakan_status(today, "SELESAI"), "icon": "✅", "color": "emerald"},
@@ -343,15 +343,12 @@ class DashboardService:
         ).scalar() or 0)
 
     def _count_meja(self, today: date, meja: str) -> int:
-        """Bayar dulu T1-5: jumlah antrian kasir/apotek dari ISI kunjungan — kondisi yang
-        sama dengan daftar layarnya (`_status_kunjungan.hitung_antrian_meja`). Dulu
-        menghitung label ANTRI_BAYAR/ANTRI_OBAT, sehingga kartu dashboard bisa berkata 0
-        sementara layar kasir/apotek berisi pasien yang sedang ditindak.
-        Kartu perawat dibiarkan membaca label (rinciannya "antri" vs "dikerjakan"):
-        ANTRI_TREATMENT + ON_TREATMENT = (T) untuk kunjungan ber-SOAP, karena (T)
-        prioritas tertinggi di `status_seharusnya`. ⚠ Kunjungan PRA-SOAP yang punya
-        tindakan (sesi series di ANTRI_KONSULTASI, Ruling 8) tampil di layar & lencana
-        perawat tapi TIDAK di kartu ini — labelnya sengaja tidak disentuh."""
+        """Bayar dulu T1-5: jumlah antrian perawat/kasir/apotek dari ISI kunjungan —
+        kondisi yang sama dengan daftar layarnya DAN lencana menu
+        (`_status_kunjungan.hitung_antrian_meja`). Dulu menghitung label, sehingga kartu
+        bisa berkata 0 sementara layar berisi pasien (mis. obat lunas saat ditindak).
+        Kartu perawat "Sedang Dikerjakan" tetap label ON_TREATMENT: ia rincian (tindakan
+        PROSES menghasilkan ON_TREATMENT di kunjungan ber-SOAP), bukan antrian."""
         from app.services._status_kunjungan import hitung_antrian_meja
         return hitung_antrian_meja(self.db, today)[meja]
 

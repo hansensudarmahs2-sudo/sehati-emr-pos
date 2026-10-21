@@ -133,7 +133,8 @@ class TreatmentRepository:
     ) -> list[tuple[Kunjungan, Pasien, int, int]]:
         """
         List antrian perawat — kunjungan hari ini (bukan BATAL) yang PUNYA tindakan
-        PENDING/PROSES (`kondisi_T`), apa pun labelnya.
+        PENDING/PROSES (`kondisi_T`) apa pun labelnya, ATAU berlabel KONSULTASI
+        (`kondisi_meja_perawat`, Ruling 10).
 
         Bayar dulu T1-5 (spec §3.3): dulu membaca label KONSULTASI / ANTRI_TREATMENT /
         ON_TREATMENT. Akibatnya (a) pasien yang obatnya sudah lunas tapi tindakannya
@@ -141,14 +142,15 @@ class TreatmentRepository:
         kunjungan ANTRI_KONSULTASI (Ruling 8, label sengaja tidak dipindah) tak pernah
         sampai ke perawat. Sekarang satu pasien boleh tampil di perawat DAN apotek/kasir.
 
-        ⚠ KONSULTASI tanpa tindakan TIDAK lagi tampil ("situational awareness" lama):
-        tombol Kerjakan-nya kosong, alasan yang sama dengan pencabutan ANTRI_KONSULTASI
-        (TODO-NEW-4, DEC-063). Jangan kembalikan dengan menambah label ke saringan —
-        tambahkan isinya ke `_status_kunjungan` kalau memang perlu.
+        KONSULTASI tanpa tindakan TETAP tampil: tautan "Kerjakan" di sini satu-satunya
+        pintu ke form upsell perawat — perawat menambah tindakan PERTAMA selama
+        konsultasi. Alasannya ditulis di `kondisi_meja_perawat`; jangan menambah label
+        lain di sini — ubah fungsi itu supaya lencana menu ikut (lencana = daftar).
+        ANTRI_KONSULTASI tetap tidak tampil (TODO-NEW-4, DEC-063).
 
         Return list of (Kunjungan, Pasien, count_pending, count_proses).
         """
-        from app.services._status_kunjungan import kondisi_T, saringan_meja_hari_ini
+        from app.services._status_kunjungan import kondisi_meja_perawat, saringan_meja_hari_ini
         if today is None:
             today = date.today()
 
@@ -156,7 +158,7 @@ class TreatmentRepository:
             select(Kunjungan, Pasien)
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
             .where(saringan_meja_hari_ini(today))
-            .where(kondisi_T())
+            .where(kondisi_meja_perawat())
             .order_by(Kunjungan.nomor_antrean.asc())
         )
         rows = self.db.execute(stmt).all()
