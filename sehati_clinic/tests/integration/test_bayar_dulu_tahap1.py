@@ -113,7 +113,7 @@ def test_tindakan_lunas_tidak_ditagih_ulang(db):
 # Modul `_status_kunjungan`: isi kunjungan -> status. Baris dimasukkan langsung (bukan lewat
 # service) supaya yang diuji murni definisi (T)/(K)/(O), bukan alur penulisnya.
 def _isi(db, k, staf, *, soap=False, tindakan=(), resep=(), racikan=(), bayar=False,
-         janji=False):
+         janji=False, status_trx="BAYAR"):
     from app.db.models import (KunjunganResep, MasterProduk, MasterTreatment,
                                PemeriksaanKlinis, StatusItemResepEnum, TransaksiKasir)
     from app.db.models.racikan import KunjunganRacikan
@@ -124,7 +124,7 @@ def _isi(db, k, staf, *, soap=False, tindakan=(), resep=(), racikan=(), bayar=Fa
     if bayar:
         trx = TransaksiKasir(id_kunjungan=k.id_kunjungan, id_pasien=k.id_pasien,
                              id_staf_kasir=staf.id_staf, rincian_tagihan="uji", subtotal=0,
-                             nominal_diskon=0, total_tagihan=0, status_transaksi="BAYAR")
+                             nominal_diskon=0, total_tagihan=0, status_transaksi=status_trx)
         db.add(trx); db.flush()
     tr = db.execute(select(MasterTreatment).where(MasterTreatment.harga > 0).limit(1)).scalar_one()
     for st in tindakan:
@@ -168,6 +168,8 @@ KASUS_STATUS = [
     ("semua lunas dan diserahkan", "ANTRI_OBAT",
      dict(soap=True, resep=["DISERAHKAN"], racikan=["DISERAHKAN"], bayar=True), "COMPLETED"),
     ("SOAP tanpa item tanpa transaksi", "ANTRI_KONSULTASI", dict(soap=True), "ANTRI_BAYAR"),
+    ("SOAP + satu transaksi VOID + resep BATAL", "ANTRI_BAYAR",
+     dict(soap=True, resep=["BATAL"], bayar=True, status_trx="VOID"), "COMPLETED"),
     ("SOAP tanpa item sudah dibayar", "ANTRI_BAYAR", dict(soap=True, bayar=True), "COMPLETED"),
     ("obat dibayar + tgl_janji_kirim", "ANTRI_BAYAR",
      dict(soap=True, resep=["DIBAYAR"], bayar=True, janji=True), "COMPLETED"),

@@ -24,8 +24,9 @@ Catatan arti:
   - Resep DITUNDA ("sisakan") BUKAN tersisa untuk (K): ia diurus modul Obat Tertunda.
   - Obat DIBAYAR yang `tgl_janji_kirim`-nya terisi bukan (O): jalur obat tertunda
     sengaja DIBAYAR + COMPLETED + tgl_janji_kirim (lihat test T2-1).
-  - (K) juga benar bila sudah ada SOAP FINAL dan belum ada transaksi BAYAR sama sekali:
-    konsultasi tanpa item pun tetap ditagih (biaya konsul).
+  - (K) juga benar bila sudah ada SOAP FINAL dan belum ada transaksi kasir SAMA SEKALI
+    (status apa pun): konsultasi tanpa item pun tetap ditagih (biaya konsul). Transaksi
+    VOID berarti kasir sudah pernah menangani kunjungan ini.
   - Tahap 1 hanya menagih tindakan SELESAI; PENDING/PROSES masuk (T), bukan (K).
 
 Tidak ada commit di sini; pemanggil memegang kunci/transaksi.
@@ -103,8 +104,12 @@ def kondisi_K():
     obat_pending = _item_obat(StatusItemResepEnum.PENDING, "PENDING")
     belum_pernah_ditagih = and_(
         kondisi_ada_soap(),
-        ~_ada(TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan,
-              TransaksiKasir.status_transaksi == "BAYAR"))
+        # Transaksi berstatus APA PUN dihitung, termasuk VOID: kunjungan yang satu-satunya
+        # transaksinya di-void (resep/racikan jadi BATAL, SOAP tetap FINAL) sudah ditangani
+        # kasir; kalau dihitung "belum ditagih" ia balik ke antrian kasir dan memblokir
+        # tutup kasir. Susulan sesudah void tetap tertangkap klausa lain (resep/racikan
+        # PENDING, tindakan SELESAI tanpa id_transaksi).
+        ~_ada(TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan))
     return or_(tindakan_belum_ditagih, obat_pending, belum_pernah_ditagih)
 
 
@@ -121,7 +126,8 @@ def kondisi_ada_isi():
                       KunjunganTindakan.status_tindakan != StatusTindakanEnum.BATAL)),
         _resep(or_(KunjunganResep.status_item.is_(None),
                    KunjunganResep.status_item != StatusItemResepEnum.BATAL)),
-        _racikan(KunjunganRacikan.status_item != _BATAL),
+        _racikan(or_(KunjunganRacikan.status_item.is_(None),
+                     KunjunganRacikan.status_item != _BATAL)),
     )
 
 
