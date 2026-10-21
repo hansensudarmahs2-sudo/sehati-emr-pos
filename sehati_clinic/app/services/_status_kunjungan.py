@@ -28,6 +28,10 @@ Catatan arti:
     (status apa pun): konsultasi tanpa item pun tetap ditagih (biaya konsul). Transaksi
     VOID berarti kasir sudah pernah menangani kunjungan ini.
   - Tahap 1 hanya menagih tindakan SELESAI; PENDING/PROSES masuk (T), bukan (K).
+  - "Jangan disentuh" (None) hanya untuk kunjungan yang BELUM BERISI apa pun: tanpa SOAP
+    FINAL, tanpa item hidup, DAN tanpa transaksi kasir (status apa pun). Kunjungan yang
+    isinya habis karena void (item BATAL + transaksi VOID) dihitung biasa → COMPLETED.
+    (Ruling 7, bayar dulu T1-4 — menyempurnakan klarifikasi §3.2.)
 
 Tidak ada commit di sini; pemanggil memegang kunci/transaksi.
 """
@@ -109,7 +113,7 @@ def kondisi_K():
         # kasir; kalau dihitung "belum ditagih" ia balik ke antrian kasir dan memblokir
         # tutup kasir. Susulan sesudah void tetap tertangkap klausa lain (resep/racikan
         # PENDING, tindakan SELESAI tanpa id_transaksi).
-        ~_ada(TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan))
+        ~kondisi_ada_transaksi())
     return or_(tindakan_belum_ditagih, obat_pending, belum_pernah_ditagih)
 
 
@@ -117,6 +121,11 @@ def kondisi_O():
     """Ada obat sudah dibayar tapi belum diserahkan (antrian apotek)."""
     return and_(_item_obat(StatusItemResepEnum.DIBAYAR, "DIBAYAR"),
                 Kunjungan.tgl_janji_kirim.is_(None))
+
+
+def kondisi_ada_transaksi():
+    """Ada transaksi kasir berstatus APA PUN (VOID = kasir sudah menangani)."""
+    return _ada(TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan)
 
 
 def kondisi_ada_isi():
@@ -134,10 +143,10 @@ def kondisi_ada_isi():
 def ringkasan(db: Session, id_kunjungan: int) -> dict:
     baris = db.execute(
         select(kondisi_T_proses(), kondisi_T_pending(), kondisi_K(), kondisi_O(),
-               kondisi_ada_isi(), kondisi_ada_soap())
+               kondisi_ada_isi(), kondisi_ada_soap(), kondisi_ada_transaksi())
         .select_from(Kunjungan).where(Kunjungan.id_kunjungan == id_kunjungan)
     ).one_or_none()
-    kunci = ("T_proses", "T_pending", "K", "O", "ada_isi", "ada_soap")
+    kunci = ("T_proses", "T_pending", "K", "O", "ada_isi", "ada_soap", "ada_transaksi")
     if baris is None:
         return {k: False for k in kunci}
     return {k: bool(v) for k, v in zip(kunci, baris)}
@@ -151,7 +160,11 @@ def status_seharusnya(db: Session, id_kunjungan: int) -> Optional[str]:
     if status is None or status == _BATAL:
         return None
     r = ringkasan(db, id_kunjungan)
-    if not r["ada_soap"] and not r["ada_isi"]:
+    # "Belum berisi apa pun" = tanpa SOAP, tanpa item hidup, DAN belum pernah ke kasir.
+    # Syarat transaksi (Ruling 7, Task 4): kunjungan beli produk yang satu-satunya
+    # transaksinya di-void (resep jadi BATAL) BUKAN kunjungan kosong — tanpa syarat ini
+    # ia tertinggal ANTRI_OBAT selamanya; begitu pula kunjungan MEMBERSHIP_ONLY lama.
+    if not r["ada_soap"] and not r["ada_isi"] and not r["ada_transaksi"]:
         return None
     if status in _STATUS_TANPA_SOAP_DIBIARKAN and not r["ada_soap"]:
         return None

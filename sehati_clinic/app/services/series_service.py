@@ -270,10 +270,15 @@ class SeriesService:
             # 2. Update rencana status PENDING → SCHEDULED
             rencana.status = StatusRencanaTreatmentEnum.SCHEDULED
 
-            # 3. Transition kunjungan ke ANTRI_TREATMENT (kalau belum maju)
-            INITIAL_STATES = ("ANTRI_KONSULTASI", "KONSULTASI")
-            if status_lama_kunj in INITIAL_STATES:
-                kunjungan.status_antrian = "ANTRI_TREATMENT"
+            # 3. Status kunjungan dari isinya (bayar dulu T1-4). Tindakan baru PENDING →
+            # ANTRI_TREATMENT (ON_TREATMENT bila ada yang sedang PROSES).
+            # ⚠ Berubah: dulu ANTRI_KONSULTASI/KONSULTASI TANPA SOAP juga dipindah ke
+            # ANTRI_TREATMENT — pasien yang didaftarkan untuk konsul hilang dari antrian
+            # dokter. Kini status pra-SOAP tidak disentuh (spec §3.2); jalur "lanjut series"
+            # dari FO membuat kunjungan langsung ANTRI_TREATMENT, jadi tidak terdampak.
+            self.db.flush()
+            from app.services._status_kunjungan import hitung_ulang_status
+            hitung_ulang_status(self.db, id_kunjungan)
 
             # 4. Audit
             self.audit.log(

@@ -197,11 +197,16 @@ class TreatmentService:
                 waktu_mulai=now,
             )
 
-            # Transition kunjungan ke ON_TREATMENT (kalau belum)
+            # Status kunjungan dari isinya (bayar dulu T1-4). Ada tindakan PROSES → fungsi
+            # menghasilkan ON_TREATMENT, sama dengan paksaan lama — tapi kini lewat satu
+            # definisi, bukan tebakan di sini.
             kunjungan = self.kunjungan_repo.get_by_id(tindakan.id_kunjungan)
             status_kunjungan_lama = kunjungan.status_antrian if kunjungan else None
-            if kunjungan and kunjungan.status_antrian != "ON_TREATMENT":
-                self.kunjungan_repo.update_status(kunjungan, "ON_TREATMENT")
+            status_kunjungan_baru = status_kunjungan_lama
+            if kunjungan:
+                self.db.flush()
+                from app.services._status_kunjungan import hitung_ulang_status
+                status_kunjungan_baru = hitung_ulang_status(self.db, kunjungan.id_kunjungan)
 
             # K-L0 (komisi, DEC-087): rekam pelaksana untuk atribusi komisi.
             # - Operator dokter → dia = pelaksana dokter (komisi_dokter).
@@ -232,14 +237,14 @@ class TreatmentService:
                 },
                 request=request,
             )
-            if kunjungan and status_kunjungan_lama != "ON_TREATMENT":
+            if kunjungan and status_kunjungan_baru != status_kunjungan_lama:
                 self.audit.log(
                     aksi="STATUS_UPDATE",
                     id_staf=id_staf_pelaksana,
                     tabel_target="kunjungan",
                     id_target=tindakan.id_kunjungan,
                     data_lama={"status_antrian": status_kunjungan_lama},
-                    data_baru={"status_antrian": "ON_TREATMENT"},
+                    data_baru={"status_antrian": status_kunjungan_baru},
                     keterangan="Auto-transition saat tindakan pertama di-start.",
                     request=request,
                 )
@@ -325,14 +330,18 @@ class TreatmentService:
                 id_staf=id_staf_history,
             )
 
-            # 3. SMART CHECK — masih ada tindakan PENDING/PROSES?
-            sisa = self.treatment_repo.count_tindakan_aktif(tindakan.id_kunjungan)
-            status_kunjungan_baru = None
-            if sisa == 0:
-                kunjungan = self.kunjungan_repo.get_by_id(tindakan.id_kunjungan)
-                if kunjungan:
-                    self.kunjungan_repo.update_status(kunjungan, "ANTRI_BAYAR")
-                    status_kunjungan_baru = "ANTRI_BAYAR"
+            # 3. Status kunjungan dari isinya (bayar dulu T1-4). Dulu: "tak ada tindakan
+            # PENDING/PROSES lagi → ANTRI_BAYAR" TANPA SYARAT — walau tindakan ini sudah
+            # lunas lebih dulu (bayar dulu) dan yang tersisa hanya obat lunas di apotek.
+            # Sekarang: tindakan SELESAI tanpa id_transaksi → (K) ANTRI_BAYAR; masih ada
+            # tindakan lain → tetap di ruang tindakan; tak ada yang tersisa → maju.
+            kunjungan = self.kunjungan_repo.get_by_id(tindakan.id_kunjungan)
+            status_kunjungan_lama = kunjungan.status_antrian if kunjungan else None
+            status_kunjungan_baru = status_kunjungan_lama
+            if kunjungan:
+                self.db.flush()
+                from app.services._status_kunjungan import hitung_ulang_status
+                status_kunjungan_baru = hitung_ulang_status(self.db, kunjungan.id_kunjungan)
 
             # 4. AUDIT
             self.audit.log(
@@ -348,28 +357,29 @@ class TreatmentService:
                 },
                 request=request,
             )
-            if status_kunjungan_baru:
+            if kunjungan and status_kunjungan_baru != status_kunjungan_lama:
                 self.audit.log(
                     aksi="STATUS_UPDATE",
                     id_staf=id_staf_pelaksana,
                     tabel_target="kunjungan",
                     id_target=tindakan.id_kunjungan,
-                    data_lama={"status_antrian": "ON_TREATMENT"},
-                    data_baru={"status_antrian": "ANTRI_BAYAR"},
-                    keterangan="Auto-transition: semua tindakan selesai.",
+                    data_lama={"status_antrian": status_kunjungan_lama},
+                    data_baru={"status_antrian": status_kunjungan_baru},
+                    keterangan="Auto-transition: tindakan selesai (status dihitung dari isi kunjungan).",
                     request=request,
                 )
 
             self.db.commit()
             self.db.refresh(tindakan)
 
+            _lanjutan = {
+                "ANTRI_BAYAR": "Semua tindakan selesai — pasien ke Kasir.",
+                "ANTRI_OBAT": "Semua tindakan selesai & sudah lunas — pasien ke Apotek.",
+                "COMPLETED": "Semua tindakan selesai & sudah lunas.",
+            }
             message = (
                 "Tindakan selesai. BHP terpotong & tercatat di kartu stok. "
-                + (
-                    "Semua tindakan selesai — pasien ke Kasir."
-                    if status_kunjungan_baru == "ANTRI_BAYAR"
-                    else "Masih ada tindakan lain yang tertunda."
-                )
+                + _lanjutan.get(status_kunjungan_baru, "Masih ada tindakan lain yang tertunda.")
             )
             return {
                 "status": "success",

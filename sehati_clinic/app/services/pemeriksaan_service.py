@@ -333,32 +333,20 @@ class PemeriksaanService:
                 jumlah_resep += 1
 
             # ----- 5. UPDATE STATUS KUNJUNGAN -----
-            # Auto-transition logic — anti-regression untuk Ubah Konsul:
-            # - Status ANTRI_KONSULTASI/KONSULTASI → maju ke ANTRI_TREATMENT/ANTRI_BAYAR
-            # - Status sudah lebih maju (ANTRI_TREATMENT/ON_TREATMENT/ANTRI_BAYAR/
-            #   ANTRI_OBAT) → JANGAN regress. Dokter sedang Ubah SOAP setelah workflow
-            #   sudah berjalan, jangan kacaukan perawat/kasir/apoteker.
-            # - Audit log tetap capture (siapa+kapan+is_edit) untuk traceability.
+            # Bayar dulu T1-4: status = ringkasan isi kunjungan, dihitung SATU fungsi
+            # (`_status_kunjungan.hitung_ulang_status`). Dulu di sini ada tiga cabang
+            # tangan: pra-SOAP → ANTRI_TREATMENT/ANTRI_BAYAR, FLOW-D Opsi C (DEC-050)
+            # ANTRI_OBAT/ANTRI_BAYAR + tindakan baru → ANTRI_TREATMENT, selain itu "status
+            # tetap". Ketiganya kini jatuh dari aturan (T)/(K)/(O): tindakan baru PENDING
+            # → ANTRI_TREATMENT; resep baru PENDING → ANTRI_BAYAR (dulu "tetap ANTRI_OBAT",
+            # resep susulan tak terlihat kasir). Batas reopen DEC-051 dan tolakan
+            # COMPLETED/BATAL di atas TIDAK berubah.
             status_lama = kunjungan.status_antrian
             INITIAL_STATES = ("ANTRI_KONSULTASI", "KONSULTASI")
-            # FLOW-D Opsi C (DEC-050): dokter tambah tindakan baru ke kunjungan
-            # yang sudah ANTRI_OBAT/ANTRI_BAYAR → auto-revert ke ANTRI_TREATMENT
-            # supaya perawat lihat di antrian. Kasir akan bikin transaksi baru
-            # untuk items belum berbayar (snapshot waktu_bayar lama).
-            REVERTABLE_STATES = ("ANTRI_OBAT", "ANTRI_BAYAR")
-            if status_lama in INITIAL_STATES:
-                status_baru = "ANTRI_TREATMENT" if ada_single_hari_ini else "ANTRI_BAYAR"
-                self.kunjungan_repo.update_status(kunjungan, status_baru)
-                is_edit_after_workflow = False
-            elif status_lama in REVERTABLE_STATES and jumlah_single > 0:
-                # Dokter tambah tindakan baru padahal kunjungan sudah maju → revert
-                status_baru = "ANTRI_TREATMENT"
-                self.kunjungan_repo.update_status(kunjungan, status_baru)
-                is_edit_after_workflow = True
-            else:
-                # Edit mode — status tetap, no regression
-                status_baru = status_lama
-                is_edit_after_workflow = True
+            is_edit_after_workflow = status_lama not in INITIAL_STATES
+            self.db.flush()   # SOAP + item baru harus terbaca oleh fungsi
+            from app.services._status_kunjungan import hitung_ulang_status
+            status_baru = hitung_ulang_status(self.db, payload.id_kunjungan)
 
             # ----- 6. AUDIT — sebelum commit -----
             # SOAP create (catat counter & ids, BUKAN isi anamnesa/diagnosa raw — PII medis)
@@ -392,7 +380,7 @@ class PemeriksaanService:
                 keterangan=(
                     "Auto-transition setelah dokter input medis selesai."
                     if not is_edit_after_workflow
-                    else f"Dokter ubah SOAP saat status {status_lama} (no regression — status tetap)."
+                    else f"Dokter ubah SOAP saat status {status_lama} (status dihitung ulang dari isi kunjungan)."
                 ),
                 request=request,
             )

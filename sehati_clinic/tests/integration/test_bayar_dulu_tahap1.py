@@ -179,6 +179,11 @@ KASUS_STATUS = [
      dict(soap=True, resep=["BATAL"], tindakan=["BATAL"], bayar=True), "COMPLETED"),
     ("tanpa SOAP, ada item (apotek)", "ANTRI_OBAT", dict(resep=["PENDING"]), "ANTRI_BAYAR"),
     # None = jangan disentuh
+    # Ruling 7: isi habis karena void ≠ kunjungan kosong (beli produk yang di-void).
+    ("tanpa SOAP, resep BATAL + transaksi VOID", "ANTRI_OBAT",
+     dict(resep=["BATAL"], bayar=True, status_trx="VOID"), "COMPLETED"),
+    ("tanpa SOAP, tanpa item, sudah dibayar (MEMBERSHIP_ONLY lama)", "ANTRI_BAYAR",
+     dict(bayar=True), "COMPLETED"),
     ("tanpa SOAP tanpa isi", "ANTRI_TREATMENT", dict(), None),
     ("tanpa SOAP, hanya item BATAL", "ANTRI_TREATMENT", dict(resep=["BATAL"]), None),
     ("BATAL", "BATAL", dict(soap=True, resep=["PENDING"]), None),
@@ -216,7 +221,7 @@ def test_ringkasan_kunci_dan_nilai(db):
     _isi(db, k, staf, soap=True, tindakan=["PROSES", "PENDING"], resep=["DIBAYAR"], bayar=True)
     assert sk.ringkasan(db, k.id_kunjungan) == {
         "T_proses": True, "T_pending": True, "K": False, "O": True,
-        "ada_isi": True, "ada_soap": True}
+        "ada_isi": True, "ada_soap": True, "ada_transaksi": True}
 
 
 def test_draf_apoteker_bukan_soap(db):
@@ -260,3 +265,200 @@ def test_kondisi_bisa_dipakai_di_where(db, nama):
     ids = set(db.execute(select(Kunjungan.id_kunjungan).where(
         Kunjungan.id_kunjungan.in_([ya.id_kunjungan, tidak.id_kunjungan]), kond())).scalars())
     assert ids == {ya.id_kunjungan}
+
+
+# ---------------------------------------------------------------- T1-4
+# Semua penulis status otomatis lewat `hitung_ulang_status`. Memakai service SEBENARNYA
+# (bayar, mulai/selesai tindakan, upsell, void) — yang diuji alurnya, bukan tabelnya.
+def _soap(db, k, staf):
+    from app.db.models import PemeriksaanKlinis
+    db.add(PemeriksaanKlinis(id_kunjungan=k.id_kunjungan, id_pasien=k.id_pasien,
+                             id_staf_dokter=staf.id_staf, status_soap="FINAL"))
+    db.flush()
+
+
+def _tindakan_baru(db, k, status="PENDING"):
+    from app.db.models import MasterTreatment
+    tr = db.execute(select(MasterTreatment).where(MasterTreatment.harga > 0).limit(1)).scalar_one()
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr.id_treatment,
+                          status_tindakan=status,
+                          waktu_mulai=datetime.now() if status == "PROSES" else None)
+    db.add(t); db.flush()
+    return t
+
+
+def test_t44_bayar_saat_tindakan_pending_tetap_di_jalur_perawat(db):
+    """Audit T4-4: bayar saat tindakan B masih PENDING dulu membuat kunjungan COMPLETED,
+    sehingga B hilang dari layar perawat dan tak pernah tertagih."""
+    from app.services.treatment_service import TreatmentService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k, detik=-5)               # A
+    b = _tindakan_baru(db, k, "PENDING")             # B
+    _bayar(db, k, staf)                              # menagih A saja
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"  # dulu COMPLETED
+    svc = TreatmentService(db)
+    svc.start_tindakan(b.id_kunjungan_tindakan, staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    hasil = svc.end_tindakan(b.id_kunjungan_tindakan, staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ANTRI_BAYAR"
+    assert hasil["data"]["status_kunjungan_baru"] == "ANTRI_BAYAR"
+    _bayar(db, k, staf)                              # susulan: B
+    db.refresh(b)
+    assert b.id_transaksi == _trx_terakhir(db, k).id_transaksi
+    assert V(k.status_antrian) == "COMPLETED"
+
+
+def test_selesai_tindakan_sesudah_lunas_dan_obat_menunggu(db):
+    """Obat lunas belum diserahkan + tindakan susulan → kasir dulu, lalu KEMBALI ke apotek
+    (T2-1 kini tercakup (O) di fungsi bersama, bukan cabang khusus di proses_bayar)."""
+    from tests.integration.test_audit_tahap2 import _resep
+    from app.services.treatment_service import TreatmentService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    assert V(k.status_antrian) == "ANTRI_OBAT"
+    t = _tindakan_baru(db, k, "PROSES")
+    TreatmentService(db).end_tindakan(t.id_kunjungan_tindakan, staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ANTRI_BAYAR"
+    _bayar(db, k, staf)
+    db.refresh(r)
+    assert V(r.status_item) == "DIBAYAR"
+    assert V(k.status_antrian) == "ANTRI_OBAT"
+
+
+def _upsell_produk(db, k, staf):
+    from app.db.models import MasterProduk
+    from app.schemas.treatment import UpsellRequest
+    from app.services.upsell_service import UpsellService
+    p = db.execute(select(MasterProduk).where(MasterProduk.is_active.is_(True))
+                   .where(MasterProduk.harga_jual > 0).limit(1)).scalar_one()
+    return UpsellService(db).submit_upsell(
+        UpsellRequest(id_kunjungan=k.id_kunjungan, tipe_item="PRODUK", id_item=p.id_produk),
+        staf.id_staf)
+
+
+def test_upsell_produk_tidak_meninggalkan_on_treatment(db):
+    """Dulu upsell PRODUK memaksa ON_TREATMENT tanpa tindakan aktif — tak ada penulis lain
+    yang memajukannya, kunjungan tersangkut di ruang tindakan dan produknya tak tertagih."""
+    staf, k = _siapkan(db, "ANTRI_BAYAR")
+    _soap(db, k, staf)
+    hasil = _upsell_produk(db, k, staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ANTRI_BAYAR"
+    assert hasil["data"]["status_kunjungan"] == "ANTRI_BAYAR"
+
+
+def test_upsell_tindakan_ke_antrian_perawat(db):
+    from tests.integration.test_audit_tahap2 import _upsell, _treatment_tanpa_otorisasi
+    staf, k = _siapkan(db, "ANTRI_BAYAR")
+    _soap(db, k, staf)
+    _upsell(db, k, staf, _treatment_tanpa_otorisasi(db))
+    db.refresh(k)
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"   # PENDING, belum dimulai
+
+
+def test_void_satu_satunya_transaksi_hari_ini_tetap_completed(db):
+    """Ruling 6: transaksi VOID = kasir sudah menangani; kunjungan tidak kembali ke kasir."""
+    from tests.integration.test_audit_tahap2 import _resep, _void
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    assert V(k.status_antrian) == "ANTRI_OBAT"
+    _void(db, _trx_terakhir(db, k).id_transaksi, staf)
+    db.refresh(r); db.refresh(k)
+    assert V(r.status_item) == "BATAL"
+    assert V(k.status_antrian) == "COMPLETED"
+
+
+# Penulis `kunjungan.status_antrian` yang SAH di luar fungsi bersama. Daftar EKSPLISIT
+# (berkas, fungsi): menambah penulis baru = menambah baris di sini DENGAN alasannya.
+PENULIS_STATUS_SAH = {
+    ("app/services/_status_kunjungan.py", "hitung_ulang_status"),   # satu-satunya penulis otomatis
+    ("app/repositories/kunjungan_repo.py", "update_status"),        # alat tulisnya sendiri
+    # Dropdown FO: transisi pra-SOAP & BATAL (Task 7). Helper BATAL-nya
+    # (`_pagari_batal`, `_bereskan_batal`) tidak menulis status sendiri.
+    ("app/services/kunjungan_service.py", "ubah_status"),
+}
+# Pembuat kunjungan BARU (`Kunjungan(status_antrian=...)`): status awal, belum ada isi untuk
+# dihitung. Route `web/routes/pasien.py`, `web/routes/pendaftaran.py` dan check-in
+# `booking_service` hanya mengisi `KunjunganLamaRequest.status_antrian` lalu lewat
+# `kunjungan_lama` — jadi yang tercatat di sini konstruktornya.
+PEMBUAT_KUNJUNGAN_SAH = {
+    ("app/services/kunjungan_service.py", "kunjungan_lama"),        # daftar biasa / booking / series
+    ("app/services/kunjungan_service.py", "beli_produk_lengkap"),   # kunjungan beli produk
+    ("app/services/pasien_service.py", "register_pasien_baru"),     # pasien baru + kunjungan
+    ("app/services/membership_service.py", "create_kunjungan_billing"),  # warisan pra-M2
+    ("app/services/retur_pasien_service.py", "_buat_kunjungan_alergi"),  # kunjungan RETUR_PASIEN
+}
+
+
+def _penulis_status_di(path, rel):
+    import ast
+    pohon = ast.parse(path.read_text(encoding="utf-8"))
+    tulis, buat = [], []
+
+    def jalan(node, fungsi):
+        for anak in ast.iter_child_nodes(node):
+            f = anak.name if isinstance(anak, (ast.FunctionDef, ast.AsyncFunctionDef)) else fungsi
+            if isinstance(anak, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = anak.targets if isinstance(anak, ast.Assign) else [anak.target]
+                if any(isinstance(t, ast.Attribute) and t.attr == "status_antrian" for t in targets):
+                    tulis.append((rel, f, anak.lineno))
+            if isinstance(anak, ast.Call):
+                if (isinstance(anak.func, ast.Attribute) and anak.func.attr == "update_status"
+                        # Opname/PO juga punya `update_status` — entitas lain.
+                        and "kunjungan" in ast.unparse(anak.func.value).lower()):
+                    tulis.append((rel, f, anak.lineno))
+                if (isinstance(anak.func, ast.Name) and anak.func.id == "setattr"
+                        and any(isinstance(a, ast.Constant) and a.value == "status_antrian"
+                                for a in anak.args)):
+                    tulis.append((rel, f, anak.lineno))
+                if (isinstance(anak.func, ast.Name) and anak.func.id == "Kunjungan"
+                        and any(kw.arg == "status_antrian" for kw in anak.keywords)):
+                    buat.append((rel, f, anak.lineno))
+            jalan(anak, f)
+
+    jalan(pohon, None)
+    return tulis, buat
+
+
+def test_tidak_ada_penulis_status_liar():
+    akar = pathlib.Path(__file__).parents[2]
+    tulis, buat = [], []
+    for path in sorted((akar / "app").rglob("*.py")):
+        rel = path.relative_to(akar).as_posix()
+        t, b = _penulis_status_di(path, rel)
+        tulis += t
+        buat += b
+    liar = [t for t in tulis if (t[0], t[1]) not in PENULIS_STATUS_SAH]
+    assert liar == [], f"Penulis status kunjungan di luar hitung_ulang_status: {liar}"
+    pembuat_liar = [b for b in buat if (b[0], b[1]) not in PEMBUAT_KUNJUNGAN_SAH]
+    assert pembuat_liar == [], f"Pembuat kunjungan baru yang belum terdaftar: {pembuat_liar}"
+    # Pemindai benar-benar melihat sesuatu: kalau pola AST-nya rusak, daftar kosong dan
+    # dua assert di atas lulus tanpa arti.
+    assert {(t[0], t[1]) for t in tulis} == PENULIS_STATUS_SAH
+    assert {(b[0], b[1]) for b in buat} == PEMBUAT_KUNJUNGAN_SAH
+
+
+@pytest.mark.parametrize("awal,harapan", [("ANTRI_KONSULTASI", "ANTRI_KONSULTASI"),
+                                          ("ANTRI_TREATMENT", "ANTRI_TREATMENT")])
+def test_pakai_sesi_series_status_dari_isi(db, awal, harapan):
+    """Ruling 8: kunjungan pra-SOAP TIDAK dipindah (dulu ANTRI_KONSULTASI → ANTRI_TREATMENT,
+    pasien hilang dari antrian dokter); antrian perawat Task 5 membaca tindakan PENDING
+    langsung. Jalur FO 'lanjut series' membuat kunjungan ANTRI_TREATMENT → tetap di sana."""
+    from tests.integration.test_audit_tahap2 import _series, _kunjungan_baru
+    from app.services.series_service import SeriesService
+    staf, k = _siapkan(db)
+    s2 = _series(db, staf, k)
+    _bayar(db, k, staf)
+    k2 = _kunjungan_baru(db, k, staf)
+    k2.status_antrian = awal; db.flush()
+    SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
+    db.refresh(k2)
+    assert V(k2.status_antrian) == harapan

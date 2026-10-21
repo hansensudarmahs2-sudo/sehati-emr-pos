@@ -242,10 +242,15 @@ class UpsellService:
                 tabel_log = "kunjungan_resep"
                 aksi_log = "UPSELL_PRODUK"
 
-            # ----- 6. Kembalikan status ke ON_TREATMENT (kalau belum) -----
+            # ----- 6. Status kunjungan dari isinya (bayar dulu T1-4) -----
+            # Dulu dipaksa ON_TREATMENT. Untuk upsell PRODUK itu jebakan: tak ada tindakan
+            # aktif, jadi tak ada penulis yang memajukannya lagi — kunjungan tersangkut di
+            # ruang tindakan dan produknya tak muncul di kasir. Sekarang: produk → (K)
+            # ANTRI_BAYAR; treatment baru PENDING → ANTRI_TREATMENT (ON_TREATMENT bila ada
+            # tindakan lain yang sedang PROSES).
             status_lama = kunjungan.status_antrian
-            if status_lama != "ON_TREATMENT":
-                self.kunjungan_repo.update_status(kunjungan, "ON_TREATMENT")
+            from app.services._status_kunjungan import hitung_ulang_status
+            status_baru = hitung_ulang_status(self.db, payload.id_kunjungan)
 
             # ----- 7. AUDIT — TIDAK log PIN raw -----
             self.audit.log(
@@ -273,14 +278,14 @@ class UpsellService:
                 request=request,
             )
 
-            if status_lama != "ON_TREATMENT":
+            if status_baru != status_lama:
                 self.audit.log(
                     aksi="STATUS_UPDATE",
                     id_staf=id_staf_pengusul,
                     tabel_target="kunjungan",
                     id_target=payload.id_kunjungan,
                     data_lama={"status_antrian": status_lama},
-                    data_baru={"status_antrian": "ON_TREATMENT"},
+                    data_baru={"status_antrian": status_baru},
                     keterangan="Auto-transition saat upsell.",
                     request=request,
                 )
@@ -296,7 +301,7 @@ class UpsellService:
                     "id_record_baru": id_record_baru,
                     "butuh_otorisasi": butuh_otorisasi,
                     "otorisasi_oleh": id_dokter_otorisasi,
-                    "status_kunjungan": "ON_TREATMENT",
+                    "status_kunjungan": status_baru,
                 },
             }
         except HTTPException:

@@ -931,27 +931,22 @@ class KasirService:
                 payload.id_kunjungan, id_trx_baru,
                 ids=[t.id_kunjungan_tindakan for t in tagihan.rincian_tindakan])
 
-            # 6. Transition status kunjungan
-            # Ada resep ATAU racikan → ANTRI_OBAT (lempar ke apotek); selain itu COMPLETED.
-            # Racikan WAJIB ikut diperhitungkan: kunjungan yang isinya racikan saja akan
-            # loncat ke COMPLETED tanpa pernah diserahkan, sehingga stok bahan tidak
-            # pernah keluar.
-            # Audit T2-1: juga obat LAMA yang sudah lunas tapi belum diserahkan (tagihan
-            # susulan untuk tindakan tidak menandai obat apa pun). KECUALI kunjungan di
-            # jalur Obat Tertunda (tgl_janji_kirim): sisanya SENGAJA DIBAYAR + COMPLETED
-            # dan diurus modul itu (apotek_service.serah sebagian).
-            _obat_lama_menunggu = (
-                kunjungan is not None and kunjungan.tgl_janji_kirim is None
-                and self.repo.hitung_obat_dibayar_belum_serah(payload.id_kunjungan) > 0
-            )
-            status_baru = (
-                "ANTRI_OBAT"
-                if (n_resep_updated > 0 or n_racikan_updated > 0 or _obat_lama_menunggu)
-                else "COMPLETED"
-            )
+            # 6. Status kunjungan dari isinya (bayar dulu T1-4, menutup Audit T4-4).
+            # Dulu: obat ditandai di transaksi ini → ANTRI_OBAT, selain itu COMPLETED —
+            # TANPA melihat tindakan PENDING/PROSES, sehingga bayar-dulu saat tindakan
+            # belum dikerjakan menutup kunjungan dan tindakannya hilang dari layar perawat.
+            # Riwayat yang kini tercakup fungsi bersama, JANGAN ditulis ulang di sini:
+            #  - racikan ikut dihitung (kunjungan racikan-saja dulu loncat ke COMPLETED dan
+            #    stok bahannya tak pernah keluar) → (O) membaca resep DAN racikan DIBAYAR;
+            #  - Audit T2-1: obat LAMA lunas belum diserahkan pada tagihan susulan → (O);
+            #  - jalur Obat Tertunda (tgl_janji_kirim terisi) SENGAJA COMPLETED → (O)
+            #    mengecualikannya.
             status_lama = kunjungan.status_antrian if kunjungan else None
+            status_baru = status_lama
             if kunjungan:
-                self.kunjungan_repo.update_status(kunjungan, status_baru)
+                self.db.flush()
+                from app.services._status_kunjungan import hitung_ulang_status
+                status_baru = hitung_ulang_status(self.db, payload.id_kunjungan)
 
             # 7. AUDIT
             self.audit.log_create(
@@ -968,16 +963,18 @@ class KasirService:
                 },
                 request=request,
             )
-            self.audit.log(
-                aksi="STATUS_UPDATE",
-                id_staf=id_staf_kasir,
-                tabel_target="kunjungan",
-                id_target=payload.id_kunjungan,
-                data_lama={"status_antrian": status_lama},
-                data_baru={"status_antrian": status_baru},
-                keterangan=f"Auto-transition setelah pembayaran. Resep di-DIBAYAR: {n_resep_updated}",
-                request=request,
-            )
+            if status_baru != status_lama:
+                self.audit.log(
+                    aksi="STATUS_UPDATE",
+                    id_staf=id_staf_kasir,
+                    tabel_target="kunjungan",
+                    id_target=payload.id_kunjungan,
+                    data_lama={"status_antrian": status_lama},
+                    data_baru={"status_antrian": status_baru},
+                    keterangan=(f"Auto-transition setelah pembayaran. Resep di-DIBAYAR: "
+                                f"{n_resep_updated}, racikan: {n_racikan_updated}"),
+                    request=request,
+                )
 
             # K-L2 (DEC-087): catat komisi (snapshot) — ikut transaksi atomik.
             #
@@ -2473,27 +2470,31 @@ class KasirService:
             )
             cancelled_racikan += 1
 
-        # Cascade 2: kunjungan ANTRI_OBAT/ANTRI_BAYAR -> COMPLETED
+        # Cascade 2: status kunjungan dari isinya (bayar dulu T1-4).
+        # Dulu: ANTRI_OBAT/ANTRI_BAYAR → COMPLETED kecuali masih ada obat transaksi LAIN
+        # yang lunas belum diserahkan (Audit T2-2). Itu kini (O) di fungsi bersama.
+        # Void satu-satunya transaksi hari ini tetap berakhir COMPLETED: transaksi VOID
+        # dihitung "sudah ditangani kasir" oleh (K), jadi kunjungan tidak balik ke kasir.
+        # Yang berubah: susulan yang belum ditagih (resep PENDING, tindakan SELESAI tanpa
+        # id_transaksi) kini menahan kunjungan di ANTRI_BAYAR, bukan ikut ditutup.
         kunjungan = self.db.get(Kunjungan, id_kunjungan)
         kunjungan_advanced = False
         self.db.flush()
-        # Audit T2-2: obat transaksi LAIN yang masih lunas & belum diserahkan → kunjungan
-        # TETAP di antrian apotek (dulu selalu COMPLETED → obat itu terdampar).
-        _masih_ada_obat = self.repo.hitung_obat_dibayar_belum_serah(id_kunjungan) > 0
-        if (kunjungan and kunjungan.status_antrian in ("ANTRI_OBAT", "ANTRI_BAYAR")
-                and not _masih_ada_obat):
+        if kunjungan:
+            from app.services._status_kunjungan import hitung_ulang_status
             old_status = kunjungan.status_antrian
-            kunjungan.status_antrian = "COMPLETED"
-            self.audit.log(
-                aksi="VOID_KUNJUNGAN_FORWARD",
-                id_staf=actor_id_staf,
-                tabel_target="kunjungan",
-                id_target=id_kunjungan,
-                data_lama={"status_antrian": old_status},
-                data_baru={"status_antrian": "COMPLETED", "trigger": "void_transaksi"},
-                request=request,
-            )
-            kunjungan_advanced = True
+            new_status = hitung_ulang_status(self.db, id_kunjungan)
+            if new_status != old_status:
+                self.audit.log(
+                    aksi="VOID_KUNJUNGAN_FORWARD",
+                    id_staf=actor_id_staf,
+                    tabel_target="kunjungan",
+                    id_target=id_kunjungan,
+                    data_lama={"status_antrian": old_status},
+                    data_baru={"status_antrian": new_status, "trigger": "void_transaksi"},
+                    request=request,
+                )
+                kunjungan_advanced = True
 
         return {
             "cancelled_resep": cancelled_resep,

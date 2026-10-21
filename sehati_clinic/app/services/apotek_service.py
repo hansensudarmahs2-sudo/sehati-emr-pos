@@ -409,15 +409,19 @@ class ApotekService:
         _status_lama = kunjungan.status_antrian
         kunjungan.tgl_janji_kirim = tgl_janji_kirim
         kunjungan.catatan_kirim = (catatan or None)
-        if kunjungan.status_antrian == "ANTRI_OBAT":
-            self.kunjungan_repo.update_status(kunjungan, "COMPLETED")
+        # Bayar dulu T1-4: status dari isinya. tgl_janji_kirim yang baru diisi membuat
+        # obat DIBAYAR bukan lagi (O) → COMPLETED bila tak ada yang lain tersisa (sama
+        # dengan paksaan lama); tindakan/tagihan yang masih menggantung tetap terlihat.
+        self.db.flush()
+        from app.services._status_kunjungan import hitung_ulang_status
+        _status_baru = hitung_ulang_status(self.db, id_kunjungan)
         self.audit.log(
             aksi="OBAT_TUNDA",
             id_staf=id_staf,
             tabel_target="kunjungan",
             id_target=id_kunjungan,
             data_lama={"status_antrian": _status_lama},
-            data_baru={"status_antrian": "COMPLETED", "tgl_janji_kirim": str(tgl_janji_kirim)},
+            data_baru={"status_antrian": _status_baru, "tgl_janji_kirim": str(tgl_janji_kirim)},
             keterangan=(
                 f"Obat ditunda (kirim/ambil {tgl_janji_kirim}). "
                 f"{len(resep_list)} resep + {len(racikan_list)} racikan. Stok belum dipotong."
@@ -616,8 +620,6 @@ class ApotekService:
             # modul Obat Tertunda yang sudah punya penjadwalan + notifikasi), TAPI
             # tgl_janji_kirim hanya boleh dikosongkan kalau benar-benar tidak ada sisa.
             _status_lama = kunjungan.status_antrian
-            if kunjungan.status_antrian == "ANTRI_OBAT":
-                self.kunjungan_repo.update_status(kunjungan, "COMPLETED")
             if n_sisa > 0:
                 if payload.tgl_janji_kirim_sisa is not None:
                     kunjungan.tgl_janji_kirim = payload.tgl_janji_kirim_sisa
@@ -625,6 +627,12 @@ class ApotekService:
                     kunjungan.catatan_kirim = payload.catatan_kirim_sisa
             else:
                 kunjungan.tgl_janji_kirim = None  # tuntas → keluar dari daftar tertunda
+            # Bayar dulu T1-4: status dari isinya, SESUDAH item & tgl_janji_kirim di atas
+            # ditulis. Sisa yang dijadwalkan (tgl_janji_kirim) bukan (O) → COMPLETED, sama
+            # dengan paksaan lama "ANTRI_OBAT → COMPLETED".
+            self.db.flush()
+            from app.services._status_kunjungan import hitung_ulang_status
+            hitung_ulang_status(self.db, payload.id_kunjungan)
 
             # 5. AUDIT — menyebut item MANA, bukan hanya jumlahnya. Satu kunjungan bisa
             # diserahkan beberapa kali oleh apoteker berbeda; tanpa daftar id, laporan
