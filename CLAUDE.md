@@ -287,8 +287,10 @@ penundaan sebagian) · kasir · membership · komisi · laporan · ekspor Financ
 **Migrasi terakhir (dev):** `20261016_0200` — migrasi DATA: baris uang keluar (refund jenis VOID)
 untuk void hari lampau lama (K4-1). Sebelumnya `20261016_0100` — `kasir_closing.tanggal_sesi` + indeks
 UNIK, satu sesi laci per tanggal (Audit T4-6). Sebelumnya `20261013_0100` — `kunjungan_resep.id_transaksi` + backfill
-(Audit T2-2). **Ketiganya BELUM di mini PC** — `20261016_0100` berhenti sendiri bila mini PC
-punya dua sesi kasir di satu tanggal; periksa dulu sebelum deploy.
+(Audit T2-2). **Ketiganya DI MINI PC sejak 2026-10-21 08:12** (deploy `main` per `431800c`,
+backup `sehati_db_20261021_080857` tepat sebelumnya; mini PC saat itu: 0 sesi kasir, 0 void,
+1 transaksi → migrasi data mengisi 0 baris). ⚠ Deploy ini **TANPA uji layar U53–U62** atas
+keputusan dr. Hansen 2026-10-21 (pengecualian aturan §1.1) — uji layar menyusul di mini PC.
 Sebelumnya `20261007_0100` — kolom `pasien.no_rm_omnicare` + unique index
 (Sehati jadi sumber No. RM Omnicare selama input ganda; `DESAIN_NO_RM_OMNICARE.md`).
 **Di mini PC sejak 2026-10-07 09:41** (backup `sehati_db_20261007_094058`). Sebelumnya `20261006_0100` (tabel `retur_pasien` + `retur_pasien_lot` + jenis mutasi
@@ -312,7 +314,8 @@ Tanyakan ulang saat klinik mulai memakai data sungguhan (gerbang keamanan §8 di
 ✅ **Kerja 4–5 Oktober SUDAH di `main`** (2026-10-05, atas permintaan dr. Hansen):
 `main` dimajukan fast-forward `304b58c` → `55eeaea` (46 commit, satu rantai lurus;
 semua cabang `laptop/…` adalah leluhurnya). Remote `core` (`sehat-i-core`) repo LAIN —
-tidak disentuh. Mini PC = `main` per `9507426` (deploy 2026-10-07 09:41 — No. RM Omnicare + tombol
+tidak disentuh. Mini PC = `main` per `431800c` (deploy 2026-10-21 08:12 — audit mendalam tahap 2–4,
+migrasi s/d `20261016_0200`). Sebelumnya `9507426` (2026-10-07 09:41 — No. RM Omnicare + tombol
 cabang, migrasi `20261007_0100`). Sebelumnya `2bb0751` (09:00, laporan apotek).
 Peta kerja 4 Okt: `Project_Memory/RINGKASAN_KERJA_2026-10-04.md`.
 
