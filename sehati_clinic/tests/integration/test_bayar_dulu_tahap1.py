@@ -1321,3 +1321,21 @@ def test_antrian_kasir_menandai_tindakan_belum_selesai(db):
     baris = {r[0].id_kunjungan: r for r in KasirRepository(db).list_antrian_bayar(today=date.today())}
     assert baris[k.id_kunjungan][4] is True
     assert baris[k2.id_kunjungan][4] is False
+
+
+# ---------------------------------------------------------------- sisa tinjauan akhir: retur-alergi
+def test_kunjungan_retur_pasien_tidak_dihitung_ulang(db):
+    """Kunjungan RETUR_PASIEN dibuat langsung COMPLETED sebagai wadah draf SOAP alergi; draf yang
+    disetujui dokter menjadi SOAP FINAL, tanpa transaksi. Dulu `status_seharusnya` memberinya
+    ANTRI_BAYAR (klausa SOAP pada K) — penulis mana pun yang menghitung ulang akan menahan tutup
+    kasir (gerbang membaca label). Kunjungan non-klinis tidak boleh disentuh fungsi status."""
+    from datetime import date
+    from app.services._jenis_kunjungan import JENIS_RETUR
+    from app.services._status_kunjungan import hitung_ulang_status, status_seharusnya
+    from scripts.cek_status_kunjungan import periksa
+    staf, k = _siapkan(db, "COMPLETED")
+    _soap(db, k, staf)
+    k.jenis_kunjungan = JENIS_RETUR; db.flush()
+    assert status_seharusnya(db, k.id_kunjungan) is None          # dulu "ANTRI_BAYAR"
+    assert hitung_ulang_status(db, k.id_kunjungan) == "COMPLETED"
+    assert k.id_kunjungan not in [r[0] for r in periksa(db, date.today())]

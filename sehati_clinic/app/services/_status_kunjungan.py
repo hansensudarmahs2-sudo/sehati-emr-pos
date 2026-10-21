@@ -241,10 +241,20 @@ def ringkasan(db: Session, id_kunjungan: int) -> dict:
 
 def status_seharusnya(db: Session, id_kunjungan: int) -> Optional[str]:
     """Label status menurut isi kunjungan; None = jangan disentuh."""
-    status = db.execute(select(Kunjungan.status_antrian)
-                        .where(Kunjungan.id_kunjungan == id_kunjungan)).scalar_one_or_none()
-    status = getattr(status, "value", status)
+    from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
+    baris = db.execute(select(Kunjungan.status_antrian, Kunjungan.jenis_kunjungan)
+                       .where(Kunjungan.id_kunjungan == id_kunjungan)).one_or_none()
+    if baris is None:
+        return None
+    status = getattr(baris[0], "value", baris[0])
     if status is None or status == _BATAL:
+        return None
+    # Kunjungan NON-KLINIS (RETUR_PASIEN — wadah draf SOAP alergi, dibuat langsung COMPLETED,
+    # tak pernah ke kasir) tidak disentuh. Tanpa ini draf yang disetujui dokter (SOAP FINAL,
+    # tanpa transaksi) memenuhi klausa SOAP pada (K) → ANTRI_BAYAR → gerbang tutup kasir (yang
+    # membaca label) tertahan. Meja sudah menyaring jenis ini (`saringan_meja_hari_ini`);
+    # fungsi status harus sepakat. Sisa tinjauan akhir tahap 1, 2026-10-21.
+    if getattr(baris[1], "value", baris[1]) in JENIS_KUNJUNGAN_BUKAN_KLINIS:
         return None
     r = ringkasan(db, id_kunjungan)
     # "Belum berisi apa pun" = tanpa SOAP, tanpa item hidup, DAN belum pernah ke kasir.

@@ -239,5 +239,5 @@ Disalin dari buku catatan pengerjaan subagent sebelum dihapus. Commit: fe62830..
 - Residual (from fix report): status_seharusnya memberi ANTRI_BAYAR pada kunjungan RETUR_PASIEN ber-SOAP FINAL tanpa transaksi (dev #1017) — bila ada yang menghitung ulangnya, menahan tutup kasir. Di luar brief perbaikan.
 - Residual (minor, re-review): batalkan_tindakan menghitung label sebelum mengunci kunjungan → label bisa basi bila bayar/serah bersamaan (perbaikan: kunci kunjungan sesudah kunci tindakan)
 - Residual (minor, re-review): tindakan PENDING ber-id_transaksi ke trx VOID → pesan "sudah dibayar" keliru (tak terjadi di tahap 1)
-- Residual (load-bearing untuk deploy): status_seharusnya memberi ANTRI_BAYAR pada kunjungan RETUR_PASIEN ber-SOAP FINAL tanpa transaksi → bila dihitung ulang, menahan tutup kasir (dev #1017)
+- ✅ SELESAI 2026-10-21 (status_seharusnya kini mengembalikan None untuk kunjungan non-klinis; cek_status_kunjungan --hari 30 = 0 selisih) — Residual (load-bearing untuk deploy): status_seharusnya memberi ANTRI_BAYAR pada kunjungan RETUR_PASIEN ber-SOAP FINAL tanpa transaksi → bila dihitung ulang, menahan tutup kasir (dev #1017)
 - Residual (forward, tahap 4): lingkup void tak mencakup paket PRABAYAR yang tak terikat tindakan sesi 1
