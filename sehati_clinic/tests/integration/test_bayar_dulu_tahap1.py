@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select, text
 
 from app.db.models import KunjunganTindakan
-from tests.integration.test_audit_tahap2 import (V, _siapkan, _bayar, _tindakan_selesai,  # noqa: F401
+from tests.integration.test_audit_tahap2 import (V, _siapkan, _bayar, _resep, _tindakan_selesai,  # noqa: F401
                                                  _trx_terakhir, db)
 
 
@@ -681,3 +681,125 @@ def test_lencana_meja_sama_dengan_panjang_antrian(db):
     assert n["ANTRI_OBAT"] == len(ApotekRepository(db).list_antrian_obat(today=hari_ini))
     assert n["ANTRI_BAYAR"] == len(KasirRepository(db).list_antrian_bayar(today=hari_ini))
     assert n["ANTRI_TREATMENT"] >= 2 and n["ANTRI_OBAT"] >= 1 and n["ANTRI_BAYAR"] >= 1
+
+
+# ---------------------------------------------------------------- T1-6
+PESAN_SIDIK = ("Tagihan berubah sejak halaman dibuka — ada item baru dari dokter/perawat. "
+               "Halaman dimuat ulang; periksa lalu bayar lagi.")
+
+
+def _bayar_dgn_sidik(db, k, staf, sidik):
+    import secrets
+    from app.schemas.kasir import BayarRequest, PembayaranItem
+    from app.services.kasir_service import KasirService
+    svc = KasirService(db)
+    total = svc.get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan
+    pemb = [PembayaranItem(metode_bayar="TUNAI", nominal=total)] if total > 0 else []
+    return svc.proses_bayar(BayarRequest(id_kunjungan=k.id_kunjungan, pembayaran=pemb,
+                                         idempotency_key=secrets.token_hex(8),
+                                         sidik=sidik), staf.id_staf)
+
+
+def _jumlah_trx(db, k):
+    from app.db.models import TransaksiKasir
+    return len(db.execute(select(TransaksiKasir).where(
+        TransaksiKasir.id_kunjungan == k.id_kunjungan)).scalars().all())
+
+
+def test_sidik_beda_pembayaran_ditahan(db):
+    """Review Focus 5: halaman dibuka -> dokter menambah resep -> Bayar ditahan (409),
+    tidak ada transaksi. Tanpa ini kasir menagih himpunan yang tidak sama dengan yang dilihat."""
+    from fastapi import HTTPException
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    sidik_lama = KasirService(db).sidik_tagihan(KasirService(db).get_tagihan(k.id_kunjungan))
+    _resep(db, k, staf)                                  # item baru sesudah halaman dibuka
+    with pytest.raises(HTTPException) as e:
+        _bayar_dgn_sidik(db, k, staf, sidik_lama)
+    assert e.value.status_code == 409 and e.value.detail == PESAN_SIDIK
+    assert _jumlah_trx(db, k) == 0
+
+
+def test_sidik_sama_lolos(db):
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    svc = KasirService(db)
+    sidik = svc.sidik_tagihan(svc.get_tagihan(k.id_kunjungan))
+    assert sidik.startswith("R:")
+    _bayar_dgn_sidik(db, k, staf, sidik)
+    assert _jumlah_trx(db, k) == 1
+
+
+def test_tanpa_sidik_api_tetap_jalan(db):
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar_dgn_sidik(db, k, staf, None)
+    assert _jumlah_trx(db, k) == 1
+
+
+def _login_testclient(c):
+    import os, re
+    hal = c.get("/web/login")
+    data = {"username": os.environ["TEST_USERNAME"], "password": os.environ["TEST_PASSWORD"]}
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', hal.text)
+    if m:
+        data["csrf_token"] = m.group(1)
+    c.post("/web/login", data=data)
+    return data.get("csrf_token")
+
+
+def test_halaman_tagihan_memuat_sidik(db):
+    import os
+    from fastapi.testclient import TestClient
+    from app.core.deps import get_db
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+
+    def _db():
+        yield db
+    app.dependency_overrides[get_db] = _db
+    try:
+        c = TestClient(app)
+        _login_testclient(c)
+        r = c.get(f"/web/kasir/tagihan/{k.id_kunjungan}")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert r.status_code == 200
+    assert 'name="sidik"' in r.text and 'name="sidik" value="R:' in r.text
+
+
+def test_rute_bayar_sidik_basi_dialihkan_tanpa_transaksi(db):
+    import os
+    from urllib.parse import quote
+    from fastapi.testclient import TestClient
+    from app.core.deps import get_db
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    total = float(__import__("app.services.kasir_service", fromlist=["x"]).KasirService(db)
+                  .get_tagihan(k.id_kunjungan).ringkasan_biaya.total_tagihan)
+
+    def _db():
+        yield db
+    app.dependency_overrides[get_db] = _db
+    try:
+        c = TestClient(app, follow_redirects=False)
+        csrf = _login_testclient(c)
+        form = {"metode_bayar": "TUNAI", "nominal": str(total), "idempotency_key": "uji-sidik-basi",
+                "sidik": "R:1"}                          # sidik basi: bukan himpunan sebenarnya
+        if csrf:
+            form["csrf_token"] = csrf
+        r = c.post(f"/web/kasir/tagihan/{k.id_kunjungan}/bayar", data=form)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    assert r.status_code == 303
+    assert quote(PESAN_SIDIK) in r.headers["location"]
+    assert r.headers["location"].startswith(f"/web/kasir/tagihan/{k.id_kunjungan}?err=")
+    assert _jumlah_trx(db, k) == 0

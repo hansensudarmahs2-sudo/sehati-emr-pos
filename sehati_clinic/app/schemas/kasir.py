@@ -220,6 +220,9 @@ class BayarRequest(BaseModel):
     # P0-2: token intent pembayaran per-submit (dari form kasir). Double-click/retry
     # mengirim token sama → ditolak UNIQUE. Split billing = render baru = token baru.
     idempotency_key: Optional[str] = Field(default=None, max_length=64)
+    # Bayar dulu T1-6: sidik himpunan item yang DILIHAT kasir di halaman tagihan
+    # (`KasirService.sidik_tagihan`). None = klien tanpa halaman (API v1 lama) -> tidak diperiksa.
+    sidik: Optional[str] = Field(default=None, max_length=2000)
 
 
 class BayarResponse(BaseModel):

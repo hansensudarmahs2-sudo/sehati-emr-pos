@@ -137,6 +137,8 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         transaksi_kunjungan=(_transaksi_kunjungan(db, id_kunjungan)
                              if tagihan_dict.get("sudah_lunas") else []),
         idempotency_key=_secrets.token_urlsafe(24),
+        # Bayar dulu T1-6: sidik item yang ditampilkan; dikirim balik di form Bayar.
+        sidik=KasirService.sidik_tagihan(tagihan_resp),
         # K4-1: void HARI LAMPAU = uang keluar → PIN penyetuju ≠ pemroses (pagar T32).
         penyetuju_void=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
                         if (tagihan_dict.get("days_past") or 0) > 0 else []),
@@ -173,6 +175,10 @@ async def kasir_bayar(id_kunjungan: int, request: Request, db: DbSession):
     nominal_list = form_data.getlist("nominal")
     keterangan_promo = (form_data.get("keterangan_promo") or "").strip()
     idempotency_key = (form_data.get("idempotency_key") or "").strip() or None  # P0-2
+    # Bayar dulu T1-6: sidik item yang dilihat kasir. "" (field ada, kosong) = tagihan kosong
+    # saat render, BUKAN "tanpa pemeriksaan" — hanya field yang tak ada yang jadi None.
+    sidik = form_data.get("sidik")
+    sidik = sidik.strip() if isinstance(sidik, str) else None
 
     pembayaran_items = []
     for i, metode in enumerate(metode_list):
@@ -218,6 +224,7 @@ async def kasir_bayar(id_kunjungan: int, request: Request, db: DbSession):
             pembayaran=pembayaran_items,
             keterangan_promo=keterangan_promo,
             idempotency_key=idempotency_key,
+            sidik=sidik,
         )
         result = KasirService(db).proses_bayar(
             payload=payload,

@@ -706,6 +706,29 @@ class KasirService:
             self.db.add(kuota)
         self.db.flush()
 
+    @staticmethod
+    def sidik_tagihan(tagihan: TagihanResponse) -> str:
+        """Sidik himpunan item yang DITAGIH di `tagihan` (Bayar dulu T1-6).
+
+        Contoh: "T:12,T:15|R:40|C:7" — T tindakan, R resep (produk), C racikan; id urut naik
+        per jenis; jenis yang kosong dilewati. Halaman tagihan membawanya di form, dan
+        `proses_bayar` membandingkannya dengan himpunan SEGAR: kalau dokter/perawat menambah
+        item sesudah halaman dibuka, Bayar ditahan. Tanpa ini kasir menagih himpunan yang
+        tidak sama dengan yang ia lihat, dan total yang ditagih lebih besar dari yang ia
+        sebutkan ke pasien. Perhatian: hanya id item yang masuk, BUKAN harga/diskon —
+        perubahan harga bukan "item baru" dan sudah ditangani pagar nominal. Harus
+        deterministik (urut), karena dibandingkan sebagai string.
+        """
+        bagian = []
+        for awalan, ids in (
+            ("T", [t.id_kunjungan_tindakan for t in tagihan.rincian_tindakan]),
+            ("R", [p.id_resep for p in tagihan.rincian_produk]),
+            ("C", [r.id_kunjungan_racikan for r in tagihan.rincian_racikan]),
+        ):
+            if ids:
+                bagian.append(",".join(f"{awalan}:{i}" for i in sorted(ids)))
+        return "|".join(bagian)
+
     def proses_bayar(
         self,
         payload: BayarRequest,
@@ -749,6 +772,15 @@ class KasirService:
                     f"Kunjungan {payload.id_kunjungan} sudah dibayar "
                     f"(transaksi #{tagihan.id_transaksi_existing})."
                 ),
+            )
+
+        # Bayar dulu T1-6: halaman tagihan basi. Dibandingkan pada data SEGAR (sesudah
+        # mulai_baca_segar + kunci, T4-1) dan SEBELUM tulisan apa pun. sidik None = klien API.
+        if payload.sidik is not None and payload.sidik != self.sidik_tagihan(tagihan):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=("Tagihan berubah sejak halaman dibuka — ada item baru dari "
+                        "dokter/perawat. Halaman dimuat ulang; periksa lalu bayar lagi."),
             )
 
         total_tagihan = tagihan.ringkasan_biaya.total_tagihan
