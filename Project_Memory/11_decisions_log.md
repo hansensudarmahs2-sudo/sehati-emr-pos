@@ -366,7 +366,7 @@ Data antrian aktif = operasional harian (semua role butuh). Data lengkap termasu
 
 **Tanggal:** 25 Mei 2026 (Week 3)
 **Domain:** Business Logic / State Machine
-**Status:** Aktif
+**Status:** DIHAPUS 2026-10-21 — lihat DEC-101
 
 ### Konteks
 State machine awal cuma izinkan `ON_TREATMENT → ANTRI_BAYAR / ANTRI_OBAT / BATAL`. Tapi untuk skenario member dengan paket prepaid (kuota) atau series tindakan yang dibayar di awal, tidak ada tagihan baru — tidak perlu lewat ANTRI_BAYAR.
@@ -4892,3 +4892,29 @@ Belum ngoding — nunggu jawaban Open Q §8 (khususnya: metrik mana ke SOAP, tab
 > tak dihapus utk jaga state-machine): review/service.edit_field + Status.doctor_edited + _EDITABLE_ROOTS.
 > MODUL AI-ANTROPOMETRI dianggap SELESAI (fungsional). Sisa hanya operasional: deploy produksi (systemd
 > antropo.service, pindah dari teaser WSL ke server; backup folder data/), opsional WeasyPrint utk PDF asli.
+
+
+## DEC-101 — Status kunjungan dihitung dari isi; antrian membaca isi (2026-10-21)
+
+**Status:** Aktif. **Membalik DEC-050** (status tunggal sebagai penentu antrian) dan **menghapus DEC-015**
+(ON_TREATMENT → COMPLETED tanpa kasir; FO kini hanya bisa mulai konsultasi atau membatalkan).
+**Asal:** Audit T4-4 (bayar saat tindakan masih PENDING/PROSES → tindakan tertinggal). Spec disetujui
+dr. Hansen 2026-10-15: `DESAIN_BAYAR_DULU_BERCABANG.md`; klarifikasi §3.2 disetujui 2026-10-21.
+
+**Keputusan:** `kunjungan.status_antrian` adalah RINGKASAN, dihitung satu fungsi
+(`app/services/_status_kunjungan.py`) dari tiga kondisi: (T) tindakan PENDING/PROSES, (K) ada yang belum
+ditagih, (O) obat dibayar belum diserahkan. Antrian perawat/kasir/apotek membaca kondisi yang sama,
+bukan label — satu pasien boleh tampil di dua meja. Penulis status tidak lagi menebak.
+
+**Klarifikasi & ketetapan selama pengerjaan tahap 1:**
+- §3.2 (disetujui 2026-10-21): (K) juga benar bila sudah ada SOAP FINAL dan belum ada transaksi apa pun;
+  kunjungan tanpa SOAP dan tanpa item apa pun tidak disentuh.
+- Ruling 6: "belum ada transaksi" berarti status apa pun — transaksi VOID berarti kasir sudah menangani.
+- Ruling 7: "tidak disentuh" hanya bila tanpa SOAP, tanpa isi, DAN tanpa transaksi apa pun (beli produk
+  ber-void tetap COMPLETED).
+- Ruling 10: antrian perawat = kondisi (T) ATAU label KONSULTASI — daftar perawat satu-satunya pintu ke
+  form upsell; "alur biasa bekerja persis seperti sekarang" mengalahkan tabel §3.3 untuk kasus ini.
+- Tahap 1 hanya menagih tindakan SELESAI; menagih tindakan yang belum selesai = tahap 2.
+
+**Akibat:** `kunjungan_tindakan.id_transaksi` (migrasi 20261021_0100); halaman tagihan basi ditahan (409,
+sidik item); pemeriksa `cek_status_kunjungan`. Penulis status baru WAJIB memanggil `hitung_ulang_status`.

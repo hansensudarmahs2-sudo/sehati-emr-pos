@@ -845,3 +845,26 @@ def test_fo_tetap_bisa_mulai_konsultasi(db):
     KunjunganService(db).ubah_status(k.id_kunjungan, "KONSULTASI", actor_id_staf=staf.id_staf)
     db.refresh(k)
     assert V(k.status_antrian) == "KONSULTASI"
+
+# ---------------------------------------------------------------------------
+# T1-8: pemeriksa cek_status_kunjungan — uji DUA ARAH (CLAUDE.md §5)
+# ---------------------------------------------------------------------------
+
+def test_pemeriksa_status_dua_arah(db):
+    from datetime import date
+    from scripts.cek_status_kunjungan import periksa
+    from app.services._status_kunjungan import hitung_ulang_status
+    staf, k = _siapkan(db, "ANTRI_BAYAR")
+    _resep(db, k, staf)
+    db.flush()
+    # Arah 1: label konsisten dengan isi (lewat satu-satunya penghitung) ->
+    # pemeriksa tidak melaporkan kunjungan ini.
+    hitung_ulang_status(db, k.id_kunjungan)
+    db.flush()
+    assert k.id_kunjungan not in [s[0] for s in periksa(db, date.today())]
+    # Arah 2: label salah disisipkan -> pemeriksa melaporkan persis kunjungan itu.
+    benar = V(k.status_antrian)
+    k.status_antrian = "COMPLETED" if benar != "COMPLETED" else "ANTRI_BAYAR"
+    db.flush()
+    sel = [s for s in periksa(db, date.today()) if s[0] == k.id_kunjungan]
+    assert sel == [(k.id_kunjungan, V(k.status_antrian), benar)]

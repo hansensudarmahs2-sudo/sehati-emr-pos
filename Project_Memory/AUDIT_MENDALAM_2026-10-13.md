@@ -497,10 +497,12 @@ utuh). Uji layar: **U61** di bawah.
 
 ### 🟠 Sedang
 
-**T4-4 ⏸ DIRANCANG ULANG 2026-10-15 → `DESAIN_BAYAR_DULU_BERCABANG.md` (disetujui; tahap 1 menutup ini) — Bayar saat masih ada tindakan PENDING/PROSES → tindakan tertinggal selamanya.**
+**T4-4 ✅ DITUTUP 2026-10-21 oleh bayar-dulu tahap 1 (dev; belum di mini PC) → `DESAIN_BAYAR_DULU_BERCABANG.md`, DEC-101 — Bayar saat masih ada tindakan PENDING/PROSES → tindakan tertinggal selamanya.**
 Satu-satunya pagar status = BATAL (:726); tagihan hanya SELESAI (`kasir_repo.py:143`); status
 jadi COMPLETED/ANTRI_OBAT. Halaman tagihan basi + dokter menambah tindakan (ANTRI_TREATMENT) →
 tindakan B lenyap dari antrian perawat, SOAP ditolak (COMPLETED), kuota yang terpakai hilang.
+*Penutupan:* status kunjungan kini ringkasan isi (satu fungsi), antrian membaca isi sehingga tindakan PENDING/PROSES
+tetap di perawat walau sudah bayar; halaman tagihan basi ditahan (sidik item). Pemeriksa: `cek_status_kunjungan`.
 
 **T4-5 ✅ DIPERBAIKI 2026-10-15 — Refund obat tertunda vs void bersamaan → uang yang sama keluar dua kali.**
 `refund_item_tertunda` mengunci item saja; `_pagari_void_sudah_refund` (:2641) membaca

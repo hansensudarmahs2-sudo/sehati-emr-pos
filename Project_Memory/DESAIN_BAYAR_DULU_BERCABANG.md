@@ -1,7 +1,10 @@
 # Rancangan — Bayar dulu, tindakan & obat urutan bebas
 
-Status: **DISETUJUI dr. Hansen 2026-10-15** (ditulis 2026-10-15). Rencana pengerjaan tahap 1 belum ditulis —
-T4-5..T4-11 dikerjakan lebih dulu atas permintaan beliau.
+Status: **DISETUJUI dr. Hansen 2026-10-15** (ditulis 2026-10-15). **TAHAP 1 SELESAI 2026-10-21** (dev; commit fe62830..8367784 + T1-8, 8 task, `RENCANA_BAYAR_DULU_TAHAP1.md`;
+belum di mini PC). Tahap 2 (menagih tindakan yang belum selesai) belum dikerjakan.
+Penyempurnaan selama pengerjaan: klarifikasi §3.2 (Ruling 6 & 7: transaksi VOID tetap berarti kasir sudah
+menangani; "tidak disentuh" hanya bila tanpa SOAP, isi, dan transaksi), §3.3 (Ruling 10: antrian perawat juga
+menampilkan label KONSULTASI — pintu ke form upsell). Lihat DEC-101.
 Asal: Audit T4-4 (`AUDIT_MENDALAM_2026-10-13.md`). Disetujui per bagian dalam percakapan
 2026-10-15; dokumen ini merangkumnya untuk dibaca utuh sebelum rencana pengerjaan ditulis.
 
