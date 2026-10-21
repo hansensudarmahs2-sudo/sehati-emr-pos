@@ -33,19 +33,25 @@ from app.services._pasien_aktif import pastikan_pasien_aktif
 
 
 # =============================================================================
-# Valid status transitions — alur normal
+# Valid status transitions — HANYA yang boleh dilakukan FO lewat dropdown "Ubah"
 # =============================================================================
+# Bayar dulu tahap 1 (T1-7, dr. Hansen 2026-10-15, spec DESAIN_BAYAR_DULU_BERCABANG §3.2
+# jawaban 2): status kunjungan kini RINGKASAN yang dihitung dari isinya
+# (`_status_kunjungan.hitung_ulang_status`), bukan tombol. FO hanya boleh memulai
+# konsultasi dan membatalkan. Semua gerak maju (KONSULTASI→ANTRI_*, ANTRI_TREATMENT→
+# ON_TREATMENT, ANTRI_OBAT→COMPLETED, ...) dihapus: dulu menu ini bisa menyelesaikan
+# kunjungan tanpa bayar/serah, dan setelah status dihitung otomatis, dorongan manual
+# akan ditimpa perhitungan berikutnya (atau sebaliknya menimpa perhitungan).
+# DEC-015 (ON_TREATMENT→COMPLETED) ikut hilang. Tagihan Rp 0 (series/kuota) lewat kasir
+# (DEC-049), jadi tak ada alasan melompatinya. Dropdown FO diturunkan dari tabel ini
+# (Audit T2-4, `web/routes/kunjungan.py`); menambah baris = menambah tombol di layar.
 _VALID_TRANSITIONS: dict[str, set[str]] = {
     "ANTRI_KONSULTASI": {"KONSULTASI", "BATAL"},
-    "KONSULTASI": {"ANTRI_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT", "BATAL"},
-    "ANTRI_TREATMENT": {"ON_TREATMENT", "BATAL"},
-    "ON_TREATMENT": {"ANTRI_BAYAR", "ANTRI_OBAT", "COMPLETED", "BATAL"},
-    # Audit T2-4 (keputusan dr. Hansen 2026-10-13): ANTRI_BAYAR → COMPLETED DIHAPUS.
-    # Menu "Ubah" FO menawarkannya: kunjungan selesai TANPA transaksi, keluar dari
-    # antrian kasir, gerbang tutup kasir lolos. Tagihan Rp 0 (series/kuota) sudah
-    # diproses kasir (DEC-049), jadi jalan pintas ini tidak dibutuhkan siapa pun.
-    "ANTRI_BAYAR": {"ANTRI_OBAT", "BATAL"},
-    "ANTRI_OBAT": {"COMPLETED", "BATAL"},
+    "KONSULTASI": {"BATAL"},
+    "ANTRI_TREATMENT": {"BATAL"},
+    "ON_TREATMENT": {"BATAL"},
+    "ANTRI_BAYAR": {"BATAL"},
+    "ANTRI_OBAT": {"BATAL"},
     "COMPLETED": set(),
     "BATAL": set(),
 }
@@ -394,21 +400,6 @@ class KunjunganService:
                            request=request)
         self.db.flush()
 
-    def _pagari_selesai_tanpa_serah(self, kunjungan) -> None:
-        """ANTRI_OBAT → COMPLETED lewat menu dulu menelantarkan obat yang sudah lunas
-        (keluar dari antrian apotek, stok tak dipotong). Jalurnya serah / tunda di apotek.
-        Kunjungan di jalur Obat Tertunda (tgl_janji_kirim) tidak lewat sini."""
-        from app.repositories.kasir_repo import KasirRepository
-        if kunjungan.tgl_janji_kirim is not None:
-            return
-        n = KasirRepository(self.db).hitung_obat_dibayar_belum_serah(kunjungan.id_kunjungan)
-        if n:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(f"Masih ada {n} obat yang sudah LUNAS tapi belum diserahkan. "
-                        f"Selesaikan lewat Apotek (serahkan, atau tunda dengan tanggal kirim)."),
-            )
-
     def ubah_status(
         self,
         id_kunjungan: int,
@@ -468,12 +459,10 @@ class KunjunganService:
                 ),
             )
 
-        # Audit T2-5 (2026-10-13) — pagar BATAL & "selesai tanpa serah". Diperiksa SEBELUM
+        # Audit T2-5 (2026-10-13) — pagar BATAL. (Pagar "selesai tanpa serah" dihapus di T1-7: ANTRI_OBAT→COMPLETED tak ada lagi di tabel.) Diperiksa SEBELUM
         # perubahan apa pun; baris kunjungan sudah terkunci di atas.
         if status_baru_str == "BATAL":
             self._pagari_batal(kunjungan)
-        if status_sekarang == "ANTRI_OBAT" and status_baru_str == "COMPLETED":
-            self._pagari_selesai_tanpa_serah(kunjungan)
 
         try:
             self.kunjungan_repo.update_status(kunjungan, status_baru_str)

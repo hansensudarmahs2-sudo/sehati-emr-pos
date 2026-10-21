@@ -312,22 +312,29 @@ def test_batal_series_lahir_dibatalkan_yang_dijadwalkan_kembali(db):
 
 
 def test_selesai_lewat_menu_ditolak_bila_obat_lunas_belum_diserahkan(db):
+    # Bayar dulu T1-7: ANTRI_OBAT → COMPLETED tak ada lagi di tabel transisi, jadi
+    # penolakannya kini 400 "transisi tidak valid" (dulu 409 dari pagar khusus).
+    # Obat lunas belum diserahkan tetap tak bisa diselesaikan lewat menu.
     staf, k = _siapkan(db)
     _resep(db, k, staf)
     _bayar(db, k, staf)
     with pytest.raises(HTTPException) as e:
         KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
-    assert e.value.status_code == 409 and "LUNAS" in e.value.detail
+    assert e.value.status_code == 400
+    db.refresh(k)
+    assert k.status_antrian != "COMPLETED"
 
 
-def test_selesai_lewat_menu_boleh_di_jalur_obat_tertunda(db):
+def test_selesai_lewat_menu_ditolak_juga_di_jalur_obat_tertunda(db):
+    # Bayar dulu T1-7: dulu boleh (pagar dilewati bila tgl_janji_kirim ada). Kini menu
+    # FO tidak bisa menyelesaikan siapa pun; status dihitung dari isi kunjungan.
     staf, k = _siapkan(db)
     _resep(db, k, staf)
     _bayar(db, k, staf)
     k.tgl_janji_kirim = date.today() + timedelta(days=2); db.flush()
-    KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
-    db.refresh(k)
-    assert k.status_antrian == "COMPLETED"
+    with pytest.raises(HTTPException) as e:
+        KunjunganService(db).ubah_status(k.id_kunjungan, "COMPLETED", actor_id_staf=staf.id_staf)
+    assert e.value.status_code == 400
 
 
 # ---------------------------------------------------------------- T2-6

@@ -803,3 +803,45 @@ def test_rute_bayar_sidik_basi_dialihkan_tanpa_transaksi(db):
     assert quote(PESAN_SIDIK) in r.headers["location"]
     assert r.headers["location"].startswith(f"/web/kasir/tagihan/{k.id_kunjungan}?err=")
     assert _jumlah_trx(db, k) == 0
+
+
+# ---------------------------------------------------------------- T1-7
+# Status kunjungan kini ringkasan yang dihitung (`_status_kunjungan.py`); FO tidak boleh
+# memajukannya dengan tangan. DEC-015 (ON_TREATMENT → COMPLETED) ikut dihapus.
+@pytest.mark.parametrize("asal,tujuan", [
+    ("KONSULTASI", "ANTRI_BAYAR"),
+    ("KONSULTASI", "ANTRI_TREATMENT"),
+    ("KONSULTASI", "ANTRI_OBAT"),
+    ("ANTRI_TREATMENT", "ON_TREATMENT"),
+    ("ON_TREATMENT", "COMPLETED"),
+    ("ON_TREATMENT", "ANTRI_BAYAR"),
+    ("ANTRI_BAYAR", "ANTRI_OBAT"),
+    ("ANTRI_OBAT", "COMPLETED"),
+])
+def test_fo_tidak_bisa_memajukan_status(db, asal, tujuan):
+    from fastapi import HTTPException
+    from app.services.kunjungan_service import KunjunganService
+    staf, k = _siapkan(db, asal)
+    with pytest.raises(HTTPException) as e:
+        KunjunganService(db).ubah_status(k.id_kunjungan, tujuan, actor_id_staf=staf.id_staf)
+    assert e.value.status_code == 400
+    db.refresh(k)
+    assert V(k.status_antrian) == asal
+
+
+@pytest.mark.parametrize("asal", ["ANTRI_KONSULTASI", "KONSULTASI", "ANTRI_TREATMENT",
+                                  "ON_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT"])
+def test_fo_tetap_bisa_batal(db, asal):
+    from app.services.kunjungan_service import KunjunganService
+    staf, k = _siapkan(db, asal)
+    KunjunganService(db).ubah_status(k.id_kunjungan, "BATAL", actor_id_staf=staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "BATAL"
+
+
+def test_fo_tetap_bisa_mulai_konsultasi(db):
+    from app.services.kunjungan_service import KunjunganService
+    staf, k = _siapkan(db, "ANTRI_KONSULTASI")
+    KunjunganService(db).ubah_status(k.id_kunjungan, "KONSULTASI", actor_id_staf=staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "KONSULTASI"
