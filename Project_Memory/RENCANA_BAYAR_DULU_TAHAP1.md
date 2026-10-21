@@ -186,3 +186,58 @@ Konsultasi adalah item TINDAKAN biasa ("Specialist Consultation"). Kunjungan yan
 - [ ] **Step 2: Dokumentasi** — U63 bayar saat tindakan PENDING (tetap di perawat → susulan); U64 pasien tampil di apotek & perawat bersamaan, obat bisa diserahkan; U65 halaman tagihan basi ditahan; U66 dropdown FO hanya Konsultasi/Batal; U67 tutup kasir tetap menolak bila ada kunjungan menggantung.
 - [ ] **Step 3: Pemeriksa §5 lengkap** — suite, smoke, `cek_finance_pack`, `jejak_uji_ui` (omzet semua pembaca sepakat), `cek_serah_tanpa_lot`, `cek_tunda_item`, `cek_tebus_resep`, `cek_status_kunjungan`.
 - [ ] **Step 4: Commit** — `Bayar dulu T1-8: pemeriksa status kunjungan + dokumentasi tahap 1`.
+
+---
+
+## Catatan pengerjaan (2026-10-21) — keputusan & sisa
+
+Disalin dari buku catatan pengerjaan subagent sebelum dihapus. Commit: fe62830..4142a3c.
+
+### Keputusan (Ruling)
+
+- Ruling 1: T3 juga mengekspos `kondisi_T()`, `kondisi_K()`, `kondisi_O()` — ekspresi EXISTS berkorelasi pada `Kunjungan.id_kunjungan` — dan `ringkasan` memakainya; T5 memakai ulang, tidak menulis kueri sendiri — spec §3.3 "antrian membaca isi" dengan definisi §3.2 yang SAMA — bila salah: T5 menulis ulang definisi, dua definisi (pola §4.1).
+- Ruling 2: di `test_t44` tindakan B dimulai (`start_tindakan`) sebelum `end_tindakan` — `end_tindakan` hanya menerima PROSES — bila salah: test gagal karena prasyarat, bukan cacat.
+- Ruling 3: T2 tidak mengubah `get_tindakan_selesai_for_billing` (tetap semua SELESAI, dipakai view-only); "baru" disaring di `get_tagihan` dengan `id_transaksi IS NULL` — rencana menulis "Modify" repo itu, cukup komentar — bila salah: tampilan lunas kehilangan tindakan.
+- Ruling 4: test T5 memakai tindakan PROSES (label ON_TREATMENT); sesudah serah status TETAP ON_TREATMENT (tindakan masih berjalan) — spec §3.2 prioritas label — bila salah: hanya ekspektasi test.
+- Ruling 5: implementer hanya commit lokal; controller push ke branch & main sesudah review task bersih — kebiasaan dr. Hansen "tiap selesai commit and push" tetap, tapi kode yang belum lolos review tidak sampai main — bila salah: main tertinggal satu task.
+- Ruling 6: klausa SOAP pada (K) = "sudah ada SOAP FINAL dan BELUM ADA TRANSAKSI APA PUN (status apa pun)" — transaksi VOID berarti kunjungan sudah ditangani kasir; susulan sesudah void tetap tertangkap klausa item lain — spec §1 "alur biasa bekerja persis seperti sekarang" (void kini menutup kunjungan) — bila salah: kunjungan ber-void tanpa item baru tak kembali ke kasir (sama seperti sekarang).
+- Ruling 7: status_seharusnya mengembalikan None (tidak disentuh) hanya bila TANPA SOAP FINAL, TANPA isi, DAN TANPA transaksi apa pun (status apa pun); `ringkasan` mendapat kunci `ada_transaksi` — kunjungan yang pernah ditangani kasir selalu dihitung (beli produk ber-void → COMPLETED, membership legacy lunas → COMPLETED) — penyempurnaan klarifikasi §3.2 searah Ruling 6; tujuan klarifikasi (kunjungan lanjutan series yang baru dibuat tak tersentuh) tetap — bila salah: kunjungan tanpa SOAP yang pernah ber-transaksi lalu diberi isi baru dihitung ulang (memang diinginkan).
+- Ruling 8: use_session pada kunjungan ANTRI_KONSULTASI tanpa SOAP tetap berlabel ANTRI_KONSULTASI (aturan pra-SOAP §3.2); antrian perawat Task 5 membaca isi (tindakan PENDING) jadi tetap tampil — bila salah: label FO tertinggal sampai SOAP.
+- Ruling 9: tunda_serah_obat juga menerima kunjungan yang memenuhi kondisi_O (sama dengan himpunan yang ditampilkan antrian apotek), bukan hanya ANTRI_OBAT/COMPLETED — spec §3.3 "satu pasien boleh tampil di dua meja": meja yang menampilkan pasien harus bisa menangani obatnya (serah DAN tunda) — bila salah: tunda bisa dipakai saat tindakan masih berjalan (tidak merusak; tgl_janji_kirim tetap dipasang).
+- Ruling 10: antrian perawat = kondisi_T() ATAU label status_antrian == 'KONSULTASI' (hari ini, bukan BATAL) — daftar perawat satu-satunya pintu ke form upsell; spec §1 "alur biasa bekerja persis seperti sekarang" mengalahkan tabel §3.3 untuk kasus ini — bila salah: perawat melihat pasien yang sedang konsultasi tanpa tindakan (seperti sekarang).
+- Ruling 11: pemeriksa cek_status_kunjungan tetap HANYA MEMBACA (konvensi §5); perbaikan label basi di mini PC diputuskan dr. Hansen saat deploy berdasarkan keluarannya — bila salah: satu langkah manual tambahan saat deploy.
+- Ruling 12: C1 → tarik cabang "belum dibayar" tombol Batalkan (spec §3.6, disetujui 2026-10-15 + jawaban 3: dokter/perawat/admin) ke tahap 1: TreatmentService.batalkan_tindakan (PENDING & id_transaksi NULL → BATAL, alasan wajib, kuota & series dibereskan pola _bereskan_batal, audit, hitung_ulang_status) + tombol di layar perawat — lebih aman daripada mengembalikan jalan pintas FO; desain sudah disetujui — bila salah: tambahan UI kecil lebih awal dari jadwal.
+- Ruling 13: I1 → lingkup tindakan void = tindakan ber-id_transaksi == trx (kolom tahap 1), bukan "semua tindakan kunjungan"; kuota hanya dikembalikan untuk tindakan dalam lingkup; tindakan PENDING yang tak ditagih tetap hidup (dibatalkan lewat Ruling 12) — bila salah: data lama tanpa id_transaksi memakai jalur lama (snapshot) sebagai cadangan.
+- Ruling 14 (dibuat implementer, disahkan controller): aturan pembatalan series saat void memakai lingkup id_transaksi juga untuk kunjungan bertransaksi tunggal — void konsultasi tak boleh membatalkan series yang sesi 1-nya belum ditagih transaksi itu — Ruling 13 diterapkan konsisten — bila salah: series ikut batal saat void (perilaku lama).
+- Ruling 15 (dibuat implementer, disahkan controller): pagar 409 "tindakan pra-F3 tanpa snapshot" pada void multi-transaksi dihapus; migrasi 20261021_0100 mengisi id_transaksi data lama lewat cutoff — bila salah: void kunjungan lama yang tak terisi memakai cadangan snapshot.
+
+### Sisa masalah & catatan kecil yang ditunda
+
+- Task 1: minor (deferred): model tak mendeklarasikan indeks ix_kt_transaksi / ix_refund_kt (sejalan preseden kunjungan_resep.id_transaksi)
+- Task 1: minor (deferred): tidak ada test untuk jalur abort tetap_null_di_kunjungan_lunas>0 & upgrade/downgrade
+- Task 1: minor (deferred): assert >=1 pada hitungan backfill; test bergantung helper test_audit_tahap2
+- Task 2: minor (deferred): tidak ada test langsung split-billing kedua (tindakan T1 tetap milik T1)
+- Task 2: minor (deferred): transaksi VOID terakhir masih membuat get_tagihan mode view-only (sudah tercatat temuan ringan tahap 4)
+- Task 4: minor (deferred): proses_bayar pada kunjungan obat-tertunda (tgl_janji_kirim) + obat baru dibayar → COMPLETED (dulu ANTRI_OBAT); obat baru hanya tampil di daftar Obat Tertunda
+- Task 4: minor (deferred → Task 5): tindakan upsell pra-SOAP yang selesai tak terlihat kasir sampai SOAP — antrian kasir Task 5 harus membaca kondisi_K
+- Task 4: minor (deferred): pemindai penulis status hanya mengenali receiver bernama "kunjungan"; tak menangkap update(Kunjungan).values(...) / SQL mentah
+- Task 4: minor (deferred): docstring _cascade_void_kunjungan & nama kunjungan_advanced/VOID_KUNJUNGAN_FORWARD basi (kini bisa mundur ke ANTRI_BAYAR)
+- Task 4: minor (deferred): treatment_repo.count_tindakan_aktif kini tak terpakai
+- Task 4: minor (deferred): STATUS_UPDATE proses_bayar kini hanya saat berubah (deviasi kecil brief, dilaporkan)
+- Task 4: minor (deferred): cascade void kini menghitung ulang status apa pun selain BATAL (kunjungan lampau COMPLETED ber-item tak tertagih bisa jadi ANTRI_BAYAR)
+- Task 5: minor (deferred): badge "ANTRI_OBAT" statis di halaman detail apotek
+- Task 5: minor (deferred): _count_meja tak lagi menyaring JENIS_KUNJUNGAN_BUKAN_KLINIS (kini sama dengan daftar; retur dibuat COMPLETED, dampak kecil)
+- Task 6: minor (deferred): test sidik hanya memakai id resep (R), belum T/C
+- Task 6: minor (deferred): pesan 409 "ada item baru" juga muncul bila item HILANG (teks diwajibkan brief)
+- Task 6: minor (deferred): jalur bayar kosong menampilkan "Minimal 1 metode" alih-alih pesan sidik bila susulan menaikkan total (pembayaran tetap tertahan)
+- Task 7: minor (deferred): komentar T2-5 di kunjungan_service tersambung di tengah kalimat (rapikan)
+- Task 7: minor (deferred): kasir_repo.hitung_obat_dibayar_belum_serah kini tak terpakai
+- Task 7: minor (deferred): ringkasan/docstring API v1 PATCH /kunjungan/{id}/status basi ("alur normal atau BATAL")
+- Task 7: minor (deferred → deploy): baris lama berlabel basi tanpa event berikutnya tak punya jalan keluar manual — pemeriksa Task 8 harus dijalankan di mini PC sebelum/ sesudah deploy dan hasilnya dilaporkan ke dr. Hansen
+- Task 8: minor (deferred): DEC-050 sendiri belum diberi penunjuk "dibalik oleh DEC-101"
+- Task 8: minor (deferred): CLAUDE.md §8 "Ketiganya DI MINI PC" jauh dari antesedennya (keterbacaan)
+- Residual (from fix report): status_seharusnya memberi ANTRI_BAYAR pada kunjungan RETUR_PASIEN ber-SOAP FINAL tanpa transaksi (dev #1017) — bila ada yang menghitung ulangnya, menahan tutup kasir. Di luar brief perbaikan.
+- Residual (minor, re-review): batalkan_tindakan menghitung label sebelum mengunci kunjungan → label bisa basi bila bayar/serah bersamaan (perbaikan: kunci kunjungan sesudah kunci tindakan)
+- Residual (minor, re-review): tindakan PENDING ber-id_transaksi ke trx VOID → pesan "sudah dibayar" keliru (tak terjadi di tahap 1)
+- Residual (load-bearing untuk deploy): status_seharusnya memberi ANTRI_BAYAR pada kunjungan RETUR_PASIEN ber-SOAP FINAL tanpa transaksi → bila dihitung ulang, menahan tutup kasir (dev #1017)
+- Residual (forward, tahap 4): lingkup void tak mencakup paket PRABAYAR yang tak terikat tindakan sesi 1
