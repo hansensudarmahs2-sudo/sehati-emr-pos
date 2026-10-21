@@ -455,12 +455,26 @@ class ApotekService:
             kunjungan.status_antrian == "COMPLETED"
             and kunjungan.tgl_janji_kirim is not None
         )
-        if kunjungan.status_antrian != "ANTRI_OBAT" and not _is_tertunda:
+        # Bayar dulu T1-5: pintu serah membaca ISI, sama dengan antrian apotek
+        # (`kondisi_O` = obat DIBAYAR belum diserahkan, tanpa janji kirim). Dulu wajib
+        # label ANTRI_OBAT, sehingga obat lunas tak bisa diserahkan selama pasien masih
+        # ditindak (ON_TREATMENT) atau menunggu tagihan susulan (ANTRI_BAYAR) — padahal
+        # antrian apotek kini menampilkannya. Jalur obat tertunda (COMPLETED + janji)
+        # TIDAK diubah. ANTRI_OBAT tetap diterima agar pintu ini superset yang lama.
+        # BATAL ditolak eksplisit: kunjungan batal tidak boleh mengeluarkan stok.
+        from app.services._status_kunjungan import ringkasan as ringkasan_status
+        _boleh = kunjungan.status_antrian != "BATAL" and (
+            kunjungan.status_antrian == "ANTRI_OBAT"
+            or _is_tertunda
+            or ringkasan_status(self.db, kunjungan.id_kunjungan)["O"]
+        )
+        if not _boleh:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"Kunjungan status saat ini '{kunjungan.status_antrian}' — "
-                    f"hanya 'ANTRI_OBAT' atau kunjungan dengan obat TERTUNDA yang bisa diserahkan."
+                    f"hanya kunjungan dengan obat DIBAYAR yang belum diserahkan, atau "
+                    f"obat TERTUNDA, yang bisa diserahkan."
                 ),
             )
 

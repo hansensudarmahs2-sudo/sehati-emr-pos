@@ -214,7 +214,7 @@ class DashboardService:
         return {
             "role": "Kasir",
             "kpi": [
-                {"label": "Antrian Bayar", "value": self._count_antrian_status(today, "ANTRI_BAYAR"), "icon": "💰", "color": "amber"},
+                {"label": "Antrian Bayar", "value": self._count_meja(today, "ANTRI_BAYAR"), "icon": "💰", "color": "amber"},
                 {"label": "Omzet Shift Saya", "value_money": float(omzet_shift), "icon": "💵", "color": "emerald"},
                 {"label": "Transaksi Saya Hari Ini", "value": trx_count, "icon": "🧾", "color": "blue"},
                 self._kpi_kunjungan_hari_ini(today),
@@ -232,7 +232,7 @@ class DashboardService:
         return {
             "role": "Apoteker",
             "kpi": [
-                {"label": "Antrian Obat", "value": self._count_antrian_status(today, "ANTRI_OBAT"), "icon": "💊", "color": "teal"},
+                {"label": "Antrian Obat", "value": self._count_meja(today, "ANTRI_OBAT"), "icon": "💊", "color": "teal"},
                 {"label": "Stok ≤ Minimal", "value": self._count_stok_urgent(), "icon": "📉", "color": "red"},
                 self._kpi_kunjungan_hari_ini(today),
                 {"label": "PO Retail Aktif", "value": self._count_po_aktif_retail(), "icon": "📋", "color": "blue"},
@@ -341,6 +341,19 @@ class DashboardService:
             .where(Kunjungan.status_antrian == status)
             .where(Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
         ).scalar() or 0)
+
+    def _count_meja(self, today: date, meja: str) -> int:
+        """Bayar dulu T1-5: jumlah antrian kasir/apotek dari ISI kunjungan — kondisi yang
+        sama dengan daftar layarnya (`_status_kunjungan.hitung_antrian_meja`). Dulu
+        menghitung label ANTRI_BAYAR/ANTRI_OBAT, sehingga kartu dashboard bisa berkata 0
+        sementara layar kasir/apotek berisi pasien yang sedang ditindak.
+        Kartu perawat dibiarkan membaca label (rinciannya "antri" vs "dikerjakan"):
+        ANTRI_TREATMENT + ON_TREATMENT = (T) untuk kunjungan ber-SOAP, karena (T)
+        prioritas tertinggi di `status_seharusnya`. ⚠ Kunjungan PRA-SOAP yang punya
+        tindakan (sesi series di ANTRI_KONSULTASI, Ruling 8) tampil di layar & lencana
+        perawat tapi TIDAK di kartu ini — labelnya sengaja tidak disentuh."""
+        from app.services._status_kunjungan import hitung_antrian_meja
+        return hitung_antrian_meja(self.db, today)[meja]
 
     def _count_tindakan_status(self, today: date, status: str) -> int:
         today_start = datetime.combine(today, time.min)

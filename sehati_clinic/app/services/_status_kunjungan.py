@@ -37,9 +37,10 @@ Tidak ada commit di sini; pemanggil memegang kunci/transaksi.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -138,6 +139,40 @@ def kondisi_ada_isi():
         _racikan(or_(KunjunganRacikan.status_item.is_(None),
                      KunjunganRacikan.status_item != _BATAL)),
     )
+
+
+# ---------------------------------------------------------------------------------
+# Antrian meja (bayar dulu T1-5, spec §3.3). Ketiga antrian dan lencana menunya memakai
+# saringan + kondisi DI BAWAH INI, bukan label. Kalau lencana menghitung label sementara
+# daftar membaca isi, angka merah di menu berselisih dengan isi layar (mis. obat lunas
+# saat tindakan berjalan: label ON_TREATMENT, tapi tampil di apotek).
+# Kunci dict = `badge_status` di app/web/menu.py — JANGAN diganti tanpa mengubah menu.
+# Dokter TIDAK di sini: antrian dokter tetap membaca label (spec §3.3).
+# ---------------------------------------------------------------------------------
+KONDISI_MEJA = {
+    "ANTRI_TREATMENT": kondisi_T,   # perawat: tindakan PENDING/PROSES
+    "ANTRI_BAYAR": kondisi_K,       # kasir: ada yang belum ditagih
+    "ANTRI_OBAT": kondisi_O,        # apotek: obat DIBAYAR, belum diserahkan, tanpa janji
+}
+
+
+def saringan_meja_hari_ini(today: date):
+    """Saringan bersama tiga meja: kunjungan HARI INI dan bukan BATAL.
+
+    Hari ini saja (seperti sebelumnya): sisa kemarin diurus jalurnya sendiri (Obat
+    Tertunda, tutup kasir). Status NULL ikut tersaring (`!=` tidak benar untuk NULL) —
+    sama dengan dulu, saat antrian hanya menampilkan label tertentu."""
+    return and_(func.date(Kunjungan.tgl_kunjungan) == today,
+                Kunjungan.status_antrian != _BATAL)
+
+
+def hitung_antrian_meja(db: Session, today: date) -> dict:
+    """Jumlah kunjungan per meja — HARUS sama dengan panjang daftar antriannya
+    (test_lencana_meja_sama_dengan_panjang_antrian). Satu kueri."""
+    kolom = [func.coalesce(func.sum(case((k(), 1), else_=0)), 0) for k in KONDISI_MEJA.values()]
+    baris = db.execute(select(*kolom).select_from(Kunjungan)
+                       .where(saringan_meja_hari_ini(today))).one()
+    return {kunci: int(n or 0) for kunci, n in zip(KONDISI_MEJA, baris)}
 
 
 def ringkasan(db: Session, id_kunjungan: int) -> dict:

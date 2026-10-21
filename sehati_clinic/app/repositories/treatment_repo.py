@@ -132,34 +132,31 @@ class TreatmentRepository:
         today: Optional[date] = None,
     ) -> list[tuple[Kunjungan, Pasien, int, int]]:
         """
-        List antrian perawat — pasien hari ini dengan status:
-        - KONSULTASI: visibility untuk situational awareness (pasien sedang konsul,
-          perawat bisa standby kalau load akan tinggi)
-        - ANTRI_TREATMENT / ON_TREATMENT: ranah perawat langsung
+        List antrian perawat — kunjungan hari ini (bukan BATAL) yang PUNYA tindakan
+        PENDING/PROSES (`kondisi_T`), apa pun labelnya.
 
-        Status ANTRI_KONSULTASI TIDAK include lagi (TODO-NEW-4, 11 Juni 2026):
-        - Reasoning: pasien belum dipanggil dokter, perawat tidak bisa kerjakan
-          apapun. Saat dulu di-include untuk "situational awareness" ternyata
-          membuat UI clutter karena tombol Mulai tidak ada efek (kosong).
-        - DEC-063 sambungan: hapus ANTRI_KONSULTASI dari list.
+        Bayar dulu T1-5 (spec §3.3): dulu membaca label KONSULTASI / ANTRI_TREATMENT /
+        ON_TREATMENT. Akibatnya (a) pasien yang obatnya sudah lunas tapi tindakannya
+        menyusul bisa "hilang" kalau labelnya ditulis lain, dan (b) sesi series di
+        kunjungan ANTRI_KONSULTASI (Ruling 8, label sengaja tidak dipindah) tak pernah
+        sampai ke perawat. Sekarang satu pasien boleh tampil di perawat DAN apotek/kasir.
 
-        Status ANTRI_BAYAR & ANTRI_OBAT TIDAK include — itu ranah kasir/apoteker.
-        COMPLETED & BATAL juga tidak include.
+        ⚠ KONSULTASI tanpa tindakan TIDAK lagi tampil ("situational awareness" lama):
+        tombol Kerjakan-nya kosong, alasan yang sama dengan pencabutan ANTRI_KONSULTASI
+        (TODO-NEW-4, DEC-063). Jangan kembalikan dengan menambah label ke saringan —
+        tambahkan isinya ke `_status_kunjungan` kalau memang perlu.
 
         Return list of (Kunjungan, Pasien, count_pending, count_proses).
         """
+        from app.services._status_kunjungan import kondisi_T, saringan_meja_hari_ini
         if today is None:
             today = date.today()
 
         stmt = (
             select(Kunjungan, Pasien)
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
-            .where(func.date(Kunjungan.tgl_kunjungan) == today)
-            .where(Kunjungan.status_antrian.in_([
-                "KONSULTASI",
-                "ANTRI_TREATMENT",
-                "ON_TREATMENT",
-            ]))
+            .where(saringan_meja_hari_ini(today))
+            .where(kondisi_T())
             .order_by(Kunjungan.nomor_antrean.asc())
         )
         rows = self.db.execute(stmt).all()

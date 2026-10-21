@@ -43,18 +43,26 @@ class KasirRepository:
         self, today: Optional[date] = None
     ) -> list[tuple[Kunjungan, Pasien, int, int]]:
         """
-        List antrian ANTRI_BAYAR hari ini + count tindakan & resep.
+        List kunjungan hari ini (bukan BATAL) yang punya sesuatu BELUM DITAGIH
+        (`kondisi_K`) + count tindakan & resep.
+
+        Bayar dulu T1-5 (spec §3.3): dulu membaca label ANTRI_BAYAR. Tindakan SELESAI
+        yang belum ditagih tak terlihat kasir selama tindakan lain masih jalan (label
+        ON_TREATMENT), atau di kunjungan pra-SOAP yang labelnya sengaja dibiarkan
+        KONSULTASI (upsell perawat). Sekarang pasien boleh tampil di kasir dan
+        perawat/apotek bersamaan.
 
         Return list of (Kunjungan, Pasien, jumlah_tindakan, jumlah_resep_pending).
         """
+        from app.services._status_kunjungan import kondisi_K, saringan_meja_hari_ini
         if today is None:
             today = date.today()
 
         stmt = (
             select(Kunjungan, Pasien)
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
-            .where(func.date(Kunjungan.tgl_kunjungan) == today)
-            .where(Kunjungan.status_antrian == "ANTRI_BAYAR")
+            .where(saringan_meja_hari_ini(today))
+            .where(kondisi_K())
             .order_by(Kunjungan.nomor_antrean.asc())
         )
         rows = self.db.execute(stmt).all()

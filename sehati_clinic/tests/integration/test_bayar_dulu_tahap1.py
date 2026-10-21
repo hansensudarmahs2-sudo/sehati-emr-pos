@@ -462,3 +462,169 @@ def test_pakai_sesi_series_status_dari_isi(db, awal, harapan):
     SeriesService(db).use_session(s2.id_rencana, k2.id_kunjungan, staf.id_staf)
     db.refresh(k2)
     assert V(k2.status_antrian) == harapan
+
+
+# ---------------------------------------------------------------- T1-5
+# Antrian perawat/apotek/kasir membaca ISI kunjungan (`kondisi_T/K/O`), bukan label
+# `status_antrian`. Satu pasien boleh tampil di dua meja sekaligus (spec §3.3).
+def _di_antrian(db, k):
+    """Meja mana saja yang menampilkan kunjungan `k` hari ini."""
+    from datetime import date
+    from app.repositories.apotek_repo import ApotekRepository
+    from app.repositories.kasir_repo import KasirRepository
+    from app.repositories.treatment_repo import TreatmentRepository
+    hari_ini = date.today()
+    meja = set()
+    if any(r[0].id_kunjungan == k.id_kunjungan
+           for r in TreatmentRepository(db).list_antrian_ruang_tindakan(today=hari_ini)):
+        meja.add("perawat")
+    if any(r[0].id_kunjungan == k.id_kunjungan
+           for r in ApotekRepository(db).list_antrian_obat(today=hari_ini)):
+        meja.add("apotek")
+    if any(r[0].id_kunjungan == k.id_kunjungan
+           for r in KasirRepository(db).list_antrian_bayar(today=hari_ini)):
+        meja.add("kasir")
+    return meja
+
+
+def _obat_lunas_lalu_tindakan(db, status_tindakan):
+    """Resep DIBAYAR belum diserahkan, lalu dokter/perawat menambah tindakan."""
+    from tests.integration.test_audit_tahap2 import _resep
+    from app.services._status_kunjungan import hitung_ulang_status
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    assert V(k.status_antrian) == "ANTRI_OBAT"
+    t = _tindakan_baru(db, k, status_tindakan)
+    hitung_ulang_status(db, k.id_kunjungan)
+    db.refresh(k)
+    return staf, k, r, t
+
+
+def test_pasien_tampil_di_apotek_dan_perawat_bersamaan(db):
+    """Review Focus 4: obat lunas + tindakan PENDING. Label = ANTRI_TREATMENT; dulu apotek
+    hanya membaca ANTRI_OBAT sehingga obat yang sudah dibayar hilang dari layar apoteker."""
+    _, k, _, _ = _obat_lunas_lalu_tindakan(db, "PENDING")
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"
+    assert _di_antrian(db, k) == {"perawat", "apotek"}
+
+
+def test_apotek_bisa_serah_saat_label_on_treatment(db):
+    """Ruling 4: tindakan PROSES (label ON_TREATMENT). Dulu serah ditolak 400 karena
+    status bukan ANTRI_OBAT. Sesudah serah label TETAP ON_TREATMENT — tindakan masih jalan."""
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k, r, _ = _obat_lunas_lalu_tindakan(db, "PROSES")
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    hasil = ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan),
+                                            staf.id_staf)
+    db.refresh(r); db.refresh(k)
+    assert V(r.status_item) == "DISERAHKAN"
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    assert hasil["data"]["status_kunjungan_baru"] == "ON_TREATMENT"
+    assert _di_antrian(db, k) == {"perawat"}
+
+
+def test_serah_tetap_ditolak_tanpa_obat_dibayar(db):
+    """Pagar serah dilonggarkan ke ISI, bukan dihapus: kunjungan tanpa obat DIBAYAR dan
+    bukan jalur obat tertunda tetap ditolak di pintu (pesan status, bukan pesan item)."""
+    from fastapi import HTTPException
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    _soap(db, k, staf)
+    _tindakan_baru(db, k, "PROSES")
+    with pytest.raises(HTTPException) as e:
+        ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan),
+                                        staf.id_staf)
+    assert e.value.status_code == 400 and "ON_TREATMENT" in e.value.detail
+
+
+def test_serah_ditolak_untuk_kunjungan_batal(db):
+    from fastapi import HTTPException
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db, "BATAL")
+    _isi(db, k, staf, soap=True, resep=["DIBAYAR"], bayar=True)
+    with pytest.raises(HTTPException) as e:
+        ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan),
+                                        staf.id_staf)
+    assert e.value.status_code == 400 and "BATAL" in e.value.detail
+
+
+def test_antrian_kasir_dari_item_belum_ditagih(db):
+    """Tindakan A SELESAI belum ditagih + tindakan B masih PROSES: label ON_TREATMENT (dulu
+    kasir hanya membaca ANTRI_BAYAR → A tak terlihat kasir). Sesudah bayar → hilang dari
+    kasir, tetap di perawat."""
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k, detik=-5)
+    _tindakan_baru(db, k, "PROSES")
+    assert _di_antrian(db, k) == {"perawat", "kasir"}
+    _bayar(db, k, staf)
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    assert _di_antrian(db, k) == {"perawat"}
+
+
+def test_antrian_kasir_tindakan_selesai_sebelum_soap(db):
+    """Temuan review T1-4: kunjungan KONSULTASI (belum ada SOAP) + tindakan upsell SELESAI
+    belum ditagih. Label sengaja tidak disentuh (KONSULTASI), tapi (K) benar → kasir."""
+    from app.services._status_kunjungan import hitung_ulang_status
+    staf, k = _siapkan(db, "KONSULTASI")
+    _tindakan_selesai(db, k, detik=-5)
+    hitung_ulang_status(db, k.id_kunjungan)
+    db.refresh(k)
+    assert V(k.status_antrian) == "KONSULTASI"
+    assert _di_antrian(db, k) == {"kasir"}
+
+
+def test_antrian_perawat_tindakan_series_sebelum_konsultasi(db):
+    """Ruling 8: sesi series di kunjungan ANTRI_KONSULTASI (label tidak dipindah) tetap
+    sampai ke perawat karena antriannya membaca tindakan PENDING."""
+    staf, k = _siapkan(db, "ANTRI_KONSULTASI")
+    _tindakan_baru(db, k, "PENDING")
+    assert _di_antrian(db, k) == {"perawat"}
+
+
+def test_antrian_tetap_hanya_hari_ini_dan_tanpa_batal(db):
+    isi = dict(soap=True, tindakan=["PENDING", "SELESAI"], resep=["DIBAYAR"], bayar=True)
+    staf, kemarin = _siapkan(db, "ANTRI_TREATMENT")
+    _isi(db, kemarin, staf, **isi)
+    kemarin.tgl_kunjungan = datetime.now() - timedelta(days=1); db.flush()
+    assert _di_antrian(db, kemarin) == set()
+    staf, batal = _siapkan(db, "BATAL")
+    _isi(db, batal, staf, **isi)
+    assert _di_antrian(db, batal) == set()
+    # Pembanding: isi yang sama, hari ini, tidak BATAL → tiga meja sekaligus.
+    staf, hidup = _siapkan(db, "ANTRI_TREATMENT")
+    _isi(db, hidup, staf, **isi)
+    assert _di_antrian(db, hidup) == {"perawat", "apotek", "kasir"}
+
+
+def test_apotek_tidak_menampilkan_obat_tertunda(db):
+    """Obat DIBAYAR + tgl_janji_kirim: tetap di daftar Obat Tertunda, bukan antrian apotek."""
+    staf, k = _siapkan(db, "COMPLETED")
+    _isi(db, k, staf, soap=True, resep=["DIBAYAR"], bayar=True, janji=True)
+    assert _di_antrian(db, k) == set()
+
+
+def test_lencana_meja_sama_dengan_panjang_antrian(db):
+    """Lencana menu (perawat/kasir/apotek) dihitung dari kondisi yang SAMA dengan daftar —
+    dulu menghitung label, sehingga lencana dan layar bisa berselisih."""
+    from datetime import date
+    from app.repositories.apotek_repo import ApotekRepository
+    from app.repositories.kasir_repo import KasirRepository
+    from app.repositories.treatment_repo import TreatmentRepository
+    from app.services._status_kunjungan import hitung_antrian_meja
+    _obat_lunas_lalu_tindakan(db, "PENDING")
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k, detik=-5)
+    _tindakan_baru(db, k, "PROSES")
+    hari_ini = date.today()
+    n = hitung_antrian_meja(db, hari_ini)
+    assert n["ANTRI_TREATMENT"] == len(TreatmentRepository(db).list_antrian_ruang_tindakan(today=hari_ini))
+    assert n["ANTRI_OBAT"] == len(ApotekRepository(db).list_antrian_obat(today=hari_ini))
+    assert n["ANTRI_BAYAR"] == len(KasirRepository(db).list_antrian_bayar(today=hari_ini))
+    assert n["ANTRI_TREATMENT"] >= 2 and n["ANTRI_OBAT"] >= 1 and n["ANTRI_BAYAR"] >= 1

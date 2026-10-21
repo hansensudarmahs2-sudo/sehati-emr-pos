@@ -36,18 +36,27 @@ class ApotekRepository:
         self, today: Optional[date] = None
     ) -> list[tuple[Kunjungan, Pasien, int]]:
         """
-        List pasien ANTRI_OBAT hari ini + count item resep DIBAYAR.
+        List kunjungan hari ini (bukan BATAL) yang punya resep/racikan DIBAYAR belum
+        diserahkan (`kondisi_O`) + count item DIBAYAR.
+
+        Bayar dulu T1-5 (spec §3.3): dulu membaca label ANTRI_OBAT, sehingga obat yang
+        sudah lunas HILANG dari layar apoteker selama pasien masih ditindak (label
+        ANTRI_TREATMENT/ON_TREATMENT) atau punya tagihan susulan (ANTRI_BAYAR). Sekarang
+        pasien boleh tampil di apotek dan perawat/kasir bersamaan.
+        Obat dengan `tgl_janji_kirim` TIDAK tampil di sini (kondisi_O mengecualikannya):
+        ia tetap di daftar Obat Tertunda yang terpisah, seperti sebelumnya.
 
         Return list of (Kunjungan, Pasien, jumlah_item_obat).
         """
+        from app.services._status_kunjungan import kondisi_O, saringan_meja_hari_ini
         if today is None:
             today = date.today()
 
         stmt = (
             select(Kunjungan, Pasien)
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
-            .where(func.date(Kunjungan.tgl_kunjungan) == today)
-            .where(Kunjungan.status_antrian == "ANTRI_OBAT")
+            .where(saringan_meja_hari_ini(today))
+            .where(kondisi_O())
             .order_by(Kunjungan.nomor_antrean.asc())
         )
         rows = self.db.execute(stmt).all()

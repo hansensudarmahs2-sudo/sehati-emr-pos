@@ -654,15 +654,23 @@ def build_shell_context(user: MasterStaf, db=None, current_path: str = "", **ext
                 from datetime import date as _date
                 from sqlalchemy import func as _f, select as _sel
                 from app.db.models import Kunjungan as _K
+                # Dokter (ANTRI_KONSULTASI) tetap membaca label — antrian dokter memang
+                # membaca label (spec bayar dulu §3.3).
                 rows = db.execute(
                     _sel(_K.status_antrian, _f.count())
                     .where(
                         _f.date(_K.tgl_kunjungan) == _date.today(),
-                        _K.status_antrian.in_(["ANTRI_KONSULTASI", "ANTRI_TREATMENT", "ANTRI_BAYAR", "ANTRI_OBAT"]),
+                        _K.status_antrian == "ANTRI_KONSULTASI",
                     )
                     .group_by(_K.status_antrian)
                 ).all()
-                return {s: int(c) for s, c in rows}
+                hasil = {s: int(c) for s, c in rows}
+                # Bayar dulu T1-5: perawat/kasir/apotek dihitung dari kondisi ISI yang
+                # sama dengan daftar antriannya. Dulu menghitung label → lencana "0"
+                # padahal layar apotek berisi pasien yang obatnya lunas saat ditindak.
+                from app.services._status_kunjungan import hitung_antrian_meja
+                hasil.update(hitung_antrian_meja(db, _date.today()))
+                return hasil
 
             badge_counts = _tc.get_or_set("badge:antrian", 10.0, _bc)
         except Exception:

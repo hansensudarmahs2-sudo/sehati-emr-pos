@@ -2,7 +2,7 @@
 Apotek endpoints — antrian, detail, serahkan obat, write-off, suggested order.
 
 Routes:
-    GET   /api/v1/apotek/antrian                          — pasien ANTRI_OBAT
+    GET   /api/v1/apotek/antrian                          — pasien dengan obat DIBAYAR belum diserahkan (hari ini)
     GET   /api/v1/apotek/detail/{id_kunjungan}            — daftar resep + aturan + stok check
     POST  /api/v1/apotek/serahkan-obat                    — potong stok produk + COMPLETED
     POST  /api/v1/apotek/write-off-produk                 — buang stok rusak/expired/penyesuaian
@@ -45,7 +45,7 @@ _APOTEK_ROLES = role_required(
     "/antrian",
     response_model=AntrianApotekResponse,
     status_code=status.HTTP_200_OK,
-    summary="Antrian apotek — pasien ANTRI_OBAT hari ini",
+    summary="Antrian apotek — obat DIBAYAR belum diserahkan, hari ini",
 )
 def antrian_apotek(
     db: DbSession,
@@ -92,10 +92,10 @@ def serahkan_obat(
     """
     Eksekusi penyerahan obat ke pasien:
 
-    1. Validasi kunjungan status ANTRI_OBAT
+    1. Validasi kunjungan punya obat DIBAYAR belum diserahkan (atau obat TERTUNDA)
     2. Ambil semua resep DIBAYAR di kunjungan ini
     3. Loop potong `master_produk.stok_terkini` (SELECT FOR UPDATE lock per produk)
-    4. Transition status kunjungan: ANTRI_OBAT → COMPLETED
+    4. Status kunjungan dihitung ulang dari isinya (_status_kunjungan)
     5. Audit log SERAH_OBAT
 
     Atomic — kalau gagal di tengah, semua rollback.
