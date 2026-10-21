@@ -346,3 +346,167 @@ def test_route_bayar_tanpa_centang_redirect_error_dan_dengan_centang_lolos(db):
         assert _trx_terakhir(db, k) is not None
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+# ---------------------------------------------------------------- T2-3
+# Komisi tindakan = dibayar DAN selesai, mana pun yang terakhir. Sejak T2-1 tindakan bisa
+# dibayar sebelum dikerjakan; dulu komisi hanya ditulis saat bayar dan hanya untuk tindakan
+# SELESAI, jadi tindakan prabayar yang selesai belakangan TIDAK pernah berkomisi (tagihan
+# susulan yang dulu "menangkapnya" kini tidak terjadi lagi).
+def _beri_komisi(db, kt, perawat):
+    """Treatment-nya diberi komisi perawat NOMINAL dan tindakannya diberi pelaksana —
+    di DB dev banyak treatment tanpa komisi, jadi test tidak bergantung data master.
+    Ikut rollback fixture."""
+    from app.db.models import MasterTreatment
+    tr = db.get(MasterTreatment, kt.id_treatment)
+    tr.komisi_perawat_tipe = "NOMINAL"
+    tr.komisi_perawat_value = 12345
+    kt.id_perawat_pelaksana = perawat.id_staf
+    db.flush()
+
+
+def _komisi(db, kt, status="AKTIF"):
+    from app.db.models import KomisiLedger
+    return db.execute(select(KomisiLedger).where(
+        KomisiLedger.sumber == "TINDAKAN",
+        KomisiLedger.id_ref == kt.id_kunjungan_tindakan,
+        KomisiLedger.status == status)).scalars().all()
+
+
+def _selesai_sebelum_bayar(db, k):
+    from datetime import datetime, timedelta
+    t = _tindakan_baru(db, k, "SELESAI")
+    t.waktu_selesai = datetime.now() - timedelta(seconds=5)
+    db.flush()
+    return t
+
+
+def _kerjakan(db, kt, staf):
+    from app.services.treatment_service import TreatmentService
+    svc = TreatmentService(db)
+    svc.start_tindakan(kt.id_kunjungan_tindakan, staf.id_staf)
+    kt.id_perawat_pelaksana = staf.id_staf     # start tanpa user_role tidak mengisinya
+    db.flush()
+    svc.end_tindakan(kt.id_kunjungan_tindakan, staf.id_staf)
+    db.refresh(kt)
+
+
+def test_split_prabayar_komisi_saat_selesai_sekali_terikat_t1(db, monkeypatch):
+    """Review Focus 3. T1 menagih A (sudah dikerjakan) + B (prabayar). B selesai → tepat
+    satu komisi AKTIF, `id_transaksi` = T1, `tanggal` = tanggal SELESAI (bukan tanggal
+    bayar); tagihan susulan T2 untuk item baru tidak mencatat B lagi."""
+    from datetime import date, datetime as _dt, timedelta
+    import app.services.treatment_service as _ts
+    from tests.integration.test_audit_tahap2 import _resep
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    a = _selesai_sebelum_bayar(db, k)
+    b = _tindakan_baru(db, k, "PENDING")
+    _beri_komisi(db, a, staf)
+    _beri_komisi(db, b, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    t1 = _trx_terakhir(db, k)
+    ka = _komisi(db, a)
+    assert len(ka) == 1 and ka[0].id_transaksi == t1.id_transaksi and ka[0].tanggal == date.today()
+    assert _komisi(db, b) == []                    # belum dikerjakan → belum berkomisi
+
+    class _Besok(_dt):                              # selesai BESOK: tanggal selesai ≠ bayar
+        @classmethod
+        def now(cls, tz=None):
+            return _dt.now(tz) + timedelta(days=1)
+    monkeypatch.setattr(_ts, "datetime", _Besok)
+    _kerjakan(db, b, staf)
+    monkeypatch.undo()
+    kb = _komisi(db, b)
+    assert len(kb) == 1                            # dulu: 0 — komisi hilang
+    assert kb[0].id_transaksi == t1.id_transaksi
+    assert kb[0].tanggal == b.waktu_selesai.date() == date.today() + timedelta(days=1)
+    assert float(kb[0].komisi_nominal) == 12345 and kb[0].id_staf == staf.id_staf
+
+    _resep(db, k, staf, detik=5)                    # item baru → tagihan susulan T2
+    _bayar(db, k, staf)
+    t2 = _trx_terakhir(db, k)
+    assert t2.id_transaksi != t1.id_transaksi
+    assert [r.id_transaksi for r in _komisi(db, b)] == [t1.id_transaksi]
+    assert [r.id_transaksi for r in _komisi(db, a)] == [t1.id_transaksi]
+
+
+def test_bayar_sesudah_selesai_komisi_saat_bayar(db):
+    """Perilaku lama tetap: tindakan selesai lebih dulu → komisi ditulis saat bayar,
+    bertanggal bayar, terikat transaksi pembayarnya."""
+    from datetime import date
+    staf, k = _siapkan(db)
+    a = _selesai_sebelum_bayar(db, k)
+    _beri_komisi(db, a, staf)
+    _bayar(db, k, staf)
+    t1 = _trx_terakhir(db, k)
+    ka = _komisi(db, a)
+    assert len(ka) == 1 and ka[0].id_transaksi == t1.id_transaksi
+    assert ka[0].tanggal == date.today()
+
+
+def test_tindakan_selesai_tak_ditagih_tidak_berkomisi_dari_transaksi_lain(db, monkeypatch):
+    """Tindakan C selesai SELAMA pembayaran T1 (sesudah tagihan dihitung) — C tidak ditagih
+    T1 dan tetap `id_transaksi` NULL. Dulu komisi ditulis untuk SEMUA tindakan SELESAI di
+    kunjungan, jadi C berkomisi atas transaksi yang tidak membayarnya; kalau T1 lalu
+    di-void, komisi C ikut tertarik padahal tagihannya belum pernah ada."""
+    from app.services.komisi_service import KomisiService
+    from tests.integration.test_audit_tahap2 import _resep
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    asli = KomisiService.catat_komisi_transaksi
+    tampung = {}
+
+    def _sela(self, **kw):
+        c = _tindakan_baru(db, k, "SELESAI")        # perawat menekan Selesai di detik ini
+        _beri_komisi(db, c, staf)
+        tampung["c"] = c
+        return asli(self, **kw)
+    monkeypatch.setattr(KomisiService, "catat_komisi_transaksi", _sela)
+    _bayar(db, k, staf)
+    c = tampung["c"]
+    db.refresh(c)
+    assert c.id_transaksi is None
+    assert _komisi(db, c) == []                    # dulu: 1 baris terikat T1
+
+
+def _prabayar_lalu_void(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    b = _tindakan_baru(db, k, "PENDING")
+    _beri_komisi(db, b, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    return staf, k, b, _trx_terakhir(db, k)
+
+
+def test_selesai_sesudah_transaksi_pembayar_void_tanpa_komisi(db):
+    """Review Focus 2 (Ruling P1): T1 di-VOID sementara `id_transaksi` B masih menempel
+    (Task 4 belum melepasnya). B lalu selesai → TIDAK berkomisi: transaksinya bukan BAYAR."""
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k, b, t1 = _prabayar_lalu_void(db)
+    _void(db, t1.id_transaksi, staf)
+    db.refresh(t1); db.refresh(b)
+    assert V(t1.status_transaksi) == "VOID" and b.id_transaksi == t1.id_transaksi
+    _kerjakan(db, b, staf)
+    assert _komisi(db, b) == [] and _komisi(db, b, "VOID") == []
+
+
+def test_komisi_saat_selesai_ikut_void_bersama_transaksinya(db):
+    """Baris komisi yang ditulis saat `end_tindakan` membawa `id_transaksi` pembayar, jadi
+    `void_komisi_transaksi` (dipanggil KEDUA jalur void) ikut menariknya.
+
+    Catatan: lewat layar, void T1 sesudah B selesai DITOLAK pagar "tindakan sudah selesai"
+    (`_pagari_void_tindakan_selesai`) — komisi B tetap AKTIF. Yang diuji di sini: kalau
+    void komisi dipanggil, baris saat-selesai tidak tertinggal."""
+    import pytest
+    from fastapi import HTTPException
+    from app.services.komisi_service import KomisiService
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k, b, t1 = _prabayar_lalu_void(db)
+    _kerjakan(db, b, staf)
+    assert len(_komisi(db, b)) == 1
+    with pytest.raises(HTTPException) as e:
+        _void(db, t1.id_transaksi, staf)
+    assert e.value.status_code == 400 and len(_komisi(db, b)) == 1
+    KomisiService(db).void_komisi_transaksi(t1.id_transaksi, staf.id_staf)
+    assert _komisi(db, b) == [] and len(_komisi(db, b, "VOID")) == 1

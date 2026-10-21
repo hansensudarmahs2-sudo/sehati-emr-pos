@@ -1045,6 +1045,9 @@ class KasirService:
                 )
 
             # K-L2 (DEC-087): catat komisi (snapshot) — ikut transaksi atomik.
+            # Bayar dulu T2-3: bagian tindakan hanya yang ditautkan `mark_tindakan_dibayar` di
+            # atas DAN sudah SELESAI; tindakan yang dibayar di muka berkomisi saat
+            # `end_tindakan`. Jadi langkah ini HARUS tetap sesudah penautan.
             #
             # RESEP_LUAR dilewati SECARA EKSPLISIT. Peresepnya dokter di luar klinik, jadi
             # tidak ada dasar komisi. Sekarang hasilnya kebetulan sudah nol karena

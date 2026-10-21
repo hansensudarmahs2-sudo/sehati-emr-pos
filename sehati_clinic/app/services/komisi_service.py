@@ -19,7 +19,9 @@ Prinsip:
                "Beli tanpa konsul" (tanpa kunjungan/SOAP sama sekali) → tetap tanpa komisi.
 - Basis komisi = harga MASTER (treatment.harga / produk.harga_jual) → NOMINAL flat dibayar konsisten,
   PERSEN = % harga master (independen diskon/kuota). (Bisa disesuaikan bila dr. Hansen mau basis lain.)
-- Basis tanggal = tanggal bayar. VOID transaksi → baris komisi status VOID.
+- Basis tanggal = tanggal bayar; TINDAKAN yang dibayar di muka = tanggal SELESAI (bayar dulu
+  T2-3: komisi tindakan = dibayar DAN selesai, mana pun yang terakhir). VOID transaksi →
+  baris komisi status VOID (baris saat-selesai membawa `id_transaksi` pembayar, ikut).
 """
 
 from datetime import date
@@ -61,8 +63,10 @@ class KomisiService:
         tanggal: Optional[date] = None,
         request: Optional[Request] = None,
     ) -> int:
-        """Tulis komisi untuk SEMUA tindakan SELESAI di kunjungan (termasuk gratis series/kuota)
-        + produk yang dibayar. Opsi A (DEC-088). Return jumlah baris ditulis."""
+        """Tulis komisi untuk tindakan SELESAI yang DIBAYAR transaksi ini (termasuk gratis
+        series/kuota: baris Rp 0 tetap ditagih & tertaut, Opsi A DEC-088) + produk & racikan
+        yang dibayar. Tindakan prabayar yang belum selesai menyusul di `end_tindakan`
+        (bayar dulu T2-3). Return jumlah baris ditulis."""
         tgl = tanggal or date.today()
         n = 0
 
@@ -88,54 +92,26 @@ class KomisiService:
                 .limit(1)
             ).scalar_one_or_none()
 
-        # ---- TINDAKAN (semua SELESAI di kunjungan, bukan hanya yang ditagih) ----
+        # ---- TINDAKAN ---- (bayar dulu T2-3) hanya tindakan yang DIBAYAR transaksi INI dan
+        # SUDAH SELESAI. Komisi tindakan = dibayar DAN selesai, mana pun yang terakhir:
+        #  - selesai lebih dulu -> dicatat di sini, saat bayar (perilaku lama);
+        #  - dibayar di muka (PENDING/PROSES) -> dicatat `TreatmentService.end_tindakan`.
+        # Dulu: SEMUA tindakan SELESAI di kunjungan. Sejak T2-1 itu salah dua arah: tindakan
+        # prabayar yang selesai belakangan tak pernah berkomisi (tagihan susulan yang dulu
+        # menangkapnya tak terjadi lagi), dan tindakan SELESAI yang belum ditagih (selesai
+        # selama pembayaran) berkomisi atas transaksi yang tidak membayarnya, lalu ikut
+        # tertarik bila transaksi itu di-void. `populate_existing`: `mark_tindakan_dibayar`
+        # menulis `id_transaksi` lewat UPDATE massal; atribut objek di sesi jangan dipercaya.
         tindakan_rows = self.db.execute(
             select(KunjunganTindakan).where(
                 KunjunganTindakan.id_kunjungan == id_kunjungan,
+                KunjunganTindakan.id_transaksi == id_transaksi,
                 KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI,
-            )
+            ).execution_options(populate_existing=True)
         ).scalars().all()
         for kt in tindakan_rows:
-            # Anti-dobel: skip kalau tindakan ini sudah punya baris komisi AKTIF (split/reopen).
-            already = self.db.execute(
-                select(KomisiLedger.id_komisi).where(
-                    KomisiLedger.sumber == "TINDAKAN",
-                    KomisiLedger.id_ref == kt.id_kunjungan_tindakan,
-                    KomisiLedger.status == "AKTIF",
-                ).limit(1)
-            ).first()
-            if already:
-                continue
-            treatment = self.db.get(MasterTreatment, kt.id_treatment)
-            if treatment is None:
-                continue
-            calc = hitung_komisi_treatment(self.db, treatment)  # basis harga master
-            harga = float(treatment.harga or 0)
-            nama = treatment.nama_treatment
-
-            kom_dok = float(calc.get("komisi_dokter", 0) or 0)
-            if kt.id_dokter_pelaksana and kom_dok > 0:
-                self._add_row(
-                    id_transaksi=id_transaksi, id_kunjungan=id_kunjungan, id_pasien=id_pasien,
-                    tanggal=tgl, id_staf=kt.id_dokter_pelaksana, role="DOKTER", sumber="TINDAKAN",
-                    id_ref=kt.id_kunjungan_tindakan, nama_item=nama, harga_jual=harga,
-                    komisi_tipe=treatment.komisi_dokter_tipe,
-                    komisi_value=float(treatment.komisi_dokter_value or 0),
-                    komisi_nominal=kom_dok,
-                )
-                n += 1
-
-            kom_per = float(calc.get("komisi_perawat", 0) or 0)
-            if kt.id_perawat_pelaksana and kom_per > 0:
-                self._add_row(
-                    id_transaksi=id_transaksi, id_kunjungan=id_kunjungan, id_pasien=id_pasien,
-                    tanggal=tgl, id_staf=kt.id_perawat_pelaksana, role="PERAWAT", sumber="TINDAKAN",
-                    id_ref=kt.id_kunjungan_tindakan, nama_item=nama, harga_jual=harga,
-                    komisi_tipe=treatment.komisi_perawat_tipe,
-                    komisi_value=float(treatment.komisi_perawat_value or 0),
-                    komisi_nominal=kom_per,
-                )
-                n += 1
+            n += self.catat_komisi_tindakan(kt=kt, id_transaksi=id_transaksi, tanggal=tgl,
+                                            request=request)
 
         # ---- PRODUK ---- (komisi_dokter → dokter peresep; lihat id_dokter_komisi di atas)
         if id_dokter_komisi:
@@ -189,6 +165,103 @@ class KomisiService:
                         )
                         n += 1
 
+        if n:
+            self.db.flush()
+        return n
+
+    # ---------------------------------------------------------------------
+    # Komisi SATU tindakan (bayar dulu T2-3). Dua pemanggil: `catat_komisi_transaksi`
+    # (tindakan selesai lebih dulu, dicatat saat bayar) dan `TreatmentService.end_tindakan`
+    # (tindakan dibayar di muka, dicatat saat selesai). FLUSH, caller commit.
+    # ---------------------------------------------------------------------
+    def catat_komisi_tindakan(
+        self,
+        *,
+        kt: KunjunganTindakan,
+        id_transaksi: int,
+        tanggal: date,
+        request: Optional[Request] = None,
+    ) -> int:
+        """Tulis komisi dokter/perawat pelaksana untuk satu tindakan. Return jumlah baris.
+
+        Tidak menulis apa pun bila:
+        - transaksi `id_transaksi` bukan BAYAR (Ruling P1, Review Focus 2): tindakan prabayar
+          yang selesai SESUDAH transaksi pembayarnya di-VOID tidak berkomisi. Pertahanan
+          sendiri -- jangan bergantung pada void yang melepas `id_transaksi` (Task 4);
+        - tindakan belum SELESAI, atau tidak ditagih transaksi ini (salah pemanggil);
+        - sudah ada baris AKTIF untuk tindakan ini (anti-dobel lintas bayar + selesai +
+          susulan -- tanpa ini split/reopen menulis komisi dua kali).
+
+        Status transaksi dibaca dengan KUNCI BACA (`FOR SHARE`), bukan baca biasa: di
+        REPEATABLE READ baca biasa memakai potret awal transaksi DB. `end_tindakan` yang
+        berjalan bersamaan dengan pembayaran tindakan itu melihat `id_transaksi` terbaru
+        (barisnya dikunci FOR UPDATE) tapi bisa TIDAK melihat transaksi kasirnya -- lalu
+        tak mencatat, sementara pembayaran juga tak mencatat karena saat itu tindakan belum
+        SELESAI: komisi hilang diam-diam. Sama halnya dengan void yang berjalan bersamaan.
+
+        Basis = harga MASTER (sama dengan sebelum T2-3); `tanggal` dari pemanggil (tanggal
+        bayar atau tanggal selesai) -- laporan komisi membaca `KomisiLedger.tanggal`.
+        """
+        from app.db.models import Kunjungan, TransaksiKasir
+
+        if kt.id_transaksi != id_transaksi:
+            return 0
+        st = kt.status_tindakan
+        if getattr(st, "value", st) != StatusTindakanEnum.SELESAI.value:
+            return 0
+        status_trx = self.db.execute(
+            select(TransaksiKasir.status_transaksi)
+            .where(TransaksiKasir.id_transaksi == id_transaksi)
+            .with_for_update(read=True)
+        ).scalar_one_or_none()
+        if getattr(status_trx, "value", status_trx) != "BAYAR":
+            return 0
+
+        already = self.db.execute(
+            select(KomisiLedger.id_komisi).where(
+                KomisiLedger.sumber == "TINDAKAN",
+                KomisiLedger.id_ref == kt.id_kunjungan_tindakan,
+                KomisiLedger.status == "AKTIF",
+            ).limit(1)
+        ).first()
+        if already:
+            return 0
+        treatment = self.db.get(MasterTreatment, kt.id_treatment)
+        if treatment is None:
+            return 0
+        # id_pasien dari KUNJUNGAN, sama dengan pemanggil lama (proses_bayar mengirim
+        # kunjungan.id_pasien) -- bukan transaksi_kasir.id_pasien (CLAUDE.md 4.1).
+        id_pasien = self.db.execute(
+            select(Kunjungan.id_pasien).where(Kunjungan.id_kunjungan == kt.id_kunjungan)
+        ).scalar_one_or_none()
+        calc = hitung_komisi_treatment(self.db, treatment)  # basis harga master
+        harga = float(treatment.harga or 0)
+        nama = treatment.nama_treatment
+        n = 0
+
+        kom_dok = float(calc.get("komisi_dokter", 0) or 0)
+        if kt.id_dokter_pelaksana and kom_dok > 0:
+            self._add_row(
+                id_transaksi=id_transaksi, id_kunjungan=kt.id_kunjungan, id_pasien=id_pasien,
+                tanggal=tanggal, id_staf=kt.id_dokter_pelaksana, role="DOKTER", sumber="TINDAKAN",
+                id_ref=kt.id_kunjungan_tindakan, nama_item=nama, harga_jual=harga,
+                komisi_tipe=treatment.komisi_dokter_tipe,
+                komisi_value=float(treatment.komisi_dokter_value or 0),
+                komisi_nominal=kom_dok,
+            )
+            n += 1
+
+        kom_per = float(calc.get("komisi_perawat", 0) or 0)
+        if kt.id_perawat_pelaksana and kom_per > 0:
+            self._add_row(
+                id_transaksi=id_transaksi, id_kunjungan=kt.id_kunjungan, id_pasien=id_pasien,
+                tanggal=tanggal, id_staf=kt.id_perawat_pelaksana, role="PERAWAT", sumber="TINDAKAN",
+                id_ref=kt.id_kunjungan_tindakan, nama_item=nama, harga_jual=harga,
+                komisi_tipe=treatment.komisi_perawat_tipe,
+                komisi_value=float(treatment.komisi_perawat_value or 0),
+                komisi_nominal=kom_per,
+            )
+            n += 1
         if n:
             self.db.flush()
         return n

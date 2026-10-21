@@ -5,7 +5,8 @@ Operasi:
 - lihat_antrian_ruang_tindakan(): list pasien ANTRI_TREATMENT / ON_TREATMENT hari ini
 - get_detail(id_kunjungan): SOAP dokter + daftar tindakan
 - start_tindakan(id_kunjungan_tindakan, id_staf_perawat): PENDING → PROSES + transition kunjungan ke ON_TREATMENT
-- end_tindakan(id_kunjungan_tindakan, id_staf_perawat): PROSES → SELESAI + auto potong BHP + SMART CHECK → ANTRI_BAYAR
+- end_tindakan(id_kunjungan_tindakan, id_staf_perawat): PROSES → SELESAI + auto potong BHP
+  + komisi bila sudah dibayar di muka (bayar dulu T2-3) + status kunjungan dari isinya
 """
 
 from datetime import date, datetime
@@ -330,6 +331,21 @@ class TreatmentService:
                 id_kunjungan=tindakan.id_kunjungan,
                 id_staf=id_staf_history,
             )
+
+            # 2b. Komisi (bayar dulu T2-3): komisi tindakan = dibayar DAN selesai, mana pun
+            # yang terakhir. Sudah dibayar di muka → dicatat SEKARANG, terikat transaksi
+            # pembayarnya (jadi void transaksi itu ikut menariknya), bertanggal SELESAI.
+            # Belum dibayar (id_transaksi NULL) → tidak ada apa-apa; pembayaran nanti yang
+            # mencatat (`catat_komisi_transaksi`). Tanpa langkah ini tindakan prabayar tidak
+            # pernah berkomisi — tagihan susulan yang dulu menangkapnya tak terjadi lagi.
+            # Transaksi pembayar yang sudah VOID ditolak di dalam `catat_komisi_tindakan`.
+            # `tindakan` dibaca FOR UPDATE di atas → `id_transaksi`-nya terbaru.
+            if tindakan.id_transaksi is not None:
+                from app.services.komisi_service import KomisiService
+                KomisiService(self.db).catat_komisi_tindakan(
+                    kt=tindakan, id_transaksi=tindakan.id_transaksi,
+                    tanggal=now.date(), request=request,
+                )
 
             # 3. Status kunjungan dari isinya (bayar dulu T1-4). Dulu: "tak ada tindakan
             # PENDING/PROSES lagi → ANTRI_BAYAR" TANPA SYARAT — walau tindakan ini sudah

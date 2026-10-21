@@ -43,7 +43,19 @@ def _mk_treatment(db, kd, kp):
     return t
 
 
-def _mk_tindakan(db, dr, per, kd, kp):
+def _trx(db, dr):
+    """Bayar dulu T2-3: komisi tindakan hanya untuk tindakan yang DIBAYAR transaksi BAYAR
+    yang dicatat (`kunjungan_tindakan.id_transaksi`). Dulu test ini memanggil dengan
+    `id_transaksi=None` dan tindakan tanpa tautan -- kontrak lama "semua SELESAI di
+    kunjungan", yang membuat tindakan belum ditagih ikut berkomisi."""
+    trx = TransaksiKasir(id_staf_kasir=dr, rincian_tagihan="test", total_tagihan=500000,
+                         status_transaksi="BAYAR")
+    db.add(trx)
+    db.flush()
+    return trx
+
+
+def _mk_tindakan(db, dr, per, kd, kp, trx=None):
     p = Pasien(no_rm=f"KOM-{int(_t.time())}-{random.randint(100,999)}", nama="Komisi Test")
     db.add(p)
     db.flush()
@@ -55,6 +67,7 @@ def _mk_tindakan(db, dr, per, kd, kp):
         id_kunjungan=kj.id_kunjungan, id_treatment=t.id_treatment,
         status_tindakan=StatusTindakanEnum.SELESAI,
         id_dokter_pelaksana=dr, id_perawat_pelaksana=per,
+        id_transaksi=trx.id_transaksi if trx else None,
     )
     db.add(kt)
     db.flush()
@@ -66,9 +79,10 @@ def test_komisi_tindakan_dokter_dan_perawat(db):
     assert staf, "butuh minimal 1 staf seed"
     dr = staf[0].id_staf
     per = staf[1].id_staf if len(staf) > 1 else staf[0].id_staf
-    p, kj, kt = _mk_tindakan(db, dr, per, 75000, 25000)
+    trx = _trx(db, dr)
+    p, kj, kt = _mk_tindakan(db, dr, per, 75000, 25000, trx)
     n = KomisiService(db).catat_komisi_transaksi(
-        id_transaksi=None, id_kunjungan=kj.id_kunjungan, id_pasien=p.id_pasien,
+        id_transaksi=trx.id_transaksi, id_kunjungan=kj.id_kunjungan, id_pasien=p.id_pasien,
         id_dokter_assigned=dr, rincian_produk=[],
     )
     assert n == 2
@@ -84,9 +98,10 @@ def test_komisi_tindakan_dokter_dan_perawat(db):
 def test_komisi_hanya_dokter_kalau_perawat_nol(db):
     staf = _staf(db)
     dr = staf[0].id_staf
-    p, kj, kt = _mk_tindakan(db, dr, dr, 50000, 0)  # pico: perawat 0
+    trx = _trx(db, dr)
+    p, kj, kt = _mk_tindakan(db, dr, dr, 50000, 0, trx)  # pico: perawat 0
     n = KomisiService(db).catat_komisi_transaksi(
-        id_transaksi=None, id_kunjungan=kj.id_kunjungan, id_pasien=p.id_pasien,
+        id_transaksi=trx.id_transaksi, id_kunjungan=kj.id_kunjungan, id_pasien=p.id_pasien,
         id_dokter_assigned=dr, rincian_produk=[],
     )
     assert n == 1
@@ -97,10 +112,8 @@ def test_komisi_hanya_dokter_kalau_perawat_nol(db):
 def test_void_komisi(db):
     staf = _staf(db)
     dr = staf[0].id_staf
-    trx = TransaksiKasir(id_staf_kasir=dr, rincian_tagihan="test", total_tagihan=500000, status_transaksi="BAYAR")
-    db.add(trx)
-    db.flush()
-    p, kj, kt = _mk_tindakan(db, dr, dr, 75000, 25000)
+    trx = _trx(db, dr)
+    p, kj, kt = _mk_tindakan(db, dr, dr, 75000, 25000, trx)
     KomisiService(db).catat_komisi_transaksi(
         id_transaksi=trx.id_transaksi, id_kunjungan=kj.id_kunjungan, id_pasien=p.id_pasien,
         id_dokter_assigned=dr, rincian_produk=[],
@@ -124,11 +137,12 @@ def test_anti_dobel_komisi(db):
     """Opsi A: panggil catat 2× (mis. split/reopen) → tindakan tidak dobel komisi."""
     staf = _staf(db)
     dr = staf[0].id_staf
-    p, kj, kt = _mk_tindakan(db, dr, dr, 75000, 25000)
+    trx = _trx(db, dr)
+    p, kj, kt = _mk_tindakan(db, dr, dr, 75000, 25000, trx)
     svc = KomisiService(db)
-    n1 = svc.catat_komisi_transaksi(id_transaksi=None, id_kunjungan=kj.id_kunjungan,
+    n1 = svc.catat_komisi_transaksi(id_transaksi=trx.id_transaksi, id_kunjungan=kj.id_kunjungan,
                                     id_pasien=p.id_pasien, id_dokter_assigned=dr, rincian_produk=[])
-    n2 = svc.catat_komisi_transaksi(id_transaksi=None, id_kunjungan=kj.id_kunjungan,
+    n2 = svc.catat_komisi_transaksi(id_transaksi=trx.id_transaksi, id_kunjungan=kj.id_kunjungan,
                                     id_pasien=p.id_pasien, id_dokter_assigned=dr, rincian_produk=[])
     assert n1 == 2 and n2 == 0
     rows = db.query(KomisiLedger).filter(KomisiLedger.id_kunjungan == kj.id_kunjungan).all()
