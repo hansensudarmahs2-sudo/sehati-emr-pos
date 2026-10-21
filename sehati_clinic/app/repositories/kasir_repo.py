@@ -266,15 +266,20 @@ class KasirRepository:
         Sejajar mark_racikan_dibayar (Audit T4-1): HANYA `ids` yang benar-benar ditagih,
         `ids=[]` → 0 baris. Hanya baris `id_transaksi IS NULL`: tindakan yang sudah punya
         transaksi pembayar tidak boleh dipindah ke transaksi lain.
+
+        Bayar dulu T2-1 (fix round 1): saringannya `tindakan_bisa_ditagih()` — juga bukan
+        BATAL. Tindakan yang dibatalkan perawat sesudah tagihan dihitung tidak tertaut, dan
+        `proses_bayar` membandingkan rowcount ini dengan jumlah yang ditagih (409 bila beda).
         """
         from sqlalchemy import update
+        from app.services._status_kunjungan import tindakan_bisa_ditagih
 
         if ids is not None and not ids:
             return 0
         stmt = (
             update(KunjunganTindakan)
             .where(KunjunganTindakan.id_kunjungan == id_kunjungan)
-            .where(KunjunganTindakan.id_transaksi.is_(None))
+            .where(tindakan_bisa_ditagih())
             .values(id_transaksi=id_transaksi)
         )
         if ids is not None:

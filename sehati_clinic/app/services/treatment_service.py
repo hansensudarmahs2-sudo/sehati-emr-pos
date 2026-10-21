@@ -447,7 +447,23 @@ class TreatmentService:
         # itu bayar yang baru saja menagih tindakan ini (commit selagi kita menunggu) tak
         # terlihat dan tindakan yang SUDAH DIBAYAR dibatalkan. ⚠ Jangan sisipkan SELECT
         # biasa sebelum kunci di bawah.
+        #
+        # Bayar dulu T2-1 (fix round 1, Ruling P3): kunci KUNJUNGAN dulu, baru tindakan —
+        # urutan yang sama dengan bayar/serah/void/refund (`refund_item_tertunda`). Sejak
+        # tahap 2 kasir menagih tindakan PENDING: dulu Batalkan hanya mengunci baris
+        # tindakan, jadi bayar yang sedang berjalan (memegang kunci kunjungan, tagihannya
+        # sudah memuat tindakan ini) tak tertahan — Batalkan commit BATAL + kuota kembali,
+        # lalu bayar menautkan tindakan BATAL itu dan pasien membayarnya. id_kunjungan
+        # dibaca SEBELUM baca-segar (pola `refund_item_tertunda`): kolom itu tak pernah
+        # berubah, dan SELECT sesudah `mulai_baca_segar` akan membuka potret sebelum kunci.
+        from sqlalchemy import select as _select
+        from app.db.models import KunjunganTindakan as _KT
+        _id_kj = self.db.execute(
+            _select(_KT.id_kunjungan).where(_KT.id_kunjungan_tindakan == id_kunjungan_tindakan)
+        ).scalar_one_or_none()
         mulai_baca_segar(self.db)
+        if _id_kj is not None:
+            self.kunjungan_repo.get_by_id_for_update(_id_kj)
         tindakan = self.treatment_repo.get_tindakan_for_update(id_kunjungan_tindakan)
         if tindakan is None:
             raise HTTPException(

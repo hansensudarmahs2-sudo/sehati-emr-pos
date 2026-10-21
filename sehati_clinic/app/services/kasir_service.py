@@ -718,6 +718,11 @@ class KasirService:
             self.db.add(kuota)
         self.db.flush()
 
+    # Satu pesan untuk "tagihan berubah sejak dihitung/ditampilkan": sidik basi (T1-6) dan
+    # tindakan yang tak lagi bisa ditagih saat ditautkan (T2-1 fix round 1).
+    _PESAN_TAGIHAN_BERUBAH = ("Tagihan berubah sejak halaman dibuka — ada item baru dari "
+                              "dokter/perawat. Halaman dimuat ulang; periksa lalu bayar lagi.")
+
     @staticmethod
     def sidik_tagihan(tagihan: TagihanResponse) -> str:
         """Sidik himpunan item yang DITAGIH di `tagihan` (Bayar dulu T1-6).
@@ -791,8 +796,7 @@ class KasirService:
         if payload.sidik is not None and payload.sidik != self.sidik_tagihan(tagihan):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=("Tagihan berubah sejak halaman dibuka — ada item baru dari "
-                        "dokter/perawat. Halaman dimuat ulang; periksa lalu bayar lagi."),
+                detail=self._PESAN_TAGIHAN_BERUBAH,
             )
 
         total_tagihan = tagihan.ringkasan_biaya.total_tagihan
@@ -971,9 +975,18 @@ class KasirService:
                 ids=[r.id_kunjungan_racikan for r in tagihan.rincian_racikan])
             # Bayar dulu T1-2: tindakan yang ditagih ikut ditandai (hanya yang di tagihan ini;
             # susulan yang selesai selama pembayaran tetap NULL dan muncul di tagihan berikutnya).
-            self.repo.mark_tindakan_dibayar(
-                payload.id_kunjungan, id_trx_baru,
-                ids=[t.id_kunjungan_tindakan for t in tagihan.rincian_tindakan])
+            _ids_tindakan = [t.id_kunjungan_tindakan for t in tagihan.rincian_tindakan]
+            n_tindakan_ditaut = self.repo.mark_tindakan_dibayar(
+                payload.id_kunjungan, id_trx_baru, ids=_ids_tindakan)
+            # Bayar dulu T2-1 (fix round 1, Ruling P3a): pagar cadangan. Tindakan yang
+            # ditagih tapi tak tertaut = berubah sejak tagihan dihitung (mis. dibatalkan
+            # perawat; Batalkan kini mengunci kunjungan dulu, jadi ini seharusnya tak
+            # terjadi). Tanpa pagar ini pasien membayar tindakan BATAL yang kuotanya sudah
+            # dikembalikan. Rollback: transaksi & pembayaran di atas belum di-commit.
+            if n_tindakan_ditaut != len(_ids_tindakan):
+                self.db.rollback()
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                    detail=self._PESAN_TAGIHAN_BERUBAH)
 
             # 6. Status kunjungan dari isinya (bayar dulu T1-4, menutup Audit T4-4).
             # Dulu: obat ditandai di transaksi ini → ANTRI_OBAT, selain itu COMPLETED —
@@ -1117,10 +1130,11 @@ class KasirService:
             q_rac = q_rac.where(_KRC.id_kunjungan_racikan != kecuali_racikan)
         n += int(self.db.execute(q_rac).scalar() or 0)
 
-        # T2-1: tindakan bukan BATAL — termasuk yang belum dikerjakan (kini ikut ditagih).
-        # Sengaja TIDAK disaring `id_transaksi`: perilaku tahap 1 dipertahankan (dulu
-        # menghitung semua SELESAI, termasuk yang sudah lunas).
-        n += len(self.repo.get_tindakan_untuk_tagihan(id_kunjungan))
+        # T2-1: tindakan yang BISA DITAGIH (satu definisi: bukan BATAL, belum punya
+        # transaksi) — termasuk yang belum dikerjakan. Dulu semua SELESAI, termasuk yang
+        # sudah lunas: tindakan lunas bukan isi tagihan INI, jadi menunda item terakhir di
+        # tagihan susulan lolos dan melahirkan transaksi Rp 0.
+        n += len(self.repo.get_tindakan_untuk_tagihan(id_kunjungan, hanya_bisa_ditagih=True))
         return n
 
     _PESAN_SEMUA_DITUNDA = (
