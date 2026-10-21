@@ -335,7 +335,8 @@ class KasirService:
             return charge, pakai_kuota
 
         # ===== Query ALL items =====
-        all_tindakan = self.repo.get_tindakan_selesai_for_billing(id_kunjungan)
+        # Bayar dulu T2-1: bukan BATAL, status apa pun (PENDING/PROSES = dibayar di muka).
+        all_tindakan = self.repo.get_tindakan_untuk_tagihan(id_kunjungan)
         all_resep_pending = self.repo.get_resep_pending_for_billing(id_kunjungan)
         all_racikan_pending = self.repo.get_racikan_pending_for_billing(id_kunjungan)
 
@@ -363,13 +364,16 @@ class KasirService:
             )
 
         # ===== Detect "new" items (FLOW-D Part B) =====
-        # Tindakan "baru" = SELESAI dan BELUM punya transaksi pembayar (`id_transaksi IS NULL`).
-        # Bayar dulu T1-2: tindakan kini ditandai saat dibayar, sama seperti resep/racikan
-        # (Audit T4-1) — jadi tak perlu lagi membandingkan jam. Dulu `waktu_selesai > waktu_bayar`:
-        # tindakan yang selesai di detik yang SAMA dengan bayar (atau sebelum bayar tapi tidak
-        # ikut ditagih) hilang dari tagihan susulan tanpa jejak. `all_tindakan` tetap memuat
-        # semua SELESAI untuk mode lihat-saja di bawah.
-        new_tindakan = [(t, tr) for (t, tr) in all_tindakan if t.id_transaksi is None]
+        # Tindakan "baru" = `tindakan_bisa_ditagih()` (bukan BATAL, BELUM punya transaksi
+        # pembayar) — ekspresi yang SAMA dengan (K) di `_status_kunjungan`; jangan menyaring
+        # ulang di sini. Bayar dulu T1-2: tindakan ditandai saat dibayar, sama seperti
+        # resep/racikan (Audit T4-1) — jadi tak perlu lagi membandingkan jam. Dulu
+        # `waktu_selesai > waktu_bayar`: tindakan yang selesai di detik yang SAMA dengan bayar
+        # (atau sebelum bayar tapi tidak ikut ditagih) hilang dari tagihan susulan tanpa
+        # jejak. T2-1: dulu hanya SELESAI; kini PENDING/PROSES ikut (dibayar di muka) —
+        # `_compute_charge` (kuota/series) berlaku sama untuk semuanya. `all_tindakan` tetap
+        # memuat semua yang bukan BATAL untuk mode lihat-saja di bawah.
+        new_tindakan = self.repo.get_tindakan_untuk_tagihan(id_kunjungan, hanya_bisa_ditagih=True)
         if cutoff is not None:
             # Audit T4-1 (2026-10-15): resep & racikan PENDING = BELUM ditagih, apa pun
             # waktunya — bayar kini hanya menandai baris yang ditagih, jadi PENDING tidak
@@ -389,6 +393,9 @@ class KasirService:
         # ===== VIEW-ONLY MODE (sudah lunas, no new items) =====
         if existing is not None and not has_new_items:
             rincian_tindakan_view: list[RincianTindakan] = []
+            # Tanpa item baru, setiap tindakan bukan-BATAL di `all_tindakan` pasti sudah
+            # ber-`id_transaksi` (yang belum adalah item "baru" → mode tagih di bawah). Jadi
+            # ini = tindakan yang sudah dibayar, APA PUN statusnya (prabayar tampil PENDING).
             for tindakan, treatment in all_tindakan:
                 charge, pakai_kuota = _compute_charge(tindakan, treatment)
                 rincian_tindakan_view.append(RincianTindakan(
@@ -397,6 +404,8 @@ class KasirService:
                     nama_treatment=treatment.nama_treatment,
                     harga=charge,
                     pakai_kuota_member=pakai_kuota,
+                    status_tindakan=getattr(tindakan.status_tindakan, "value",
+                                            tindakan.status_tindakan),
                 ))
             # Phase 4 (#364): Kalau transaksi VOID, cascade FLOW-V6 sudah ubah
             # resep DIBAYAR → BATAL. Untuk tampil di Detail Tagihan, include BATAL juga.
@@ -534,6 +543,8 @@ class KasirService:
                 nama_treatment=treatment.nama_treatment,
                 harga=charge,
                 pakai_kuota_member=pakai_kuota,
+                status_tindakan=getattr(tindakan.status_tindakan, "value",
+                                        tindakan.status_tindakan),
             ))
 
         rincian_produk: list[RincianProduk] = []
@@ -1106,7 +1117,10 @@ class KasirService:
             q_rac = q_rac.where(_KRC.id_kunjungan_racikan != kecuali_racikan)
         n += int(self.db.execute(q_rac).scalar() or 0)
 
-        n += len(self.repo.get_tindakan_selesai_for_billing(id_kunjungan))
+        # T2-1: tindakan bukan BATAL — termasuk yang belum dikerjakan (kini ikut ditagih).
+        # Sengaja TIDAK disaring `id_transaksi`: perilaku tahap 1 dipertahankan (dulu
+        # menghitung semua SELESAI, termasuk yang sudah lunas).
+        n += len(self.repo.get_tindakan_untuk_tagihan(id_kunjungan))
         return n
 
     _PESAN_SEMUA_DITUNDA = (

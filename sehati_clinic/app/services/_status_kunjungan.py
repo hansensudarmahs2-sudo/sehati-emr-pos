@@ -27,7 +27,10 @@ Catatan arti:
   - (K) juga benar bila sudah ada SOAP FINAL dan belum ada transaksi kasir SAMA SEKALI
     (status apa pun): konsultasi tanpa item pun tetap ditagih (biaya konsul). Transaksi
     VOID berarti kasir sudah pernah menangani kunjungan ini.
-  - Tahap 1 hanya menagih tindakan SELESAI; PENDING/PROSES masuk (T), bukan (K).
+  - Tahap 2 (bayar dulu, 2026-10-21): tindakan yang BELUM dikerjakan boleh ditagih
+    (prabayar). "Tindakan bisa ditagih" = bukan BATAL dan `id_transaksi IS NULL`
+    (`tindakan_bisa_ditagih`), jadi tindakan PENDING/PROSES yang belum dibayar memenuhi
+    (T) DAN (K) sekaligus. Tahap 1 dulu hanya menagih SELESAI.
   - "Jangan disentuh" (None) hanya untuk kunjungan yang BELUM BERISI apa pun: tanpa SOAP
     FINAL, tanpa item hidup, DAN tanpa transaksi kasir (status apa pun). Kunjungan yang
     isinya habis karena void (item BATAL + transaksi VOID) dihitung biasa → COMPLETED.
@@ -101,11 +104,29 @@ def kondisi_ada_soap():
                 PemeriksaanKlinis.status_soap == "FINAL")
 
 
+def tindakan_bukan_batal():
+    """Kriteria BARIS `KunjunganTindakan` yang masih hidup (bukan BATAL).
+
+    Status NULL TIDAK ikut (SQL `!=` tidak benar untuk NULL) — sama dengan tahap 1, yang
+    hanya menagih SELESAI; kolomnya ber-server_default PENDING, jadi NULL hanya data
+    rusak. Jangan diganti `or_(is_(None), ...)` tanpa memeriksa `RincianTindakan.status_tindakan`
+    (wajib str)."""
+    return KunjunganTindakan.status_tindakan != StatusTindakanEnum.BATAL
+
+
+def tindakan_bisa_ditagih():
+    """SATU definisi "tindakan bisa ditagih" (bayar dulu tahap 2, Global Constraints):
+    bukan BATAL dan belum punya transaksi pembayar. Kriteria BARIS, bukan EXISTS — dipakai
+    (K) di bawah DAN `KasirRepository.get_tindakan_untuk_tagihan` (tagihan kasir) serta
+    hitungan tindakan di antrian kasir. Kalau tagihan dan (K) punya rumus sendiri-sendiri,
+    pasien bisa tertahan di antrian kasir dengan tagihan kosong (atau sebaliknya: tagihan
+    berisi tindakan tapi pasien tak pernah muncul di kasir), tanpa error."""
+    return and_(tindakan_bukan_batal(), KunjunganTindakan.id_transaksi.is_(None))
+
+
 def kondisi_K():
     """Ada yang belum ditagih (antrian kasir)."""
-    tindakan_belum_ditagih = _tindakan(
-        KunjunganTindakan.status_tindakan == StatusTindakanEnum.SELESAI,
-        KunjunganTindakan.id_transaksi.is_(None))
+    tindakan_belum_ditagih = _tindakan(tindakan_bisa_ditagih())
     obat_pending = _item_obat(StatusItemResepEnum.PENDING, "PENDING")
     belum_pernah_ditagih = and_(
         kondisi_ada_soap(),
@@ -113,7 +134,7 @@ def kondisi_K():
         # transaksinya di-void (resep/racikan jadi BATAL, SOAP tetap FINAL) sudah ditangani
         # kasir; kalau dihitung "belum ditagih" ia balik ke antrian kasir dan memblokir
         # tutup kasir. Susulan sesudah void tetap tertangkap klausa lain (resep/racikan
-        # PENDING, tindakan SELESAI tanpa id_transaksi).
+        # PENDING, tindakan hidup tanpa id_transaksi).
         ~kondisi_ada_transaksi())
     return or_(tindakan_belum_ditagih, obat_pending, belum_pernah_ditagih)
 

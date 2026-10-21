@@ -4,7 +4,7 @@ KasirRepository — CRUD untuk kasir + apotek (transaksi_kasir, detail, pembayar
 Plus queries:
 - antrian ANTRI_BAYAR hari ini
 - riwayat bayar hari ini (untuk akses cetak nota pasca-bayar)
-- tindakan SELESAI per kunjungan (sumber tagihan treatment)
+- tindakan bukan BATAL per kunjungan (sumber tagihan treatment; tahap 2: termasuk prabayar)
 - resep PENDING per kunjungan (sumber tagihan produk)
 - cek existing transaksi (bulletproof check anti-duplicate billing)
 - rekap shift per kasir
@@ -57,10 +57,12 @@ class KasirRepository:
 
         `tindakan_belum_selesai` (review akhir tahap 1, I6) = (T) dari fungsi bersama:
         masih ada tindakan PENDING/PROSES. Tahap 1 hanya menagih tindakan SELESAI, jadi
-        kasir yang menagih sekarang akan menagih LAGI nanti (tagihan susulan) — penanda
-        di layar supaya kasir bisa memberi tahu pasien, bukan mengira tagihannya lengkap.
+        penanda ini berarti "akan ada tagihan susulan". Sejak tahap 2 (T2-1) tindakan
+        yang belum dikerjakan IKUT ditagih (dibayar di muka), jadi penanda kini berarti
+        "ada tindakan yang belum dikerjakan" — tetap berguna untuk memberi tahu pasien.
         """
-        from app.services._status_kunjungan import kondisi_K, kondisi_T, saringan_meja_hari_ini
+        from app.services._status_kunjungan import (kondisi_K, kondisi_T, saringan_meja_hari_ini,
+                                                    tindakan_bisa_ditagih)
         if today is None:
             today = date.today()
 
@@ -78,11 +80,10 @@ class KasirRepository:
             n_tindakan = self.db.execute(
                 select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
                 .where(KunjunganTindakan.id_kunjungan == kunjungan.id_kunjungan)
-                .where(KunjunganTindakan.status_tindakan == "SELESAI")
-                # Bayar dulu T1-5: hanya yang BISA DITAGIH (belum punya transaksi) —
-                # arti yang sama dengan (K). Dulu tagihan susulan ikut menghitung
-                # tindakan yang sudah lunas.
-                .where(KunjunganTindakan.id_transaksi.is_(None))
+                # Bayar dulu T1-5 / T2-1: hanya yang BISA DITAGIH — ekspresi yang sama
+                # dengan (K) dan tagihan (bukan BATAL, belum punya transaksi). Dulu
+                # tagihan susulan ikut menghitung tindakan yang sudah lunas.
+                .where(tindakan_bisa_ditagih())
             ).scalar() or 0
             n_resep = self.db.execute(
                 select(func.count(KunjunganResep.id_resep))
@@ -151,19 +152,26 @@ class KasirRepository:
         row = self.db.execute(stmt).first()
         return (row[0], row[1]) if row else None
 
-    def get_tindakan_selesai_for_billing(
-        self, id_kunjungan: int
+    def get_tindakan_untuk_tagihan(
+        self, id_kunjungan: int, *, hanya_bisa_ditagih: bool = False,
     ) -> list[tuple[KunjunganTindakan, MasterTreatment]]:
-        """List SEMUA tindakan SELESAI di kunjungan ini + master_treatment (untuk harga).
+        """Tindakan bukan BATAL di kunjungan ini + master_treatment (untuk harga).
 
-        Termasuk yang sudah dibayar (mode lihat-saja get_tagihan menampilkannya). Yang
-        "baru/bisa ditagih" = `id_transaksi IS NULL`, disaring di KasirService.get_tagihan.
+        Bayar dulu tahap 2: status APA PUN selain BATAL (PENDING/PROSES = dibayar di muka).
+        Dulu `get_tindakan_selesai_for_billing` (hanya SELESAI).
+        - `hanya_bisa_ditagih=False` → termasuk yang sudah dibayar (mode lihat-saja
+          `KasirService.get_tagihan` menampilkannya).
+        - `hanya_bisa_ditagih=True` → `tindakan_bisa_ditagih()` (bukan BATAL dan
+          `id_transaksi IS NULL`) — ekspresi yang SAMA dengan (K); jangan menyaring
+          ulang di Python.
         """
+        from app.services._status_kunjungan import tindakan_bisa_ditagih, tindakan_bukan_batal
+        saringan = tindakan_bisa_ditagih() if hanya_bisa_ditagih else tindakan_bukan_batal()
         stmt = (
             select(KunjunganTindakan, MasterTreatment)
             .join(MasterTreatment, KunjunganTindakan.id_treatment == MasterTreatment.id_treatment)
             .where(KunjunganTindakan.id_kunjungan == id_kunjungan)
-            .where(KunjunganTindakan.status_tindakan == "SELESAI")
+            .where(saringan)
             .order_by(KunjunganTindakan.id_kunjungan_tindakan.asc())
         )
         rows = self.db.execute(stmt).all()

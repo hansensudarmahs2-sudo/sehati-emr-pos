@@ -219,8 +219,10 @@ def test_ringkasan_kunci_dan_nilai(db):
     from app.services import _status_kunjungan as sk
     staf, k = _siapkan(db, "ANTRI_BAYAR")
     _isi(db, k, staf, soap=True, tindakan=["PROSES", "PENDING"], resep=["DIBAYAR"], bayar=True)
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — PROSES/PENDING tanpa id_transaksi
+    # kini BELUM DITAGIH, jadi (K) benar (tahap 1: False, hanya SELESAI yang ditagih).
     assert sk.ringkasan(db, k.id_kunjungan) == {
-        "T_proses": True, "T_pending": True, "K": False, "O": True,
+        "T_proses": True, "T_pending": True, "K": True, "O": True,
         "ada_isi": True, "ada_soap": True, "ada_transaksi": True}
 
 
@@ -289,13 +291,19 @@ def _tindakan_baru(db, k, status="PENDING"):
 
 def test_t44_bayar_saat_tindakan_pending_tetap_di_jalur_perawat(db):
     """Audit T4-4: bayar saat tindakan B masih PENDING dulu membuat kunjungan COMPLETED,
-    sehingga B hilang dari layar perawat dan tak pernah tertagih."""
+    sehingga B hilang dari layar perawat dan tak pernah tertagih.
+
+    tahap 2: tindakan belum dikerjakan ikut ditagih — B ditagih BERSAMA A (dibayar di muka),
+    pasien tetap di jalur perawat, dan selesainya B langsung COMPLETED tanpa susulan.
+    (Tahap 1: bayar menagih A saja, B selesai → ANTRI_BAYAR → tagihan susulan.)"""
     from app.services.treatment_service import TreatmentService
     staf, k = _siapkan(db)
     _soap(db, k, staf)
     _tindakan_selesai(db, k, detik=-5)               # A
     b = _tindakan_baru(db, k, "PENDING")             # B
-    _bayar(db, k, staf)                              # menagih A saja
+    _bayar(db, k, staf)                              # menagih A DAN B (prabayar)
+    db.refresh(b)
+    assert b.id_transaksi == _trx_terakhir(db, k).id_transaksi
     assert V(k.status_antrian) == "ANTRI_TREATMENT"  # dulu COMPLETED
     svc = TreatmentService(db)
     svc.start_tindakan(b.id_kunjungan_tindakan, staf.id_staf)
@@ -303,12 +311,8 @@ def test_t44_bayar_saat_tindakan_pending_tetap_di_jalur_perawat(db):
     assert V(k.status_antrian) == "ON_TREATMENT"
     hasil = svc.end_tindakan(b.id_kunjungan_tindakan, staf.id_staf)
     db.refresh(k)
-    assert V(k.status_antrian) == "ANTRI_BAYAR"
-    assert hasil["data"]["status_kunjungan_baru"] == "ANTRI_BAYAR"
-    _bayar(db, k, staf)                              # susulan: B
-    db.refresh(b)
-    assert b.id_transaksi == _trx_terakhir(db, k).id_transaksi
     assert V(k.status_antrian) == "COMPLETED"
+    assert hasil["data"]["status_kunjungan_baru"] == "COMPLETED"
 
 
 def test_selesai_tindakan_sesudah_lunas_dan_obat_menunggu(db):
@@ -507,7 +511,9 @@ def test_pasien_tampil_di_apotek_dan_perawat_bersamaan(db):
     hanya membaca ANTRI_OBAT sehingga obat yang sudah dibayar hilang dari layar apoteker."""
     _, k, _, _ = _obat_lunas_lalu_tindakan(db, "PENDING")
     assert V(k.status_antrian) == "ANTRI_TREATMENT"
-    assert _di_antrian(db, k) == {"perawat", "apotek"}
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — tindakan yang ditambahkan SESUDAH
+    # bayar belum punya id_transaksi, jadi pasien juga tampil di kasir (prabayar).
+    assert _di_antrian(db, k) == {"perawat", "apotek", "kasir"}
 
 
 def test_apotek_bisa_serah_saat_label_on_treatment(db):
@@ -523,7 +529,9 @@ def test_apotek_bisa_serah_saat_label_on_treatment(db):
     assert V(r.status_item) == "DISERAHKAN"
     assert V(k.status_antrian) == "ON_TREATMENT"
     assert hasil["data"]["status_kunjungan_baru"] == "ON_TREATMENT"
-    assert _di_antrian(db, k) == {"perawat"}
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — tindakan yang ditambahkan SESUDAH
+    # bayar belum punya id_transaksi, jadi pasien juga tampil di kasir (prabayar).
+    assert _di_antrian(db, k) == {"perawat", "kasir"}
 
 
 def test_serah_tetap_ditolak_tanpa_obat_dibayar(db):
@@ -605,7 +613,9 @@ def test_tunda_saat_label_on_treatment(db):
     # Keluar dari antrian apotek (janji terisi). Masuk daftar Obat Tertunda walau label
     # ON_TREATMENT — dulu daftar itu hanya membaca COMPLETED sehingga komentar lama di sini
     # ("→ Obat Tertunda") tidak benar; sejak I3 (`kondisi_tertunda`) benar dan diuji.
-    assert _di_antrian(db, k) == {"perawat"}
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — tindakan yang ditambahkan SESUDAH
+    # bayar belum punya id_transaksi, jadi pasien juga tampil di kasir (prabayar).
+    assert _di_antrian(db, k) == {"perawat", "kasir"}
     assert k.id_kunjungan in [x["id_kunjungan"] for x in ApotekService(db).list_obat_tertunda()]
 
 
@@ -640,7 +650,10 @@ def test_antrian_perawat_tindakan_series_sebelum_konsultasi(db):
     sampai ke perawat karena antriannya membaca tindakan PENDING."""
     staf, k = _siapkan(db, "ANTRI_KONSULTASI")
     _tindakan_baru(db, k, "PENDING")
-    assert _di_antrian(db, k) == {"perawat"}
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — sesi series PENDING tanpa
+    # id_transaksi memenuhi (K), jadi juga tampil di kasir (satu definisi; tanpa
+    # syarat SOAP).
+    assert _di_antrian(db, k) == {"perawat", "kasir"}
 
 
 def test_antrian_tetap_hanya_hari_ini_dan_tanpa_batal(db):
@@ -912,8 +925,10 @@ def test_batalkan_tindakan_pending_belum_dibayar(db):
     staf, k = _siapkan(db)
     _soap(db, k, staf)
     _resep(db, k, staf)
-    q, t = _kuota_pending(db, k)
     _bayar(db, k, staf)
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — supaya tindakan ini tetap BELUM
+    # DIBAYAR (yang diuji di sini), ia ditambahkan SESUDAH bayar konsul.
+    q, t = _kuota_pending(db, k)
     _serah(db, k, staf)
     db.refresh(k)
     assert V(k.status_antrian) == "ANTRI_TREATMENT"
@@ -1100,8 +1115,11 @@ def test_void_tidak_menyentuh_kuota_tindakan_yang_belum_ditagih(db, jalur):
     staf, k = _siapkan(db)
     _soap(db, k, staf)
     _resep(db, k, staf)
-    q, t = _kuota_pending(db, k)
     _bayar(db, k, staf)
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — supaya tindakan ini BELUM DITAGIH
+    # (yang diuji di sini) ia ditambahkan SESUDAH bayar. Void transaksi yang MENAGIH
+    # tindakan prabayar = Task 4 (test_bayar_dulu_tahap2).
+    q, t = _kuota_pending(db, k)
     _void_jalur(db, _trx_terakhir(db, k), staf, jalur)
     db.refresh(q); db.refresh(t); db.refresh(k)
     assert q.kuota_terpakai == 1
@@ -1145,10 +1163,12 @@ def test_void_tidak_membatalkan_series_yang_sesi_1_nya_belum_ditagih(db):
     _resep(db, k, staf)
     s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
     s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    _bayar(db, k, staf)
+    # tahap 2: tindakan belum dikerjakan ikut ditagih — sesi 1 ditambahkan SESUDAH bayar
+    # supaya tetap BELUM DITAGIH (yang diuji di sini); void prabayar = Task 4.
     db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
                              id_rencana=s1.id_rencana, status_tindakan="PENDING"))
     db.flush()
-    _bayar(db, k, staf)
     _void_jalur(db, _trx_terakhir(db, k), staf, "void")
     db.refresh(s1); db.refresh(s2)
     assert (V(s1.status), V(s2.status)) == ("SCHEDULED", "PENDING")

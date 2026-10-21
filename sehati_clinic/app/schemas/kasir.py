@@ -98,6 +98,9 @@ class RincianTindakan(BaseModel):
     nama_treatment: str
     harga: Decimal
     pakai_kuota_member: bool = False     # kalau pakai kuota, harga jadi 0 untuk tagihan
+    # Bayar dulu T2-1: PENDING/PROSES/SELESAI. Tindakan yang belum dikerjakan kini ikut
+    # ditagih (dibayar di muka); layar & konfirmasi (T2-2) membedakannya dari field ini.
+    status_tindakan: str
 
 
 class RincianProduk(BaseModel):
