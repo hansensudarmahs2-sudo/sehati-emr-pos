@@ -104,6 +104,9 @@ class StatusTindakanEnum(str, enum.Enum):
     PENDING = "PENDING"
     PROSES = "PROSES"
     SELESAI = "SELESAI"
+    # Bayar dulu T1 (20261021_0100): dibatalkan sebelum dikerjakan; baris tetap ada karena
+    # uangnya sudah/akan tercatat. Pembaca lama yang menyaring SELESAI tidak terpengaruh.
+    BATAL = "BATAL"
 
 
 class StatusItemResepEnum(str, enum.Enum):
@@ -143,6 +146,8 @@ class SumberRencanaEnum(str, enum.Enum):
     DOKTER_PLAN = "DOKTER_PLAN"
     MEMBERSHIP = "MEMBERSHIP"
     PROMO = "PROMO"
+    # Bayar dulu T1 (20261021_0100): series yang dibeli di muka (prabayar).
+    PRABAYAR = "PRABAYAR"
 
 
 # ---------------------------------------------------------------------------

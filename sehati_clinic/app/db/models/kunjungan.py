@@ -291,6 +291,14 @@ class KunjunganTindakan(Base):
     waktu_mulai: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     waktu_selesai: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # Bayar dulu T1 (2026-10-21, migrasi 20261021_0100): transaksi yang MEMBAYAR tindakan ini,
+    # sejajar kunjungan_resep.id_transaksi (T2-2). Dulu satu-satunya jejak adalah snapshot
+    # transaksi_detail_tindakan, yang tidak ada untuk data pra-F3. NULL = belum dibayar.
+    # Belum ada penulis di tahap ini; kolom diisi backfill untuk tindakan yang sudah lunas.
+    id_transaksi: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("transaksi_kasir.id_transaksi", name="fk_kt_transaksi"), nullable=True
+    )
+
 
 class PemeriksaanKlinis(Base):
     """Tabel `pemeriksaan_klinis` — SOAP dokter per kunjungan."""

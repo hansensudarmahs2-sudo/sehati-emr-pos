@@ -280,6 +280,10 @@ class TransaksiRefund(Base):
     id_kunjungan_racikan: Mapped[Optional[int]] = mapped_column(
         ForeignKey("kunjungan_racikan.id_kunjungan_racikan"), nullable=True
     )
+    # Bayar dulu T1 (migrasi 20261021_0100): refund per TINDAKAN, sejajar dua kolom di atas.
+    id_kunjungan_tindakan: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("kunjungan_tindakan.id_kunjungan_tindakan", name="fk_refund_kt"), nullable=True
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP, server_default=func.current_timestamp(), nullable=True
     )
