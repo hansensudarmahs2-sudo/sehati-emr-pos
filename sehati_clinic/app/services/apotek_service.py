@@ -191,14 +191,16 @@ class ApotekService:
     # SERAHKAN OBAT — atomic potong stok + COMPLETED
     # =========================================================================
     def list_obat_tertunda(self) -> list[dict]:
-        """Daftar kunjungan COMPLETED yang obatnya masih tertunda (tgl_janji_kirim terisi)."""
+        """Daftar kunjungan yang obatnya masih tertunda — `kondisi_tertunda` (bayar dulu I3:
+        bukan lagi hanya COMPLETED; tunda boleh saat tindakan masih berjalan)."""
         from datetime import date as _date
         from sqlalchemy import select as _sel
         from app.db.models import Kunjungan as _K, Pasien as _P, KunjunganResep as _KR, MasterProduk as _MP
+        from app.services._status_kunjungan import kondisi_tertunda
         today = _date.today()
         rows = self.db.execute(
             _sel(_K, _P).join(_P, _P.id_pasien == _K.id_pasien)
-            .where(_K.status_antrian == "COMPLETED", _K.tgl_janji_kirim.is_not(None))
+            .where(kondisi_tertunda())
             .order_by(_K.tgl_janji_kirim.asc())
         ).all()
         out = []
@@ -385,7 +387,14 @@ class ApotekService:
         Kunjungan → COMPLETED (kasir bisa Tutup Kasir), resep tetap DIBAYAR, stok BELUM
         dipotong. tgl_janji_kirim WAJIB. Serah sebenarnya dilakukan nanti via serahkan_obat.
         """
-        kunjungan = self.kunjungan_repo.get_by_id(id_kunjungan)
+        # Review akhir tahap 1 (I2): potret ditutup lalu kunjungan DIKUNCI, sama dengan serah.
+        # Dulu dibaca tanpa kunci dari potret awal permintaan: tunda yang berjalan bersama
+        # serah/void/refund memutuskan "masih ada obat DIBAYAR" dari keadaan lama dan
+        # memasang janji kirim di kunjungan yang obatnya baru saja diserahkan/dibatalkan.
+        # ⚠ Jangan sisipkan SELECT biasa sebelum kunci ini (app/services/_baca_segar.py).
+        from app.services._baca_segar import mulai_baca_segar
+        mulai_baca_segar(self.db)
+        kunjungan = self.kunjungan_repo.get_by_id_for_update(id_kunjungan)
         if kunjungan is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Kunjungan {id_kunjungan} tidak ditemukan.")
         # Task #54: setelah serah SEBAGIAN kunjungan sudah COMPLETED, tapi sisa itemnya
@@ -456,16 +465,23 @@ class ApotekService:
         # ganda / dua apoteker / layar Obat Tertunda menyerahkan obat yang SAMA dua kali
         # (stok dipotong dua kali, dua jejak lot). Void, refund, dan bayar mengunci baris
         # yang sama, jadi semuanya berurutan per kunjungan.
+        # Review akhir tahap 1 (I2): kunci saja TIDAK cukup di REPEATABLE-READ — pagar di
+        # bawah (`ringkasan`, daftar item DIBAYAR) adalah SELECT biasa yang membaca potret
+        # awal permintaan. Void/refund yang commit selagi serah menunggu kunci tak terlihat
+        # → obat yang baru di-void tetap "DIBAYAR" di mata serah. Pola T4-1/T4-5.
+        # ⚠ Jangan sisipkan SELECT biasa sebelum kunci ini (app/services/_baca_segar.py).
+        from app.services._baca_segar import mulai_baca_segar
+        mulai_baca_segar(self.db)
         kunjungan = self.kunjungan_repo.get_by_id_for_update(payload.id_kunjungan)
         if kunjungan is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Kunjungan {payload.id_kunjungan} tidak ditemukan.",
             )
-        _is_tertunda = (
-            kunjungan.status_antrian == "COMPLETED"
-            and kunjungan.tgl_janji_kirim is not None
-        )
+        # Jalur obat tertunda — definisi bersama (`kondisi_tertunda`, I3). Dulu
+        # COMPLETED + janji: obat yang ditunda saat tindakan berjalan ditolak di sini.
+        from app.services._status_kunjungan import obat_tertunda_di
+        _is_tertunda = obat_tertunda_di(self.db, kunjungan.id_kunjungan)
         # Bayar dulu T1-5: pintu serah membaca ISI, sama dengan antrian apotek
         # (`kondisi_O` = obat DIBAYAR belum diserahkan, tanpa janji kirim). Dulu wajib
         # label ANTRI_OBAT, sehingga obat lunas tak bisa diserahkan selama pasien masih

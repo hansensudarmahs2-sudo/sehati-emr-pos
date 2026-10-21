@@ -22,6 +22,15 @@ BACKFILL `id_transaksi` untuk tindakan yang sudah lunas, dua langkah berurutan:
 Aman dijalankan ulang (hanya menyentuh baris yang id_transaksi-nya masih NULL).
 Upgrade GAGAL bila masih ada tindakan SELESAI di kunjungan yang sudah lunas tapi tak
 terpasangkan — menebak di sini berarti tindakan yang bisa ditagih dua kali.
+
+PAGAR SEBELUM DDL (review akhir tahap 1, I5): `tindakan_tak_terpasangkan` (SELECT murni di
+skema LAMA) dijalankan PALING AWAL — MySQL meng-commit setiap ALTER secara implisit, jadi
+pagar yang hanya ada sesudah backfill meninggalkan DB setengah termigrasi. Pagar sesudah
+backfill tetap ada sebagai pengaman kedua.
+Prapemeriksaan yang sama bisa dijalankan di mini PC SEBELUM deploy (hanya membaca):
+    cd /srv/sehati
+    docker compose exec -T sehati-db sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" db_sehati' < deploy/precheck_20261021_0100.sql
+Hasil kosong = aman. Baris yang keluar = periksa manual dulu.
 """
 import sqlalchemy as sa
 from alembic import op
@@ -39,6 +48,15 @@ _SUMBER_BARU = "ENUM('DOKTER_PLAN','MEMBERSHIP','PROMO','PRABAYAR')"
 
 def upgrade():
     bind = op.get_bind()
+    # Pagar PERTAMA, sebelum DDL apa pun (review akhir tahap 1, I5). MySQL meng-commit setiap
+    # ALTER secara implisit: pagar yang hanya ada SESUDAH backfill membuat upgrade gagal
+    # dengan kolom & enum SUDAH berubah tetapi alembic_version belum — DB setengah jadi.
+    yatim = tindakan_tak_terpasangkan(bind)
+    if yatim:
+        raise RuntimeError(
+            f"[20261021_0100] {len(yatim)} tindakan SELESAI di kunjungan lunas tidak bisa "
+            f"dipasangkan ke transaksi (id_kunjungan_tindakan: {yatim[:50]}). TIDAK ADA yang "
+            f"diubah. Periksa manual dulu (deploy/precheck_20261021_0100.sql).")
     op.execute(f"ALTER TABLE kunjungan_tindakan MODIFY status_tindakan {_STATUS_BARU} "
                "NULL DEFAULT 'PENDING'")
     op.execute(f"ALTER TABLE pasien_rencana_treatment MODIFY sumber_rencana {_SUMBER_BARU} "
@@ -70,7 +88,37 @@ def upgrade():
             f"bisa dipasangkan ke transaksi (id_kunjungan_tindakan: {ids}). Periksa manual dulu.")
 
 
+# Prapemeriksaan — HANYA membaca, dan hanya memakai kolom yang SUDAH ada sebelum migrasi ini
+# (tanpa kt.id_transaksi), jadi bisa dijalankan di mini PC sebelum deploy. Tindakan SELESAI di
+# kunjungan yang punya transaksi BAYAR, yang TIDAK tertangkap langkah backfill mana pun:
+# tak ada snapshot di transaksi BAYAR (langkah 1) dan tak ada transaksi BAYAR di kunjungannya
+# yang waktu_bayar >= waktu_selesai (langkah 2). Satu sumber dengan
+# deploy/precheck_20261021_0100.sql (test_precheck_sql_berkas_sama_dengan_migrasi).
+# ⚠ Termasuk tindakan SUSULAN yang memang belum ditagih (selesai sesudah pembayaran terakhir):
+# jalankan sesudah semua tagihan hari itu dibayar — kasir tak bisa tutup sebelum itu.
+_SQL_PRECHECK = (
+    "SELECT {sel} FROM kunjungan_tindakan kt "
+    "WHERE kt.status_tindakan = 'SELESAI' "
+    "AND EXISTS (SELECT 1 FROM transaksi_kasir t "
+    "WHERE t.id_kunjungan = kt.id_kunjungan AND t.status_transaksi = 'BAYAR') "
+    "AND NOT EXISTS (SELECT 1 FROM transaksi_detail_tindakan d "
+    "JOIN transaksi_kasir t ON t.id_transaksi = d.id_transaksi "
+    "WHERE d.id_kunjungan_tindakan = kt.id_kunjungan_tindakan AND t.status_transaksi = 'BAYAR') "
+    "AND NOT EXISTS (SELECT 1 FROM transaksi_kasir t "
+    "WHERE t.id_kunjungan = kt.id_kunjungan AND t.status_transaksi = 'BAYAR' "
+    "AND kt.waktu_selesai IS NOT NULL AND t.waktu_bayar >= kt.waktu_selesai)"
+)
+
+
+def tindakan_tak_terpasangkan(bind) -> list:
+    """id_kunjungan_tindakan yang akan tetap NULL sesudah backfill (lihat `_SQL_PRECHECK`)."""
+    return [r[0] for r in bind.execute(sa.text(
+        _SQL_PRECHECK.format(sel="kt.id_kunjungan_tindakan")
+        + " ORDER BY kt.id_kunjungan_tindakan")).all()]
+
+
 # Tindakan SELESAI yang id_transaksi-nya masih NULL padahal kunjungannya sudah punya transaksi BAYAR.
+# Pagar KEDUA (sesudah backfill) — seharusnya tak pernah terpicu bila prapemeriksaan lolos.
 _SQL_TETAP_NULL = (
     "SELECT {sel} FROM kunjungan_tindakan kt "
     "WHERE kt.status_tindakan = 'SELESAI' AND kt.id_transaksi IS NULL "

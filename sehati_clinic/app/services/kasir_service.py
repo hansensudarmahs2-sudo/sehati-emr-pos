@@ -203,7 +203,7 @@ class KasirService:
         today = date.today()
         rows = self.repo.list_antrian_bayar(today=today)
         items = []
-        for kunjungan, pasien, n_tindakan, n_resep in rows:
+        for kunjungan, pasien, n_tindakan, n_resep, belum_selesai in rows:
             tipe = (
                 pasien.tipe_membership.value
                 if hasattr(pasien.tipe_membership, "value")
@@ -220,6 +220,7 @@ class KasirService:
                 tipe_membership=tipe,
                 jumlah_tindakan=n_tindakan,
                 jumlah_resep=n_resep,
+                tindakan_belum_selesai=belum_selesai,
                 jenis_kunjungan=getattr(kunjungan, "jenis_kunjungan", "KLINIS"),
                 peresep_luar_nama=getattr(kunjungan, "peresep_luar_nama", None),
             ))
@@ -1954,20 +1955,53 @@ class KasirService:
         mengembalikan kuota tindakan T1, membatalkan series yang dibeli di T1 — dan
         sebaliknya tindakan SELESAI di T1 menghalangi void T2 yang hanya berisi obat.
 
-        - TUNGGAL (tak ada transaksi BAYAR lain di kunjungan): seluruh kunjungan, persis
-          perilaku lama — benar untuk satu transaksi, dan aman untuk data lama tanpa penanda.
+        - TUNGGAL (tak ada transaksi BAYAR lain di kunjungan): resep & racikan = seluruh
+          kunjungan, persis perilaku lama — aman untuk data lama tanpa penanda.
         - JAMAK: resep lewat `kunjungan_resep.id_transaksi` (migrasi 20261013_0100), racikan
-          lewat `kunjungan_racikan.id_transaksi`, tindakan lewat
-          `transaksi_detail_tindakan.id_kunjungan_tindakan`. Bila ada item lunas yang TIDAK
-          tercatat transaksinya (data lama), 409 — sistem menolak alih-alih menebak.
+          lewat `kunjungan_racikan.id_transaksi`. Bila ada obat lunas yang TIDAK tercatat
+          transaksinya (data lama), 409 — sistem menolak alih-alih menebak.
+        - TINDAKAN (Ruling 13, review akhir bayar dulu tahap 1) — TUNGGAL maupun JAMAK:
+          `kunjungan_tindakan.id_transaksi == trx`; baris lama yang penandanya NULL memakai
+          snapshot `transaksi_detail_tindakan` transaksi ini. Dulu TUNGGAL = semua tindakan
+          kunjungan: benar selama tindakan selalu selesai sebelum bayar. Sejak bayar dulu,
+          satu-satunya transaksi bisa menagih konsul/obat saja sementara tindakan masih
+          PENDING — void-nya lalu mengembalikan kuota tindakan yang tak pernah ditagihnya
+          (dan Batalkan tindakan mengembalikannya LAGI), membatalkan series yang sesi 1-nya
+          belum dibayar, dan tindakan SUSULAN yang SELESAI tapi belum ditagih menghalangi
+          void dengan pagar "tindakan sudah selesai". `series_pembuat` mengikuti lingkup ini.
+          Migrasi 20261021_0100 menolak naik bila ada tindakan SELESAI di kunjungan lunas yang
+          tak terpasangkan, jadi `id_transaksi` NULL di sini berarti BELUM DITAGIH.
         Return {"tunggal", "resep", "racikan", "tindakan", "series_pembuat"} (set id).
         """
-        from sqlalchemy import func, select
+        from sqlalchemy import and_, func, or_, select
         from app.db.models import (KunjunganResep, KunjunganTindakan, PasienRencanaTreatment,
                                    TransaksiDetailTindakan)
         from app.db.models.racikan import KunjunganRacikan as _KRC
 
         k = trx.id_kunjungan
+        tindakan = set(self.db.execute(
+            select(KunjunganTindakan.id_kunjungan_tindakan)
+            .where(KunjunganTindakan.id_kunjungan == k)
+            .where(or_(
+                KunjunganTindakan.id_transaksi == trx.id_transaksi,
+                and_(KunjunganTindakan.id_transaksi.is_(None),
+                     KunjunganTindakan.id_kunjungan_tindakan.in_(
+                         select(TransaksiDetailTindakan.id_kunjungan_tindakan)
+                         .where(TransaksiDetailTindakan.id_transaksi == trx.id_transaksi)
+                         .where(TransaksiDetailTindakan.id_kunjungan_tindakan.is_not(None))))))
+        ).scalars())
+        # Series lahir dari kunjungan ini; harga paketnya ditagih bersama tindakan SESI 1.
+        # Rencana series hanya ikut dibatalkan bila transaksi INI yang menagih sesi 1.
+        series_pembuat = False
+        if tindakan:
+            series_pembuat = bool(self.db.execute(
+                select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
+                .join(PasienRencanaTreatment,
+                      PasienRencanaTreatment.id_rencana == KunjunganTindakan.id_rencana)
+                .where(KunjunganTindakan.id_kunjungan_tindakan.in_(tindakan))
+                .where(PasienRencanaTreatment.urutan_sesi == 1)
+                .where(PasienRencanaTreatment.id_kunjungan_pembuat == k)).scalar())
+
         lain = self.db.execute(
             select(func.count(TransaksiKasir.id_transaksi))
             .where(TransaksiKasir.id_kunjungan == k)
@@ -1981,9 +2015,8 @@ class KasirService:
                              .where(KunjunganResep.id_kunjungan == k)).scalars()),
                 "racikan": set(self.db.execute(select(_KRC.id_kunjungan_racikan)
                                .where(_KRC.id_kunjungan == k)).scalars()),
-                "tindakan": set(self.db.execute(select(KunjunganTindakan.id_kunjungan_tindakan)
-                                .where(KunjunganTindakan.id_kunjungan == k)).scalars()),
-                "series_pembuat": True,
+                "tindakan": tindakan,
+                "series_pembuat": series_pembuat,
             }
 
         _lunas = ("DIBAYAR", "DISERAHKAN")
@@ -1997,16 +2030,13 @@ class KasirService:
             .where(_KRC.id_kunjungan == k)
             .where(_KRC.status_item.in_(_lunas))
             .where(_KRC.id_transaksi.is_(None))).scalar() or 0
-        # Tindakan pra-F3: kunjungan punya tindakan tapi TAK SATU PUN transaksinya punya
-        # snapshot tindakan (kriteria yang sama dengan PrintService._baris_snapshot).
-        ada_tindakan = self.db.execute(
-            select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
-            .where(KunjunganTindakan.id_kunjungan == k)).scalar() or 0
-        ada_snapshot = self.db.execute(
-            select(func.count(TransaksiDetailTindakan.id_detail_tindakan))
-            .join(TransaksiKasir, TransaksiKasir.id_transaksi == TransaksiDetailTindakan.id_transaksi)
-            .where(TransaksiKasir.id_kunjungan == k)).scalar() or 0
-        if tanpa_resep or tanpa_racik or (ada_tindakan and not ada_snapshot):
+        # Tindakan TIDAK lagi ikut pagar ambigu ini (Ruling 13): dulu "kunjungan punya
+        # tindakan tapi tak ada snapshot" = data pra-F3 yang tak bisa dipilah. Kini tindakan
+        # pra-F3 yang lunas sudah ber-`id_transaksi` (backfill 20261021_0100, yang menolak
+        # naik bila ada yang tak terpasangkan), dan pagar lama justru menolak void kunjungan
+        # bayar-dulu yang tindakannya belum ditagih sama sekali (konsul T1 + obat T2,
+        # tindakan PENDING → tak ada snapshot → 409).
+        if tanpa_resep or tanpa_racik:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(f"Transaksi #{trx.id_transaksi} adalah salah satu dari beberapa "
@@ -2015,21 +2045,6 @@ class KasirService:
                         f"yang ikut di-void. Void TIDAK dijalankan; hubungi Admin."),
             )
 
-        tindakan = set(self.db.execute(
-            select(TransaksiDetailTindakan.id_kunjungan_tindakan)
-            .where(TransaksiDetailTindakan.id_transaksi == trx.id_transaksi)
-            .where(TransaksiDetailTindakan.id_kunjungan_tindakan.is_not(None))).scalars())
-        # Series lahir dari kunjungan ini; harga paketnya ditagih bersama tindakan SESI 1.
-        # Rencana series hanya ikut dibatalkan bila transaksi INI yang menagih sesi 1.
-        series_pembuat = False
-        if tindakan:
-            series_pembuat = bool(self.db.execute(
-                select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
-                .join(PasienRencanaTreatment,
-                      PasienRencanaTreatment.id_rencana == KunjunganTindakan.id_rencana)
-                .where(KunjunganTindakan.id_kunjungan_tindakan.in_(tindakan))
-                .where(PasienRencanaTreatment.urutan_sesi == 1)
-                .where(PasienRencanaTreatment.id_kunjungan_pembuat == k)).scalar())
         return {
             "tunggal": False,
             "resep": set(self.db.execute(select(KunjunganResep.id_resep)
@@ -2054,28 +2069,24 @@ class KasirService:
             return 0
         _aktif = (StatusRencanaTreatmentEnum.PENDING, StatusRencanaTreatmentEnum.SCHEDULED)
         id_kunjungan = trx.id_kunjungan
-        if _lk["tunggal"]:
-            # Satu transaksi di kunjungan → semua series yang lahir di sini dibayar olehnya.
-            stmt = select(PasienRencanaTreatment).where(
-                PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan,
-                PasienRencanaTreatment.status.in_(_aktif),
-            )
-            rencana_list = list(self.db.execute(stmt).scalars().all())
-        else:
-            # Audit T4-11: hanya series yang SESI 1-nya ditagih transaksi ini — dulu semua
-            # rencana kunjungan, termasuk sisa sesi series lain yang sudah lunas di transaksi
-            # lain (reopen). Anggota series: app/services/_series.py.
-            from app.db.models import KunjunganTindakan as _KT
-            from app.services._series import anggota as _anggota
-            sesi1_list = self.db.execute(
-                select(PasienRencanaTreatment)
-                .join(_KT, _KT.id_rencana == PasienRencanaTreatment.id_rencana)
-                .where(_KT.id_kunjungan_tindakan.in_(_lk["tindakan"] or {-1}))
-                .where(PasienRencanaTreatment.urutan_sesi == 1)
-                .where(PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan)
-            ).scalars().all()
-            rencana_list = [r for s1 in sesi1_list for r in _anggota(self.db, s1)
-                            if r.status in _aktif]
+        # Audit T4-11: hanya series yang SESI 1-nya ditagih transaksi ini — dulu semua
+        # rencana kunjungan, termasuk sisa sesi series lain yang sudah lunas di transaksi
+        # lain (reopen). Anggota series: app/services/_series.py.
+        # Ruling 13 (bayar dulu): berlaku juga untuk TUNGGAL. Dulu "satu transaksi → semua
+        # series yang lahir di sini dibayar olehnya"; sejak bayar dulu satu-satunya transaksi
+        # bisa menagih konsul saja sementara sesi 1 masih PENDING — void-nya membatalkan
+        # series yang harga paketnya baru akan ditagih bersama sesi 1 nanti.
+        from app.db.models import KunjunganTindakan as _KT
+        from app.services._series import anggota as _anggota
+        sesi1_list = self.db.execute(
+            select(PasienRencanaTreatment)
+            .join(_KT, _KT.id_rencana == PasienRencanaTreatment.id_rencana)
+            .where(_KT.id_kunjungan_tindakan.in_(_lk["tindakan"] or {-1}))
+            .where(PasienRencanaTreatment.urutan_sesi == 1)
+            .where(PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan)
+        ).scalars().all()
+        rencana_list = [r for s1 in sesi1_list for r in _anggota(self.db, s1)
+                        if r.status in _aktif]
         for rencana in rencana_list:
             old_status = rencana.status
             rencana.status = StatusRencanaTreatmentEnum.CANCELLED
@@ -2435,12 +2446,20 @@ class KasirService:
     def _cascade_void_kunjungan(self, trx, actor_id_staf, request):
         """DEC-063 Phase 1 (10 Juni 2026): cascade efek void transaksi ke kunjungan.
 
-        Logika: void transaksi = pasien batal beli sama sekali. Maka:
-        - Semua kunjungan_resep status DIBAYAR -> BATAL (apoteker tidak perlu serahkan).
-        - Kunjungan status_antrian ANTRI_OBAT/ANTRI_BAYAR -> COMPLETED
-          (tidak masuk akal antri obat kalau pembayaran dibatalkan).
+        Logika: void transaksi = pasien batal membeli item transaksi INI. Maka:
+        - resep/racikan DIBAYAR milik transaksi ini (`_lingkup_void`) -> BATAL (apoteker
+          tidak perlu serahkan);
+        - status kunjungan DIHITUNG ULANG dari isinya (`hitung_ulang_status`, bayar dulu
+          T1-4) — bukan lagi dipaksa COMPLETED. Hasilnya bisa MUNDUR: susulan yang belum
+          ditagih → ANTRI_BAYAR, tindakan yang belum dikerjakan → ANTRI_TREATMENT, obat
+          transaksi lain yang belum diserahkan → ANTRI_OBAT.
 
-        Return dict {cancelled_resep: N, kunjungan_advanced: bool}.
+        ⚠ Nama lama dipertahankan karena tersimpan di data: kunci kembalian
+        `kunjungan_advanced` dan aksi audit `VOID_KUNJUNGAN_FORWARD` kini berarti "status
+        kunjungan BERUBAH karena void" (arah mana pun), bukan "dimajukan". Laporan/audit yang
+        membaca aksi itu jangan menyimpulkan arah dari namanya — baca data_lama/data_baru.
+
+        Return dict {cancelled_resep, cancelled_racikan, kunjungan_advanced: bool}.
         """
         from app.db.models import KunjunganResep, Kunjungan, StatusItemResepEnum
         from sqlalchemy import select

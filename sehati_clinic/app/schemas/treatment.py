@@ -71,6 +71,8 @@ class TindakanDetailItem(BaseModel):
     waktu_selesai: Optional[datetime] = None
     id_staf_pelaksana: Optional[int] = None
     nama_staf_pelaksana: Optional[str] = None
+    # Bayar dulu (Ruling 12): tombol Batalkan hanya untuk PENDING yang belum dibayar.
+    id_transaksi: Optional[int] = None
 
 
 class DetailRuangTindakanResponse(BaseModel):

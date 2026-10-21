@@ -151,6 +151,23 @@
                             {% if is_doc_only %}🔒 Hanya Dokter{% else %}▶ Mulai Tindakan{% endif %}
                         </button>
                     </form>
+                    {# Ruling 12 (bayar dulu): pasien menolak tindakan yang BELUM dikerjakan dan
+                       BELUM dibayar. Yang sudah dibayar tidak diberi tombol — itu hak pasien /
+                       refund (tahap 4). Alasan wajib (masuk audit TINDAKAN_BATAL). #}
+                    {% if not t.id_transaksi %}
+                    <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/batalkan"
+                          data-confirm="Batalkan tindakan {{ t.nama_treatment }}? Kuota/sesi series yang dipakai dikembalikan."
+                          class="inline-flex items-center gap-2">
+                        {{ csrf_input(request) }}
+                        <input type="text" name="alasan" required minlength="5" maxlength="255"
+                               placeholder="Alasan batal (wajib)"
+                               class="px-2 py-1 text-xs border border-slate-300 rounded">
+                        <button type="submit"
+                                class="inline-flex items-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition font-medium">
+                            ✗ Batalkan
+                        </button>
+                    </form>
+                    {% endif %}
                     {% elif ts == "PROSES" or ts == "IN_PROGRESS" or ts == "SEDANG_DIKERJAKAN" %}
                     <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/end"
                           data-confirm="Selesaikan tindakan {{ t.nama_treatment }}?" class="inline">

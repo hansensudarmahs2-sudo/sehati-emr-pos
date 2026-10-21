@@ -118,6 +118,7 @@ class TreatmentService:
                 waktu_selesai=t.waktu_selesai,
                 id_staf_pelaksana=t.id_staf_pelaksana,
                 nama_staf_pelaksana=(staf.nama_staf if staf else None),
+                id_transaksi=t.id_transaksi,
             )
             for t, tr, staf in tindakan_rows
         ]
@@ -403,3 +404,122 @@ class TreatmentService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Gagal end tindakan: {str(e)}",
             )
+
+    # =========================================================================
+    # BATALKAN — PENDING & belum dibayar → BATAL (Ruling 12, bayar dulu)
+    # =========================================================================
+    _MIN_ALASAN_BATAL = 5
+
+    def batalkan_tindakan(
+        self,
+        id_kunjungan_tindakan: int,
+        alasan: str,
+        actor_id_staf: int,
+        request: Optional[Request] = None,
+    ) -> dict:
+        """Pasien menolak tindakan yang belum dikerjakan & belum dibayar.
+
+        Spec DESAIN_BAYAR_DULU_BERCABANG.md §3.6, cabang "belum dibayar" (ditarik maju dari
+        tahap 3). Kenapa sekarang: sejak bayar dulu kasir bisa menagih konsul/obat sementara
+        tindakan masih PENDING. Kalau pasien lalu menolak tindakannya, satu-satunya jalan
+        dulu adalah Batal KUNJUNGAN — yang ditolak karena sudah ada pembayaran — sehingga
+        tindakan itu menggantung PENDING, kunjungan tak pernah COMPLETED, dan tutup kasir
+        terhalang selamanya.
+
+        - Hanya PENDING (CLAUDE.md §7: void/batal hanya untuk yang belum dikerjakan).
+        - Hanya yang belum dibayar (`id_transaksi IS NULL`). Yang sudah dibayar butuh hak
+          pasien / refund (tahap 4) — uangnya ada, tidak boleh dibatalkan diam-diam.
+        - Pengembalian kuota & series lewat `_batal_tindakan.bereskan_satu_tindakan` — SATU
+          aturan dengan Batal kunjungan (`KunjunganService._bereskan_batal`).
+        """
+        from app.services._baca_segar import mulai_baca_segar
+        from app.services._batal_tindakan import bereskan_satu_tindakan
+        from app.services._status_kunjungan import hitung_ulang_status
+
+        alasan_bersih = (alasan or "").strip()
+        if len(alasan_bersih) < self._MIN_ALASAN_BATAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Alasan pembatalan wajib diisi (minimal {self._MIN_ALASAN_BATAL} "
+                        f"karakter)."),
+            )
+        # Pola baca-segar (app/services/_baca_segar.py): tutup potret dulu, lalu kunci. Tanpa
+        # itu bayar yang baru saja menagih tindakan ini (commit selagi kita menunggu) tak
+        # terlihat dan tindakan yang SUDAH DIBAYAR dibatalkan. ⚠ Jangan sisipkan SELECT
+        # biasa sebelum kunci di bawah.
+        mulai_baca_segar(self.db)
+        tindakan = self.treatment_repo.get_tindakan_for_update(id_kunjungan_tindakan)
+        if tindakan is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tindakan {id_kunjungan_tindakan} tidak ditemukan.",
+            )
+        st = getattr(tindakan.status_tindakan, "value", tindakan.status_tindakan)
+        if tindakan.id_transaksi is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=("Hanya tindakan yang belum dikerjakan dan belum dibayar yang bisa "
+                        "dibatalkan. Tindakan yang sudah dibayar: tunggu fitur hak "
+                        "pasien/refund (tahap 4)."),
+            )
+        if st != "PENDING":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Hanya tindakan yang belum dikerjakan dan belum dibayar yang bisa "
+                        f"dibatalkan. Tindakan ini sudah dikerjakan (status '{st}') — "
+                        f"tagih lewat kasir."),
+            )
+
+        try:
+            hasil = bereskan_satu_tindakan(self.db, self.audit, tindakan,
+                                           actor_id_staf=actor_id_staf, request=request)
+            tindakan.status_tindakan = "BATAL"
+            self.db.flush()
+            kunjungan = self.kunjungan_repo.get_by_id(tindakan.id_kunjungan)
+            status_lama = getattr(kunjungan.status_antrian, "value", kunjungan.status_antrian)
+            status_baru = hitung_ulang_status(self.db, tindakan.id_kunjungan)
+            self.audit.log(
+                aksi="TINDAKAN_BATAL",
+                id_staf=actor_id_staf,
+                tabel_target="kunjungan_tindakan",
+                id_target=id_kunjungan_tindakan,
+                data_lama={"status_tindakan": "PENDING"},
+                data_baru={"status_tindakan": "BATAL", "alasan": alasan_bersih,
+                           "kuota_dikembalikan": hasil["kuota"],
+                           "series_dibatalkan": hasil["series_cancel"],
+                           "sesi_dikembalikan": hasil["sesi_kembali"],
+                           "status_kunjungan": status_baru},
+                keterangan=f"Tindakan dibatalkan (belum dikerjakan, belum dibayar): {alasan_bersih}",
+                request=request,
+            )
+            if status_baru != status_lama:
+                self.audit.log(
+                    aksi="STATUS_UPDATE",
+                    id_staf=actor_id_staf,
+                    tabel_target="kunjungan",
+                    id_target=tindakan.id_kunjungan,
+                    data_lama={"status_antrian": status_lama},
+                    data_baru={"status_antrian": status_baru},
+                    keterangan="Auto-transition: tindakan dibatalkan (status dihitung dari isi kunjungan).",
+                    request=request,
+                )
+            self.db.commit()
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gagal membatalkan tindakan: {e!s}",
+            )
+        return {
+            "status": "success",
+            "message": "Tindakan dibatalkan.",
+            "data": {
+                "id_kunjungan_tindakan": id_kunjungan_tindakan,
+                "id_kunjungan": tindakan.id_kunjungan,
+                "status_baru": "BATAL",
+                "status_kunjungan_baru": status_baru,
+            },
+        }

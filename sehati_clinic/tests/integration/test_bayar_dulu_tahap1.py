@@ -602,7 +602,11 @@ def test_tunda_saat_label_on_treatment(db):
     assert k.tgl_janji_kirim == janji
     assert V(r.status_item) == "DIBAYAR"
     assert V(k.status_antrian) == "ON_TREATMENT"
-    assert _di_antrian(db, k) == {"perawat"}     # keluar dari apotek → Obat Tertunda
+    # Keluar dari antrian apotek (janji terisi). Masuk daftar Obat Tertunda walau label
+    # ON_TREATMENT — dulu daftar itu hanya membaca COMPLETED sehingga komentar lama di sini
+    # ("→ Obat Tertunda") tidak benar; sejak I3 (`kondisi_tertunda`) benar dan diuji.
+    assert _di_antrian(db, k) == {"perawat"}
+    assert k.id_kunjungan in [x["id_kunjungan"] for x in ApotekService(db).list_obat_tertunda()]
 
 
 def test_tunda_ditolak_untuk_kunjungan_batal(db):
@@ -868,3 +872,452 @@ def test_pemeriksa_status_dua_arah(db):
     db.flush()
     sel = [s for s in periksa(db, date.today()) if s[0] == k.id_kunjungan]
     assert sel == [(k.id_kunjungan, V(k.status_antrian), benar)]
+
+
+# ===========================================================================
+# Gelombang perbaikan review akhir tahap 1 (2026-10-21): C1, I1–I6.
+# ===========================================================================
+from fastapi import HTTPException  # noqa: E402
+
+ALASAN = "pasien menolak tindakan"
+
+
+def _batalkan(db, t, staf, alasan=ALASAN):
+    from app.services.treatment_service import TreatmentService
+    return TreatmentService(db).batalkan_tindakan(t.id_kunjungan_tindakan, alasan, staf.id_staf)
+
+
+def _kuota_pending(db, k):
+    """Tindakan PENDING yang memakai kuota member (terpakai=1), persis bentuk SOAP."""
+    from tests.integration.test_audit_tahap2 import _kuota_terpakai
+    q = _kuota_terpakai(db, k)
+    t = db.execute(select(KunjunganTindakan).where(
+        KunjunganTindakan.id_kunjungan == k.id_kunjungan,
+        KunjunganTindakan.id_kuota_member == q.id_kuota)).scalar_one()
+    return q, t
+
+
+def _serah(db, k, staf):
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    ApotekService(db).serahkan_obat(SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf)
+
+
+# ---------------------------------------------------------------- C1 (Ruling 12)
+def test_batalkan_tindakan_pending_belum_dibayar(db):
+    """Konsul (resep) dibayar & diserahkan, tindakan kuota ditolak pasien → BATAL, kuota
+    kembali, kunjungan selesai dan tak lagi menghalangi tutup kasir."""
+    from app.db.models import AuditLog
+    from app.services.kasir_closing_service import KasirClosingService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _resep(db, k, staf)
+    q, t = _kuota_pending(db, k)
+    _bayar(db, k, staf)
+    _serah(db, k, staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"
+    sebelum = KasirClosingService(db)._pending_antrian_hari_ini().get("ANTRI_TREATMENT", 0)
+    hasil = _batalkan(db, t, staf)
+    db.refresh(t); db.refresh(q); db.refresh(k)
+    assert V(t.status_tindakan) == "BATAL"
+    assert q.kuota_terpakai == 0
+    assert V(k.status_antrian) == "COMPLETED"
+    assert hasil["data"]["status_kunjungan_baru"] == "COMPLETED"
+    sesudah = KasirClosingService(db)._pending_antrian_hari_ini().get("ANTRI_TREATMENT", 0)
+    assert sesudah == sebelum - 1
+    log = db.execute(select(AuditLog).where(AuditLog.aksi == "TINDAKAN_BATAL",
+                                            AuditLog.id_target == t.id_kunjungan_tindakan)).scalar_one()
+    assert ALASAN in str(log.data_baru)
+
+
+def test_batalkan_tindakan_yang_sudah_dibayar_ditolak(db):
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    trx = _isi(db, k, staf, soap=True, bayar=True)
+    t = _tindakan_baru(db, k, "PENDING")
+    t.id_transaksi = trx.id_transaksi; db.flush()
+    with pytest.raises(HTTPException) as e:
+        _batalkan(db, t, staf)
+    assert e.value.status_code == 400 and "sudah dibayar" in e.value.detail
+    db.refresh(t)
+    assert V(t.status_tindakan) == "PENDING"
+
+
+@pytest.mark.parametrize("st", ["PROSES", "SELESAI"])
+def test_batalkan_tindakan_yang_sudah_dikerjakan_ditolak(db, st):
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, st)
+    with pytest.raises(HTTPException) as e:
+        _batalkan(db, t, staf)
+    assert e.value.status_code == 400 and "sudah dikerjakan" in e.value.detail
+    db.refresh(t)
+    assert V(t.status_tindakan) == st
+
+
+@pytest.mark.parametrize("alasan", ["", "   ", "abc "])
+def test_batalkan_tindakan_tanpa_alasan_ditolak(db, alasan):
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PENDING")
+    with pytest.raises(HTTPException) as e:
+        _batalkan(db, t, staf, alasan)
+    assert e.value.status_code == 400 and "Alasan" in e.value.detail
+    db.refresh(t)
+    assert V(t.status_tindakan) == "PENDING"
+
+
+def test_batalkan_sesi_series_yang_dijadwalkan_kembali_pending(db):
+    """Sesi 2 series lain dipakai di kunjungan ini lalu dibatalkan → sesi itu PENDING lagi
+    (bisa dipakai di kunjungan lain); series itu sendiri TIDAK dibatalkan."""
+    from tests.integration.test_audit_tahap2 import _rencana
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    _, lama = _siapkan(db, "COMPLETED")
+    s1 = _rencana(db, k, 1, lama.id_kunjungan, "DONE")
+    s2 = _rencana(db, k, 2, lama.id_kunjungan, "SCHEDULED")
+    s3 = _rencana(db, k, 3, lama.id_kunjungan, "PENDING")
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s2.id_treatment,
+                          id_rencana=s2.id_rencana, status_tindakan="PENDING")
+    db.add(t); db.flush()
+    _batalkan(db, t, staf)
+    for r in (s1, s2, s3):
+        db.refresh(r)
+    assert (V(s1.status), V(s2.status), V(s3.status)) == ("DONE", "PENDING", "PENDING")
+
+
+def test_batalkan_sesi_1_series_lahir_di_sini_membatalkan_seriesnya(db):
+    """Sesi 1 pembawa harga paket belum dibayar → sisa sesi tak boleh tertinggal untuk dipakai
+    gratis (aturan T2-6 `_bereskan_batal`). Series LAIN yang lahir di kunjungan yang sama
+    tidak ikut (anggota series lewat `_series.anggota`)."""
+    from tests.integration.test_audit_tahap2 import _rencana
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    lain1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")      # series kedua, treatment sama
+    lain2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                          id_rencana=s1.id_rencana, status_tindakan="PENDING")
+    db.add(t); db.flush()
+    _batalkan(db, t, staf)
+    for r in (s1, s2, lain1, lain2):
+        db.refresh(r)
+    assert [V(r.status) for r in (s1, s2)] == ["CANCELLED", "CANCELLED"]
+    assert [V(r.status) for r in (lain1, lain2)] == ["SCHEDULED", "PENDING"]
+
+
+def test_batal_kunjungan_sesudah_batalkan_tindakan_tidak_mengembalikan_kuota_dua_kali(db):
+    """`_bereskan_batal` dan `batalkan_tindakan` memakai satu helper; tindakan yang sudah
+    BATAL tidak dikembalikan kuotanya lagi saat kunjungannya dibatalkan."""
+    from tests.integration.test_audit_tahap2 import _batal
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    q, t = _kuota_pending(db, k)
+    q.kuota_terpakai = 2; db.flush()                 # satu slot lagi milik kunjungan lain
+    _batalkan(db, t, staf)
+    db.refresh(q)
+    assert q.kuota_terpakai == 1
+    _batal(db, k, staf)
+    db.refresh(q)
+    assert q.kuota_terpakai == 1
+
+
+def _klien_login(db):
+    import os
+    from fastapi.testclient import TestClient
+    from app.core.deps import get_db
+    from app.main import app
+    if not (os.getenv("TEST_USERNAME") and os.getenv("TEST_PASSWORD")):
+        pytest.skip("butuh TEST_USERNAME/TEST_PASSWORD")
+
+    def _db():
+        yield db
+    app.dependency_overrides[get_db] = _db
+    c = TestClient(app, follow_redirects=False)
+    csrf = _login_testclient(c)
+    return app, c, csrf
+
+
+def test_layar_perawat_menampilkan_tombol_batalkan(db):
+    from app.core.deps import get_db
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    trx = _isi(db, k, staf, soap=True, bayar=True)
+    t = _tindakan_baru(db, k, "PENDING")
+    lunas = _tindakan_baru(db, k, "PENDING")
+    lunas.id_transaksi = trx.id_transaksi; db.flush()
+    app, c, _csrf = _klien_login(db)
+    try:
+        r = c.get(f"/web/ruang-tindakan/kunjungan/{k.id_kunjungan}")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    if r.status_code == 403:
+        pytest.skip("akun uji tidak berhak membuka ruang tindakan")
+    assert r.status_code == 200
+    assert f'action="/web/ruang-tindakan/tindakan/{t.id_kunjungan_tindakan}/batalkan"' in r.text
+    assert f'/tindakan/{lunas.id_kunjungan_tindakan}/batalkan"' not in r.text
+    assert 'name="alasan"' in r.text
+
+
+def test_rute_batalkan_tindakan(db):
+    from app.core.deps import get_db
+    staf, k = _siapkan(db, "ANTRI_TREATMENT")
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PENDING")
+    app, c, csrf = _klien_login(db)
+    try:
+        form = {"alasan": "x"}                       # terlalu pendek → kembali dengan err
+        if csrf:
+            form["csrf_token"] = csrf
+        r1 = c.post(f"/web/ruang-tindakan/tindakan/{t.id_kunjungan_tindakan}/batalkan", data=form)
+        form["alasan"] = ALASAN
+        r2 = c.post(f"/web/ruang-tindakan/tindakan/{t.id_kunjungan_tindakan}/batalkan", data=form)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+    if r1.status_code == 403:
+        pytest.skip("akun uji tidak berhak")
+    assert r1.status_code == 303
+    assert r1.headers["location"].startswith(f"/web/ruang-tindakan/kunjungan/{k.id_kunjungan}?err=")
+    assert r2.status_code == 303
+    assert r2.headers["location"].startswith(f"/web/ruang-tindakan/kunjungan/{k.id_kunjungan}?ok=")
+    db.refresh(t)
+    assert V(t.status_tindakan) == "BATAL"
+
+
+# ---------------------------------------------------------------- I1 (Ruling 13)
+def _void_jalur(db, trx, staf, jalur):
+    from app.db.models._enums import StafRoleEnum
+    from app.services.kasir_service import KasirService
+    if jalur == "void":
+        KasirService(db).void_transaksi(trx.id_transaksi, "SALAH_INPUT", "uji ruling 13", [], staf.id_staf)
+    else:
+        KasirService(db).force_past_day_void(trx.id_transaksi, "SALAH_INPUT", "uji ruling 13", [],
+                                             staf.id_staf, StafRoleEnum.SUPERADMIN)
+
+
+@pytest.mark.parametrize("jalur", ["void", "force"])
+def test_void_tidak_menyentuh_kuota_tindakan_yang_belum_ditagih(db, jalur):
+    """Konsul+obat dibayar, tindakan kuota masih PENDING (belum ditagih). Void transaksi itu
+    dulu (TUNGGAL = semua tindakan kunjungan) mengembalikan kuota tindakan yang tidak pernah
+    ditagihnya — lalu Batalkan mengembalikannya LAGI."""
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _resep(db, k, staf)
+    q, t = _kuota_pending(db, k)
+    _bayar(db, k, staf)
+    _void_jalur(db, _trx_terakhir(db, k), staf, jalur)
+    db.refresh(q); db.refresh(t); db.refresh(k)
+    assert q.kuota_terpakai == 1
+    assert V(t.status_tindakan) == "PENDING"
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"
+    _batalkan(db, t, staf)
+    db.refresh(q)
+    assert q.kuota_terpakai == 0
+
+
+@pytest.mark.parametrize("jalur", ["void", "force"])
+def test_tindakan_susulan_belum_ditagih_tidak_menghalangi_void(db, jalur):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    r = _resep(db, k, staf)
+    _bayar(db, k, staf)
+    _tindakan_selesai(db, k, detik=5)                # susulan SELESAI, belum ditagih
+    _void_jalur(db, _trx_terakhir(db, k), staf, jalur)   # dulu 400 "tindakan SUDAH SELESAI"
+    db.refresh(r); db.refresh(k)
+    assert V(r.status_item) == "BATAL"
+    assert V(k.status_antrian) == "ANTRI_BAYAR"      # susulan tetap harus ditagih
+
+
+def test_void_tetap_menolak_tindakan_selesai_yang_ditagihnya(db):
+    """Pembanding: pagar §7 untuk tindakan yang DITAGIH transaksi ini tetap utuh."""
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        _void_jalur(db, _trx_terakhir(db, k), staf, "void")
+    assert e.value.status_code == 400 and "SUDAH" in e.value.detail
+
+
+def test_void_tidak_membatalkan_series_yang_sesi_1_nya_belum_ditagih(db):
+    """Series lahir di kunjungan ini, sesi 1 masih PENDING (belum ditagih). Void transaksi
+    konsul dulu membatalkan seriesnya (TUNGGAL = semua series kunjungan) — padahal harga
+    paketnya baru ditagih bersama sesi 1 nanti."""
+    from tests.integration.test_audit_tahap2 import _rencana
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    _resep(db, k, staf)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                             id_rencana=s1.id_rencana, status_tindakan="PENDING"))
+    db.flush()
+    _bayar(db, k, staf)
+    _void_jalur(db, _trx_terakhir(db, k), staf, "void")
+    db.refresh(s1); db.refresh(s2)
+    assert (V(s1.status), V(s2.status)) == ("SCHEDULED", "PENDING")
+
+
+def test_lingkup_void_tindakan_dari_id_transaksi_dengan_cadangan_snapshot(db):
+    """Lingkup tindakan = `id_transaksi`; baris lama tanpa penanda memakai snapshot F3."""
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    trx = _trx_terakhir(db, k)
+    t = db.execute(select(KunjunganTindakan).where(
+        KunjunganTindakan.id_kunjungan == k.id_kunjungan)).scalar_one()
+    belum = _tindakan_baru(db, k, "PENDING")
+    svc = KasirService(db)
+    assert svc._lingkup_void(trx)["tindakan"] == {t.id_kunjungan_tindakan}
+    t.id_transaksi = None; db.flush()                # data lama: hanya snapshot
+    assert svc._lingkup_void(trx)["tindakan"] == {t.id_kunjungan_tindakan}
+    assert belum.id_kunjungan_tindakan not in svc._lingkup_void(trx)["tindakan"]
+
+
+# ---------------------------------------------------------------- I2
+def _urutan_commit_lalu_kunci(db, panggil):
+    import re
+    from tests.integration.test_audit_tahap3 import _rekam_sql
+    with _rekam_sql(db) as q:
+        _flush = db.commit
+        db.commit = lambda: (q.append("<<COMMIT>>"), _flush())[1]
+        try:
+            panggil()
+        finally:
+            db.commit = _flush
+    pola = re.compile(r"FROM kunjungan(?![A-Za-z0-9_])")
+    i_kunci = next((i for i, x in enumerate(q) if x.startswith("SELECT") and pola.search(x)
+                    and "FOR UPDATE" in x), None)
+    assert i_kunci is not None, "kunjungan tidak dikunci"
+    i_commit = q.index("<<COMMIT>>")
+    assert i_commit < i_kunci                        # potret ditutup SEBELUM kunci
+    assert not [x for x in q[i_commit + 1:i_kunci] if x.startswith("SELECT")]
+
+
+def test_serah_mengakhiri_potret_sebelum_mengunci_kunjungan(db):
+    from app.schemas.apotek import SerahkanObatRequest
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    svc = ApotekService(db)
+    _urutan_commit_lalu_kunci(db, lambda: svc.serahkan_obat(
+        SerahkanObatRequest(id_kunjungan=k.id_kunjungan), staf.id_staf))
+
+
+def test_tunda_mengunci_kunjungan_dengan_potret_segar(db):
+    from datetime import date
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    svc = ApotekService(db)
+    _urutan_commit_lalu_kunci(db, lambda: svc.tunda_serah_obat(
+        k.id_kunjungan, date.today() + timedelta(days=1), None, staf.id_staf))
+
+
+# ---------------------------------------------------------------- I3
+def test_obat_tertunda_saat_tindakan_berjalan_tampil_dan_bisa_diserahkan(db):
+    """Tunda saat tindakan PROSES (label ON_TREATMENT): dulu daftar & lencana Obat Tertunda
+    hanya membaca COMPLETED, jadi obatnya hilang dari semua layar sampai tindakan selesai,
+    dan pintu serah menolaknya."""
+    from datetime import date
+    from app.services._status_kunjungan import ringkas_obat_tertunda
+    from app.services.apotek_service import ApotekService
+    staf, k, r, _ = _obat_lunas_lalu_tindakan(db, "PROSES")
+    sebelum = ringkas_obat_tertunda(db)["total"]
+    ApotekService(db).tunda_serah_obat(k.id_kunjungan, date.today() + timedelta(days=2),
+                                       "uji", staf.id_staf)
+    db.refresh(k)
+    assert V(k.status_antrian) == "ON_TREATMENT"
+    assert k.id_kunjungan in [x["id_kunjungan"] for x in ApotekService(db).list_obat_tertunda()]
+    assert ringkas_obat_tertunda(db)["total"] == sebelum + 1
+    _serah(db, k, staf)
+    db.refresh(r); db.refresh(k)
+    assert V(r.status_item) == "DISERAHKAN"
+    assert k.tgl_janji_kirim is None
+    assert k.id_kunjungan not in [x["id_kunjungan"] for x in ApotekService(db).list_obat_tertunda()]
+
+
+def test_obat_tertunda_tanpa_item_dibayar_tidak_dihitung(db):
+    """Janji kirim tersisa tanpa obat DIBAYAR (mis. semuanya sudah di-refund) bukan tertunda."""
+    from app.services._status_kunjungan import ringkas_obat_tertunda
+    from app.services.apotek_service import ApotekService
+    staf, k = _siapkan(db, "COMPLETED")
+    _isi(db, k, staf, soap=True, resep=["BATAL"], bayar=True, janji=True)
+    assert k.id_kunjungan not in [x["id_kunjungan"] for x in ApotekService(db).list_obat_tertunda()]
+    _, k2 = _siapkan(db, "COMPLETED")
+    sebelum = ringkas_obat_tertunda(db)["total"]
+    _isi(db, k2, staf, soap=True, resep=["DIBAYAR"], bayar=True, janji=True)
+    assert ringkas_obat_tertunda(db)["total"] == sebelum + 1
+
+
+def test_lencana_obat_tertunda_memakai_satu_ekspresi():
+    """Daftar, dua lencana, dan pintu serah membaca `kondisi_tertunda` — bukan salinan
+    `status_antrian == "COMPLETED"` sendiri-sendiri."""
+    akar = pathlib.Path(__file__).parents[2]
+    for rel in ("app/web/routes/auth.py", "app/web/routes/_shared.py"):
+        src = (akar / rel).read_text(encoding="utf-8")
+        assert "ringkas_obat_tertunda" in src, rel
+        assert "tgl_janji_kirim.is_not(None)" not in src, rel
+    src = (akar / "app/services/apotek_service.py").read_text(encoding="utf-8")
+    assert src.count("kondisi_tertunda") >= 1 and src.count("obat_tertunda_di(") >= 1
+    assert '_K.status_antrian == "COMPLETED"' not in src
+
+
+# ---------------------------------------------------------------- I4
+def test_kunjungan_retur_pasien_tidak_di_meja_kasir(db):
+    """Kunjungan RETUR_PASIEN (wadah draf SOAP alergi) COMPLETED + SOAP FINAL, tanpa
+    transaksi: (K) benar, tapi ia bukan kunjungan klinis — tak boleh muncul di kasir."""
+    from datetime import date
+    from app.services._status_kunjungan import hitung_antrian_meja
+    from app.services._jenis_kunjungan import JENIS_RETUR
+    staf, k = _siapkan(db, "COMPLETED")
+    _soap(db, k, staf)
+    assert "kasir" in _di_antrian(db, k)             # pembanding: kunjungan klinis biasa
+    n = hitung_antrian_meja(db, date.today())["ANTRI_BAYAR"]
+    k.jenis_kunjungan = JENIS_RETUR; db.flush()
+    assert _di_antrian(db, k) == set()
+    assert hitung_antrian_meja(db, date.today())["ANTRI_BAYAR"] == n - 1
+
+
+# ---------------------------------------------------------------- I5
+def test_precheck_migrasi_menemukan_tindakan_yang_akan_tetap_null(db):
+    """Pemeriksaan SEBELUM DDL: tindakan SELESAI di kunjungan lunas yang tak punya snapshot dan
+    selesai SESUDAH semua pembayaran — tak bisa dipasangkan, upgrade akan berhenti."""
+    mig = _muat_migrasi()
+    t_ok, _trx = _tindakan_lunas(db, snapshot=False)         # pra-F3, terpasangkan (cutoff)
+    staf, k = _siapkan(db)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    _tindakan_selesai(db, k, detik=60)                        # selesai sesudah bayar
+    yatim = db.execute(select(KunjunganTindakan).where(
+        KunjunganTindakan.id_kunjungan == k.id_kunjungan)).scalar_one()
+    ids = mig.tindakan_tak_terpasangkan(db.connection())
+    assert yatim.id_kunjungan_tindakan in ids
+    assert t_ok.id_kunjungan_tindakan not in ids
+
+
+def test_precheck_sql_berkas_sama_dengan_migrasi():
+    """deploy/precheck_20261021_0100.sql = SELECT yang SAMA dengan pagar migrasi (satu sumber)."""
+    mig = _muat_migrasi()
+    akar = pathlib.Path(__file__).parents[2]
+    berkas = (akar / "deploy/precheck_20261021_0100.sql").read_text(encoding="utf-8")
+    isi = " ".join(b for b in berkas.splitlines() if not b.strip().startswith("--"))
+    norm = lambda s: " ".join(s.replace(";", " ").split())  # noqa: E731
+    assert norm(mig._SQL_PRECHECK.format(sel="kt.id_kunjungan_tindakan")) in norm(isi)
+    kata = norm(isi).upper().split()
+    assert not any(w in kata for w in ("UPDATE", "DELETE", "INSERT", "ALTER", "DROP"))
+
+
+# ---------------------------------------------------------------- I6
+def test_antrian_kasir_menandai_tindakan_belum_selesai(db):
+    from datetime import date
+    from app.repositories.kasir_repo import KasirRepository
+    staf, k = _siapkan(db, "ON_TREATMENT")
+    _soap(db, k, staf)
+    _tindakan_selesai(db, k, detik=-5)
+    _tindakan_baru(db, k, "PROSES")
+    _, k2 = _siapkan(db, "ANTRI_BAYAR")
+    _soap(db, k2, staf)
+    _tindakan_selesai(db, k2, detik=-5)
+    baris = {r[0].id_kunjungan: r for r in KasirRepository(db).list_antrian_bayar(today=date.today())}
+    assert baris[k.id_kunjungan][4] is True
+    assert baris[k2.id_kunjungan][4] is False

@@ -164,19 +164,10 @@ def dashboard(request: Request, db: DbSession):
         pass
 
     # Obat Tertunda (P1-1): kartu dashboard + ikon notif header (shell dashboard manual)
-    from datetime import date as _date_ot
-    from sqlalchemy import select as _sel_ot
-    from app.db.models import Kunjungan as _K_ot
-    _ot_rows = db.execute(
-        _sel_ot(_K_ot.tgl_janji_kirim).where(
-            _K_ot.status_antrian == "COMPLETED", _K_ot.tgl_janji_kirim.is_not(None)
-        )
-    ).all()
-    _today_ot = _date_ot.today()
-    _obat_tertunda = {
-        "total": len(_ot_rows),
-        "overdue": sum(1 for (d,) in _ot_rows if d is not None and d <= _today_ot),
-    }
+    # Satu definisi dengan daftarnya (`kondisi_tertunda`, bayar dulu I3) — dulu salinan
+    # `status_antrian == 'COMPLETED'` yang melewatkan obat ditunda saat tindakan berjalan.
+    from app.services._status_kunjungan import ringkas_obat_tertunda
+    _obat_tertunda = ringkas_obat_tertunda(db)
     _can_obat_tertunda = role_value in {"Owner", "Superadmin", "Admin", "Kasir", "FO", "Apoteker"}
 
     # M4: Membership menunggu aktivasi (PAID) — badge header + kartu dashboard.

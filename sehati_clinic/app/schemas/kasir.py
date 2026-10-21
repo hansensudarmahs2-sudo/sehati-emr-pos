@@ -36,6 +36,8 @@ class AntrianKasirItem(BaseModel):
     # Quick info
     jumlah_tindakan: int = 0
     jumlah_resep: int = 0
+    # Bayar dulu (I6): masih ada tindakan PENDING/PROSES → akan ada tagihan susulan.
+    tindakan_belum_selesai: bool = False
 
     # Asal resep — kasir perlu tahu ini BUKAN konsultasi biasa, terutama untuk
     # resep luar (tidak ada komisi dokter) dan tebus lanjut (resep lama).

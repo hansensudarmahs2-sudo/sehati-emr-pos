@@ -362,43 +362,11 @@ class KunjunganService:
         - series yang LAHIR di kunjungan ini → CANCELLED: sesi 1 pembawa harga paket tak
           pernah dibayar, jadi sesi 2..N tak boleh tersisa untuk dipakai gratis (T2-6).
         Semua FLUSH; `ubah_status` yang commit — gagal satu, batal semua."""
-        from sqlalchemy import select
-        from app.db.models import KunjunganTindakan, PasienRencanaTreatment, StatusRencanaTreatmentEnum
-        from app.services.membership_service import MembershipService
-        k = kunjungan.id_kunjungan
-        _ms = MembershipService(self.db)
-        for t in self.db.execute(select(KunjunganTindakan).where(
-                KunjunganTindakan.id_kunjungan == k,
-                KunjunganTindakan.id_kuota_member.is_not(None))).scalars().all():
-            _ms.decrement_kuota_terpakai(t.id_kuota_member, actor_id_staf=actor_id_staf,
-                                         id_kunjungan=k, id_tindakan=t.id_kunjungan_tindakan,
-                                         request=request)
-        _aktif = (StatusRencanaTreatmentEnum.PENDING, StatusRencanaTreatmentEnum.SCHEDULED)
-        lahir_di_sini = self.db.execute(select(PasienRencanaTreatment).where(
-            PasienRencanaTreatment.id_kunjungan_pembuat == k,
-            PasienRencanaTreatment.status.in_(_aktif))).scalars().all()
-        for r in lahir_di_sini:
-            r.status = StatusRencanaTreatmentEnum.CANCELLED
-            self.audit.log(aksi="BATAL_SERIES_CANCEL", id_staf=actor_id_staf or 0,
-                           tabel_target="pasien_rencana_treatment", id_target=r.id_rencana,
-                           data_baru={"status": "CANCELLED", "trigger": f"batal_kunjungan_{k}"},
-                           request=request)
-        _id_lahir = {r.id_rencana for r in lahir_di_sini}
-        for r in self.db.execute(
-                select(PasienRencanaTreatment)
-                .join(KunjunganTindakan, KunjunganTindakan.id_rencana == PasienRencanaTreatment.id_rencana)
-                .where(KunjunganTindakan.id_kunjungan == k)
-                .where(PasienRencanaTreatment.status == StatusRencanaTreatmentEnum.SCHEDULED)
-        ).scalars().all():
-            if r.id_rencana in _id_lahir:
-                continue
-            r.status = StatusRencanaTreatmentEnum.PENDING
-            self.audit.log(aksi="BATAL_SERIES_KEMBALI", id_staf=actor_id_staf or 0,
-                           tabel_target="pasien_rencana_treatment", id_target=r.id_rencana,
-                           data_lama={"status": "SCHEDULED"},
-                           data_baru={"status": "PENDING", "trigger": f"batal_kunjungan_{k}"},
-                           request=request)
-        self.db.flush()
+        # Logikanya di `app/services/_batal_tindakan.py` — dipakai bersama
+        # `TreatmentService.batalkan_tindakan` (Ruling 12). Jangan menulis salinan di sini.
+        from app.services._batal_tindakan import bereskan_kunjungan
+        bereskan_kunjungan(self.db, self.audit, kunjungan.id_kunjungan,
+                           actor_id_staf=actor_id_staf, request=request)
 
     def ubah_status(
         self,
@@ -459,8 +427,10 @@ class KunjunganService:
                 ),
             )
 
-        # Audit T2-5 (2026-10-13) — pagar BATAL. (Pagar "selesai tanpa serah" dihapus di T1-7: ANTRI_OBAT→COMPLETED tak ada lagi di tabel.) Diperiksa SEBELUM
-        # perubahan apa pun; baris kunjungan sudah terkunci di atas.
+        # Audit T2-5 (2026-10-13) — pagar BATAL. Diperiksa SEBELUM perubahan apa pun; baris
+        # kunjungan sudah terkunci di atas.
+        # (Pagar "selesai tanpa serah" dihapus di T1-7: ANTRI_OBAT→COMPLETED tak ada lagi
+        # di tabel transisi.)
         if status_baru_str == "BATAL":
             self._pagari_batal(kunjungan)
 

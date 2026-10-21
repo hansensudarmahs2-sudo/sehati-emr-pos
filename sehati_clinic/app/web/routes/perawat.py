@@ -275,6 +275,50 @@ def perawat_end_tindakan(id_kunjungan_tindakan: int, request: Request, db: DbSes
 
 
 # =============================================================================
+# POST /web/ruang-tindakan/tindakan/{id_kunjungan_tindakan}/batalkan
+# =============================================================================
+@router.post("/ruang-tindakan/tindakan/{id_kunjungan_tindakan}/batalkan")
+def perawat_batalkan_tindakan(
+    id_kunjungan_tindakan: int,
+    request: Request,
+    db: DbSession,
+    alasan: str = Form(default=""),
+):
+    """Ruling 12 (bayar dulu): pasien menolak tindakan PENDING yang belum dibayar.
+
+    Role = `require_perawat_role` (Perawat, Dokter, Admin, Owner, Superadmin) — sama dengan
+    halaman ruang tindakan tempat tombolnya berada (spec §3.6: dokter, perawat, admin).
+    Kembali ke halaman kunjungan dengan `ok`/`err` ter-encode (`_q_err`, Audit T4-3).
+    Tidak menulis apa pun sebelum service: `batalkan_tindakan` memanggil `mulai_baca_segar`.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_perawat_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from app.web.routes.kasir import _q_err
+    id_kunjungan = None
+    try:
+        result = TreatmentService(db).batalkan_tindakan(
+            id_kunjungan_tindakan, alasan, user.id_staf, request=request)
+        id_kunjungan = result["data"]["id_kunjungan"]
+        q = f"ok={_q_err('Tindakan dibatalkan. Status kunjungan: ' + str(result['data']['status_kunjungan_baru']) + '.')}"
+    except HTTPException as e:
+        q = f"err={_q_err(e.detail)}"
+    except Exception as e:
+        q = f"err={_q_err(f'Gagal: {e!s}')}"
+    if id_kunjungan is None:
+        t = TreatmentRepository(db).get_tindakan_by_id(id_kunjungan_tindakan)
+        id_kunjungan = t.id_kunjungan if t is not None else None
+    if id_kunjungan:
+        return RedirectResponse(url=f"/web/ruang-tindakan/kunjungan/{id_kunjungan}?{q}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/web/ruang-tindakan/antrian?{q}",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+# =============================================================================
 # POST /web/ruang-tindakan/kunjungan/{id_kunjungan}/upsell
 # =============================================================================
 @router.post("/ruang-tindakan/kunjungan/{id_kunjungan}/upsell")

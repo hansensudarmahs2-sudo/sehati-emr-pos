@@ -708,19 +708,9 @@ def build_shell_context(user: MasterStaf, db=None, current_path: str = "", **ext
             from app.core import ttl_cache as _tc
 
             def _ot():
-                from datetime import date as _date
-                from sqlalchemy import select as _sel
-                from app.db.models import Kunjungan as _K
-                today = _date.today()
-                rows = _db_ot = db.execute(
-                    _sel(_K.tgl_janji_kirim).where(
-                        _K.status_antrian == "COMPLETED",
-                        _K.tgl_janji_kirim.is_not(None),
-                    )
-                ).all()
-                tot = len(rows)
-                od = sum(1 for (d,) in rows if d is not None and d <= today)
-                return {"total": tot, "overdue": od}
+                # Satu definisi dengan daftarnya (`kondisi_tertunda`, bayar dulu I3).
+                from app.services._status_kunjungan import ringkas_obat_tertunda
+                return ringkas_obat_tertunda(db)
 
             obat_tertunda = _tc.get_or_set("obat:tertunda", 30.0, _ot)
         except Exception:

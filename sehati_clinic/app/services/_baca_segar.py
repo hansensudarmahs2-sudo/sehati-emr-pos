@@ -20,7 +20,8 @@ potret baru yang lagi-lagi mendahului kunci.
 Pemakai: `KasirService.proses_bayar`, `KasirService._kunci_untuk_void` (kedua jalur void),
 `KasirService.refund_item_tertunda`, `ReturPasienService.buat_retur`,
 `KasirClosingService.tutup_kasir`, `MembershipService.bayar_membership` &
-`activate_membership` (T4-9).
+`activate_membership` (T4-9), `ApotekService.serahkan_obat` & `tunda_serah_obat` dan
+`TreatmentService.batalkan_tindakan` (bayar dulu, review akhir tahap 1).
 """
 from sqlalchemy.orm import Session
 

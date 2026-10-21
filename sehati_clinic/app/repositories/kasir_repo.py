@@ -52,14 +52,20 @@ class KasirRepository:
         KONSULTASI (upsell perawat). Sekarang pasien boleh tampil di kasir dan
         perawat/apotek bersamaan.
 
-        Return list of (Kunjungan, Pasien, jumlah_tindakan, jumlah_resep_pending).
+        Return list of (Kunjungan, Pasien, jumlah_tindakan, jumlah_resep_pending,
+        tindakan_belum_selesai).
+
+        `tindakan_belum_selesai` (review akhir tahap 1, I6) = (T) dari fungsi bersama:
+        masih ada tindakan PENDING/PROSES. Tahap 1 hanya menagih tindakan SELESAI, jadi
+        kasir yang menagih sekarang akan menagih LAGI nanti (tagihan susulan) — penanda
+        di layar supaya kasir bisa memberi tahu pasien, bukan mengira tagihannya lengkap.
         """
-        from app.services._status_kunjungan import kondisi_K, saringan_meja_hari_ini
+        from app.services._status_kunjungan import kondisi_K, kondisi_T, saringan_meja_hari_ini
         if today is None:
             today = date.today()
 
         stmt = (
-            select(Kunjungan, Pasien)
+            select(Kunjungan, Pasien, kondisi_T().label("tindakan_belum_selesai"))
             .join(Pasien, Kunjungan.id_pasien == Pasien.id_pasien)
             .where(saringan_meja_hari_ini(today))
             .where(kondisi_K())
@@ -68,7 +74,7 @@ class KasirRepository:
         rows = self.db.execute(stmt).all()
 
         result = []
-        for kunjungan, pasien in rows:
+        for kunjungan, pasien, belum_selesai in rows:
             n_tindakan = self.db.execute(
                 select(func.count(KunjunganTindakan.id_kunjungan_tindakan))
                 .where(KunjunganTindakan.id_kunjungan == kunjungan.id_kunjungan)
@@ -83,7 +89,7 @@ class KasirRepository:
                 .where(KunjunganResep.id_kunjungan == kunjungan.id_kunjungan)
                 .where(KunjunganResep.status_item == "PENDING")
             ).scalar() or 0
-            result.append((kunjungan, pasien, int(n_tindakan), int(n_resep)))
+            result.append((kunjungan, pasien, int(n_tindakan), int(n_resep), bool(belum_selesai)))
         return result
 
     # =========================================================================

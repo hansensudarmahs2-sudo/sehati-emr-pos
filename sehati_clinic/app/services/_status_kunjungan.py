@@ -124,6 +124,38 @@ def kondisi_O():
                 Kunjungan.tgl_janji_kirim.is_(None))
 
 
+def kondisi_tertunda():
+    """Obat TERTUNDA: obat DIBAYAR + janji kirim/ambil, kunjungan bukan BATAL.
+
+    SATU definisi untuk daftar Obat Tertunda, dua lencananya (dashboard & header) dan
+    pintu serah (`ApotekService.serahkan_obat`). Bayar dulu, review akhir tahap 1 (I3):
+    dulu keempatnya menyalin `status_antrian == 'COMPLETED'` — benar selama tunda selalu
+    menutup kunjungan. Sejak Ruling 9 tunda juga diterima saat tindakan masih berjalan
+    (label ON_TREATMENT/ANTRI_TREATMENT), dan obat itu lalu hilang dari SEMUA layar
+    (keluar dari apotek karena janji terisi, tak masuk Obat Tertunda karena belum
+    COMPLETED) dan pintu serah menolaknya. Syarat obat DIBAYAR: janji yang tersisa
+    sesudah semua itemnya di-refund/diserahkan bukan obat tertunda.
+    Kebalikan persis dari (O) untuk obat DIBAYAR: (O) = tanpa janji, ini = dengan janji.
+    """
+    return and_(Kunjungan.status_antrian != _BATAL,
+                Kunjungan.tgl_janji_kirim.is_not(None),
+                _item_obat(StatusItemResepEnum.DIBAYAR, "DIBAYAR"))
+
+
+def obat_tertunda_di(db: Session, id_kunjungan: int) -> bool:
+    """`kondisi_tertunda` untuk satu kunjungan (pintu serah)."""
+    return bool(db.execute(select(kondisi_tertunda()).select_from(Kunjungan)
+                           .where(Kunjungan.id_kunjungan == id_kunjungan)).scalar())
+
+
+def ringkas_obat_tertunda(db: Session, today: Optional[date] = None) -> dict:
+    """{"total", "overdue"} untuk lencana Obat Tertunda — HARUS sama dengan panjang
+    `ApotekService.list_obat_tertunda` (test_obat_tertunda_saat_tindakan_berjalan_...)."""
+    today = today or date.today()
+    tgl = db.execute(select(Kunjungan.tgl_janji_kirim).where(kondisi_tertunda())).scalars().all()
+    return {"total": len(tgl), "overdue": sum(1 for d in tgl if d is not None and d <= today)}
+
+
 def kondisi_ada_transaksi():
     """Ada transaksi kasir berstatus APA PUN (VOID = kasir sudah menangani)."""
     return _ada(TransaksiKasir.id_kunjungan == Kunjungan.id_kunjungan)
@@ -170,13 +202,20 @@ KONDISI_MEJA = {
 
 
 def saringan_meja_hari_ini(today: date):
-    """Saringan bersama tiga meja: kunjungan HARI INI dan bukan BATAL.
+    """Saringan bersama tiga meja: kunjungan HARI INI, bukan BATAL, dan KLINIS.
 
     Hari ini saja (seperti sebelumnya): sisa kemarin diurus jalurnya sendiri (Obat
     Tertunda, tutup kasir). Status NULL ikut tersaring (`!=` tidak benar untuk NULL) —
-    sama dengan dulu, saat antrian hanya menampilkan label tertentu."""
+    sama dengan dulu, saat antrian hanya menampilkan label tertentu.
+
+    Bukan-klinis (I4, review akhir tahap 1): kunjungan RETUR_PASIEN adalah wadah draf SOAP
+    alergi (COMPLETED, tanpa transaksi). Begitu drafnya disetujui ada SOAP FINAL tanpa
+    transaksi → (K) benar → pasien muncul di kasir untuk "konsultasi" yang tak pernah
+    terjadi. Dulu antrian membaca label (COMPLETED) sehingga tak terlihat."""
+    from app.services._jenis_kunjungan import JENIS_KUNJUNGAN_BUKAN_KLINIS
     return and_(func.date(Kunjungan.tgl_kunjungan) == today,
-                Kunjungan.status_antrian != _BATAL)
+                Kunjungan.status_antrian != _BATAL,
+                Kunjungan.jenis_kunjungan.notin_(JENIS_KUNJUNGAN_BUKAN_KLINIS))
 
 
 def hitung_antrian_meja(db: Session, today: date) -> dict:

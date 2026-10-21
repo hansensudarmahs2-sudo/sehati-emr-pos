@@ -22,13 +22,13 @@ pra-SOAP) sengaja dilewati — memang tidak disentuh penghitung.
 Perbaikan label basi TIDAK dilakukan di sini; dr. Hansen memutuskan saat deploy
 berdasarkan keluaran ini.
 
-Jalankan dari `sehati_clinic/`:  python3 -m scripts.cek_status_kunjungan [--tanggal YYYY-MM-DD]
+Jalankan dari `sehati_clinic/`:  python3 -m scripts.cek_status_kunjungan [--tanggal YYYY-MM-DD] [--hari N]
 Di laptop:  docker compose ... exec sehati-app python -m scripts.cek_status_kunjungan
 Kode keluar 1 bila ada selisih.
 """
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 
@@ -58,18 +58,29 @@ def periksa(db, tanggal: date) -> list:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tanggal", help="YYYY-MM-DD (default: hari ini)")
+    # Review akhir tahap 1 (M7): sebelum deploy, label basi dari hari-hari sebelumnya yang
+    # perlu dilihat — satu tanggal saja tidak cukup. Tetap HANYA membaca.
+    ap.add_argument("--hari", type=int, default=1,
+                    help="periksa N hari terakhir sampai --tanggal (default 1 = tanggal itu saja)")
     args = ap.parse_args()
-    tanggal = (datetime.strptime(args.tanggal, "%Y-%m-%d").date()
-               if args.tanggal else date.today())
+    akhir = (datetime.strptime(args.tanggal, "%Y-%m-%d").date()
+             if args.tanggal else date.today())
+    n_hari = max(1, args.hari)
+    daftar_tanggal = [akhir - timedelta(days=i) for i in range(n_hari - 1, -1, -1)]
 
     db = SessionLocal()
     try:
-        print(f"PEMERIKSA: status kunjungan vs isi — {tanggal}\n")
-        selisih = periksa(db, tanggal)
-        for id_k, tersimpan, seharusnya in selisih:
-            print(f"  ✗ kunjungan #{id_k}: tersimpan {tersimpan} · seharusnya {seharusnya}")
-        print(f"\nHASIL: {len(selisih)} selisih")
-        return 1 if selisih else 0
+        rentang = (f"{daftar_tanggal[0]} s/d {akhir}" if n_hari > 1 else f"{akhir}")
+        print(f"PEMERIKSA: status kunjungan vs isi — {rentang}\n")
+        total = 0
+        for tanggal in daftar_tanggal:
+            selisih = periksa(db, tanggal)
+            for id_k, tersimpan, seharusnya in selisih:
+                print(f"  ✗ {tanggal} kunjungan #{id_k}: tersimpan {tersimpan} · "
+                      f"seharusnya {seharusnya}")
+            total += len(selisih)
+        print(f"\nHASIL: {total} selisih")
+        return 1 if total else 0
     finally:
         db.rollback()
         db.close()
