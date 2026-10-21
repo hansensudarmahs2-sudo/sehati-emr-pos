@@ -362,21 +362,22 @@ class KasirService:
             )
 
         # ===== Detect "new" items (FLOW-D Part B) =====
+        # Tindakan "baru" = SELESAI dan BELUM punya transaksi pembayar (`id_transaksi IS NULL`).
+        # Bayar dulu T1-2: tindakan kini ditandai saat dibayar, sama seperti resep/racikan
+        # (Audit T4-1) — jadi tak perlu lagi membandingkan jam. Dulu `waktu_selesai > waktu_bayar`:
+        # tindakan yang selesai di detik yang SAMA dengan bayar (atau sebelum bayar tapi tidak
+        # ikut ditagih) hilang dari tagihan susulan tanpa jejak. `all_tindakan` tetap memuat
+        # semua SELESAI untuk mode lihat-saja di bawah.
+        new_tindakan = [(t, tr) for (t, tr) in all_tindakan if t.id_transaksi is None]
         if cutoff is not None:
-            new_tindakan = [
-                (t, tr) for (t, tr) in all_tindakan
-                if t.waktu_selesai is not None and t.waktu_selesai > cutoff
-            ]
             # Audit T4-1 (2026-10-15): resep & racikan PENDING = BELUM ditagih, apa pun
             # waktunya — bayar kini hanya menandai baris yang ditagih, jadi PENDING tidak
             # pernah berarti "sudah dibayar". Dulu disaring `waktu_input > cutoff`: resep yang
             # masuk SELAMA bayar (waktu_input < waktu_bayar) tak pernah muncul lagi — dulu
-            # tak terasa karena ia diam-diam ikut DIBAYAR. Tindakan TETAP memakai cutoff:
-            # tindakan SELESAI tidak ditandai saat dibayar.
+            # tak terasa karena ia diam-diam ikut DIBAYAR.
             new_resep = list(all_resep_pending)
             new_racikan = list(all_racikan_pending)
         else:
-            new_tindakan = all_tindakan
             new_resep = all_resep_pending
             new_racikan = all_racikan_pending
 
@@ -924,6 +925,11 @@ class KasirService:
             n_racikan_updated = self.repo.mark_racikan_dibayar(
                 payload.id_kunjungan, id_trx_baru,
                 ids=[r.id_kunjungan_racikan for r in tagihan.rincian_racikan])
+            # Bayar dulu T1-2: tindakan yang ditagih ikut ditandai (hanya yang di tagihan ini;
+            # susulan yang selesai selama pembayaran tetap NULL dan muncul di tagihan berikutnya).
+            self.repo.mark_tindakan_dibayar(
+                payload.id_kunjungan, id_trx_baru,
+                ids=[t.id_kunjungan_tindakan for t in tagihan.rincian_tindakan])
 
             # 6. Transition status kunjungan
             # Ada resep ATAU racikan → ANTRI_OBAT (lempar ke apotek); selain itu COMPLETED.

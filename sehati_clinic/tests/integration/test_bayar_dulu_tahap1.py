@@ -69,3 +69,41 @@ def test_backfill_aman_dijalankan_ulang(db):
     mig.isi_id_transaksi_tindakan(db.connection())
     kedua = mig.isi_id_transaksi_tindakan(db.connection())
     assert kedua["dari_snapshot"] == 0 and kedua["dari_cutoff"] == 0
+
+
+# ---------------------------------------------------------------- T1-2
+def test_bayar_menandai_tindakan_yang_ditagih(db):
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    trx = _trx_terakhir(db, k)
+    t = db.execute(select(KunjunganTindakan).where(
+        KunjunganTindakan.id_kunjungan == k.id_kunjungan)).scalar_one()
+    assert t.id_transaksi == trx.id_transaksi
+
+
+def test_tindakan_selesai_di_detik_bayar_tetap_tertagih_susulan(db):
+    """Dulu saringan `waktu_selesai > waktu_bayar` menghilangkan tindakan yang selesai
+    di detik yang sama dengan bayar dulu."""
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    t1 = _trx_terakhir(db, k)
+    tr = db.execute(select(KunjunganTindakan.id_treatment).where(
+        KunjunganTindakan.id_kunjungan == k.id_kunjungan)).scalars().first()
+    db.add(KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=tr,
+                             status_tindakan="SELESAI", waktu_selesai=t1.waktu_bayar))
+    db.flush()
+    tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
+    assert tagihan.sudah_lunas is False
+    assert len(tagihan.rincian_tindakan) == 1
+
+
+def test_tindakan_lunas_tidak_ditagih_ulang(db):
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _tindakan_selesai(db, k, detik=-5)
+    _bayar(db, k, staf)
+    tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
+    assert tagihan.sudah_lunas is True

@@ -136,7 +136,11 @@ class KasirRepository:
     def get_tindakan_selesai_for_billing(
         self, id_kunjungan: int
     ) -> list[tuple[KunjunganTindakan, MasterTreatment]]:
-        """List tindakan SELESAI di kunjungan ini + master_treatment (untuk harga)."""
+        """List SEMUA tindakan SELESAI di kunjungan ini + master_treatment (untuk harga).
+
+        Termasuk yang sudah dibayar (mode lihat-saja get_tagihan menampilkannya). Yang
+        "baru/bisa ditagih" = `id_transaksi IS NULL`, disaring di KasirService.get_tagihan.
+        """
         stmt = (
             select(KunjunganTindakan, MasterTreatment)
             .join(MasterTreatment, KunjunganTindakan.id_treatment == MasterTreatment.id_treatment)
@@ -227,6 +231,28 @@ class KasirRepository:
         )
         if ids is not None:
             stmt = stmt.where(KunjunganRacikan.id_kunjungan_racikan.in_(ids))
+        return self.db.execute(stmt).rowcount or 0
+
+    def mark_tindakan_dibayar(self, id_kunjungan: int, id_transaksi: int,
+                              ids: Optional[list] = None) -> int:
+        """Tindakan yang DITAGIH → tautkan ke transaksinya (`id_transaksi`).
+
+        Sejajar mark_racikan_dibayar (Audit T4-1): HANYA `ids` yang benar-benar ditagih,
+        `ids=[]` → 0 baris. Hanya baris `id_transaksi IS NULL`: tindakan yang sudah punya
+        transaksi pembayar tidak boleh dipindah ke transaksi lain.
+        """
+        from sqlalchemy import update
+
+        if ids is not None and not ids:
+            return 0
+        stmt = (
+            update(KunjunganTindakan)
+            .where(KunjunganTindakan.id_kunjungan == id_kunjungan)
+            .where(KunjunganTindakan.id_transaksi.is_(None))
+            .values(id_transaksi=id_transaksi)
+        )
+        if ids is not None:
+            stmt = stmt.where(KunjunganTindakan.id_kunjungan_tindakan.in_(ids))
         return self.db.execute(stmt).rowcount or 0
 
     # =========================================================================
