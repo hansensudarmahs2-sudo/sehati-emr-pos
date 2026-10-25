@@ -54,6 +54,10 @@
 {% if it.ket_pendek %}
 <div style="font-size: 0.85em;">  ↳ {{ it.ket_pendek }} · normal {{ "{:,.0f}".format(it.nilai_normal).replace(",", ".") }}</div>
 {% endif %}
+{# Bayar dulu T2-5: tindakan dibayar sebelum dikerjakan. #}
+{% if it.ket_dimuka_pendek %}
+<div style="font-size: 0.85em;">  ↳ {{ it.ket_dimuka_pendek }}</div>
+{% endif %}
 {% else %}
 <div class="text-center">(tidak ada item)</div>
 {% endfor %}

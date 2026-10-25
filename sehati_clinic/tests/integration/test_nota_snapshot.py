@@ -165,6 +165,80 @@ def test_split_billing_tidak_memuat_tindakan_transaksi_lain(db, dasar):
     assert nb["rekonstruksi"] is False
 
 
+# --- Bayar dulu T2-5: nota menandai tindakan yang dibayar SEBELUM dikerjakan --------------
+# Ditentukan dari WAKTU (selesai sesudah bayar / belum selesai), bukan status saat cetak:
+# nota yang dicetak ulang sesudah tindakannya selesai harus tetap menulis "dibayar di muka".
+# Kunci `ket_dimuka` SENGAJA bukan `ket_prabayar` (itu hak kuota/series, T27 — hal lain).
+
+def _tindakan_ditagih(db, d, k, t, *, status, waktu_selesai=None, harga=500000, **kw):
+    kt = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=d["treatment"].id_treatment,
+                           status_tindakan=status, waktu_selesai=waktu_selesai,
+                           id_transaksi=t.id_transaksi, **kw)
+    db.add(kt); db.flush()
+    db.add(TransaksiDetailTindakan(id_transaksi=t.id_transaksi, id_kunjungan_tindakan=kt.id_kunjungan_tindakan,
+                                   id_treatment=d["treatment"].id_treatment, qty=1,
+                                   harga_satuan=harga, diskon_item=0, subtotal=harga))
+    db.flush()
+    return kt
+
+
+def _baris_tnd(db, t):
+    return [i for i in _nota(db, t)["items"] if i["tipe"] == "TND"]
+
+
+def test_nota_tindakan_pending_saat_cetak_ditandai_dibayar_di_muka(db, dasar):
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("500000"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.PENDING)
+    baris = _baris_tnd(db, t)
+    assert baris[0].get("ket_dimuka") == "dibayar di muka"
+    assert baris[0].get("ket_dimuka_pendek") == "dibayar di muka"
+    assert baris[0]["ket_prabayar"] is None            # hak kuota/series = hal lain
+
+
+def test_nota_cetak_ulang_sesudah_selesai_tetap_dibayar_di_muka(db, dasar):
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("500000"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.SELESAI,
+                      waktu_selesai=t.waktu_bayar + timedelta(minutes=30))
+    assert _baris_tnd(db, t)[0].get("ket_dimuka") == "dibayar di muka"
+
+
+def test_nota_tindakan_selesai_sebelum_bayar_tanpa_keterangan(db, dasar):
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("500000"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.SELESAI,
+                      waktu_selesai=t.waktu_bayar - timedelta(minutes=30))
+    assert _baris_tnd(db, t)[0].get("ket_dimuka") is None
+
+
+def test_nota_tindakan_selesai_tanpa_waktu_selesai_bukan_dibayar_di_muka(db, dasar):
+    """Baris lama bisa SELESAI tanpa `waktu_selesai` — kosongnya waktu bukan bukti belum selesai."""
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("500000"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.SELESAI, waktu_selesai=None)
+    assert _baris_tnd(db, t)[0].get("ket_dimuka") is None
+
+
+def test_nota_tindakan_kuota_pending_hanya_berlabel_benefit(db, dasar):
+    """Rp 0 karena kuota: tak ada uang yang dibayar di muka, jadi satu keterangan saja."""
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("0"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.PENDING, harga=0,
+                      id_kuota_member=_kuota(db, dasar).id_kuota)
+    baris = _baris_tnd(db, t)[0]
+    assert baris["ket_prabayar"] and baris.get("ket_dimuka") is None
+
+
+def test_nota_dibayar_di_muka_tidak_mengubah_hitungan(db, dasar):
+    k = _kunjungan(db, dasar)
+    t = _trx(db, dasar, k, Decimal("500000"))
+    _tindakan_ditagih(db, dasar, k, t, status=StatusTindakanEnum.PROSES)
+    n = _nota(db, t)
+    assert n["items"][0].get("ket_dimuka") == "dibayar di muka"
+    assert sum(i["subtotal"] for i in n["items"]) - n["diskon"] == n["total"] == 500000
+
+
 def test_diskon_member_tindakan_tidak_dikurangkan_dua_kali(db, dasar):
     """Audit T4-7 (2026-10-16): `transaksi_detail_tindakan.subtotal` = BERSIH (harga − diskon),
     padahal nota menjumlah baris sebagai harga PENUH lalu mengurangi `nominal_diskon` lagi.

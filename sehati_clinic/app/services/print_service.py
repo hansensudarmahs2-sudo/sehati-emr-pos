@@ -659,6 +659,20 @@ class PrintService:
                     ket_pendek = "Paket series"
             if ket:
                 nilai_benefit += normal
+            # Bayar dulu T2-5: tindakan DIBAYAR sebelum dikerjakan. Ditentukan dari WAKTU,
+            # bukan status saat cetak — nota yang dicetak ulang sesudah tindakannya selesai
+            # harus tetap menulis "dibayar di muka". Belum SELESAI = pasti di muka; SELESAI
+            # = di muka hanya bila selesainya SESUDAH waktu bayar. ⚠ SELESAI dengan
+            # `waktu_selesai` kosong (baris lama) BUKAN di muka: kosongnya waktu bukan bukti.
+            # Hanya baris yang membayar uang: Rp 0 karena kuota/series sudah punya
+            # `ket_prabayar` (hal lain — hak yang dibayar di muka, bukan tindakannya).
+            ket_dimuka = None
+            if kt is not None and ket is None and harga > 0:
+                if kt.status_tindakan != StatusTindakanEnum.SELESAI:
+                    ket_dimuka = "dibayar di muka"
+                elif (kt.waktu_selesai is not None and trx.waktu_bayar is not None
+                      and kt.waktu_selesai > trx.waktu_bayar):
+                    ket_dimuka = "dibayar di muka"
             # Audit T4-7 (2026-10-16): baris nota = harga PENUH (harga × qty), seperti produk &
             # racikan — diskon dikurangkan SEKALI di bawah lewat `nominal_diskon`. Kolom
             # `transaksi_detail_tindakan.subtotal` berarti BERSIH (harga − diskon_item); dulu
@@ -671,6 +685,8 @@ class PrintService:
                 "pakai_kuota": ket is not None,
                 "ket_prabayar": ket, "ket_pendek": ket_pendek,  # pendek: thermal 58mm
                 "nilai_normal": normal if ket else None,
+                # T2-5 — nama kunci SENGAJA beda dari `ket_prabayar` (T27, hak kuota/series).
+                "ket_dimuka": ket_dimuka, "ket_dimuka_pendek": ket_dimuka,
             })
 
         for d, nama in self.db.execute(

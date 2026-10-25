@@ -85,6 +85,10 @@
                 {% if it.ket_prabayar %}
                 <div class="muted" style="font-size: 0.85em;">↳ {{ it.ket_prabayar }} · nilai normal Rp {{ "{:,.0f}".format(it.nilai_normal).replace(",", ".") }}</div>
                 {% endif %}
+                {# Bayar dulu T2-5: tindakan dibayar sebelum dikerjakan (beda dari hak prabayar di atas). #}
+                {% if it.ket_dimuka %}
+                <div class="muted" style="font-size: 0.85em;">↳ {{ it.ket_dimuka }}</div>
+                {% endif %}
             </td>
             <td class="text-right mono">{{ "%g"|format(it.qty) }}</td>
             <td class="text-right mono">{{ "{:,.0f}".format(it.harga).replace(",", ".") }}</td>
