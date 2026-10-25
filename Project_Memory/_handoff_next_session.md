@@ -1,3 +1,4 @@
+⚠ USANG — catatan Juli 2026. Handoff TERBARU: Project_Memory/HANDOFF_2026-10-25.md
 ═══════════════════════════════════════════════════════════
 SESSION HANDOFF — Sehati Clinic eMR-POS WebApp
 Ditulis: 2026-07-04  →  Untuk: sesi berikutnya (fresh agent)

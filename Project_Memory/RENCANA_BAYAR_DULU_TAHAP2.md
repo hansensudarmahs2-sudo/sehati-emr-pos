@@ -10,6 +10,12 @@
 
 **Spec:** `Project_Memory/DESAIN_BAYAR_DULU_BERCABANG.md` §3.4, §3.5, §3.8 (disetujui 2026-10-15). Tahap 1: `Project_Memory/RENCANA_BAYAR_DULU_TAHAP1.md` (termasuk lampiran Ruling 1–15).
 
+## Status (2026-10-25)
+
+T2-1 `3e00f0c` + fix `8a40950` · T2-2 `28dbc09` · T2-3 `b8de359` — di `main`.
+**T2-4 `61e3d5e` — cabang `claude/hopeful-pasteur-172ozo`, BELUM DIUJI** (ditulis di sesi
+cloud tanpa MySQL). T2-5, T2-6 belum. Langkah berikut: `HANDOFF_2026-10-25.md` §2.
+
 ## Global Constraints
 
 - **Tahap 2 TIDAK di-deploy ke mini PC tanpa tahap 4** (hak pasien + uang kembali per tindakan). Tanpa tahap 4, tindakan yang sudah dibayar di muka lalu ditolak pasien tidak punya jalan keluar (Batalkan hanya untuk yang belum dibayar) dan menahan tutup kasir.
