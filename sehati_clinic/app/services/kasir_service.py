@@ -2099,6 +2099,75 @@ class KasirService:
             "series_pembuat": series_pembuat,
         }
 
+    def _tindakan_prabayar_hidup(self, ids) -> set:
+        """Tindakan dalam lingkup void yang BELUM dikerjakan (PENDING/PROSES) — bayar dulu T2-4.
+
+        Sejak tahap 2 transaksi bisa menagih tindakan yang belum dikerjakan (dibayar di muka).
+        Void transaksi itu = pembayarannya batal, BUKAN tindakannya: pasien masih bisa
+        dikerjakan lalu ditagih ulang, atau menolak lewat Batalkan tindakan. Maka ketiga
+        cascade void memperlakukan tindakan ini berbeda dari tindakan yang ditagih biasa:
+        - `_lepas_tindakan_prabayar`: `id_transaksi` → NULL (kembali "belum ditagih");
+        - `_revert_kuota_per_tindakan`: kuota TIDAK dikembalikan — masih dipegang tindakan
+          hidup itu; Batalkan yang mengembalikannya, tepat sekali (`_batal_tindakan`);
+        - `_cancel_series_sesi_pending`: series yang sesi 1-nya tindakan hidup TIDAK
+          dibatalkan — harga paketnya akan ditagih ulang bersama sesi 1.
+        Ditentukan dari STATUS, bukan dari `id_transaksi`: sesudah dilepas baris ini tetap
+        masuk lingkup lewat cadangan snapshot `transaksi_detail_tindakan`, jadi urutan
+        pemanggilan ketiga cascade tidak mengubah hasilnya.
+        Dibaca FOR UPDATE (pola Audit T3-2): status TERBARU — perawat yang menekan Selesai
+        bersamaan tertahan sampai void commit, lalu membaca `id_transaksi` yang sudah NULL
+        sehingga tidak mencatat komisi atas transaksi VOID.
+        Tindakan SELESAI dalam lingkup tidak pernah sampai ke sini: void-nya ditolak
+        `_pagari_void_tindakan_selesai`.
+        """
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan
+        from app.db.models._enums import StatusTindakanEnum
+        if not ids:
+            return set()
+        return set(self.db.execute(
+            select(KunjunganTindakan.id_kunjungan_tindakan)
+            .where(KunjunganTindakan.id_kunjungan_tindakan.in_(ids))
+            .where(KunjunganTindakan.status_tindakan.in_(
+                (StatusTindakanEnum.PENDING, StatusTindakanEnum.PROSES)))
+            .with_for_update()
+        ).scalars())
+
+    def _lepas_tindakan_prabayar(self, trx, lingkup, actor_id_staf, request) -> int:
+        """Void transaksi prabayar: tindakan yang belum dikerjakan kembali "belum ditagih"
+        (`id_transaksi` NULL) — bayar dulu T2-4. Tanpa ini tindakan tetap menunjuk transaksi
+        VOID: tidak muncul lagi di tagihan (bukan "bisa ditagih"), Batalkan menolaknya
+        ("sudah dibayar"), dan kunjungan tak pernah bisa ditutup. Return jumlah dilepas."""
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan
+        hidup = self._tindakan_prabayar_hidup(lingkup["tindakan"])
+        if not hidup:
+            return 0
+        n = 0
+        for kt in self.db.execute(
+            select(KunjunganTindakan)
+            .where(KunjunganTindakan.id_kunjungan_tindakan.in_(hidup))
+            .order_by(KunjunganTindakan.id_kunjungan_tindakan)
+            .execution_options(populate_existing=True)   # baris sudah dikunci di atas
+        ).scalars().all():
+            id_kt = kt.id_kunjungan_tindakan
+            if kt.id_transaksi is None:
+                continue                      # baris lama tanpa penanda: sudah "belum ditagih"
+            self.audit.log(
+                aksi="VOID_TINDAKAN_DILEPAS",
+                id_staf=actor_id_staf,
+                tabel_target="kunjungan_tindakan",
+                id_target=id_kt,
+                data_lama={"id_transaksi": kt.id_transaksi,
+                           "status_tindakan": getattr(kt.status_tindakan, "value", kt.status_tindakan)},
+                data_baru={"id_transaksi": None, "trigger": f"void_transaksi_{trx.id_transaksi}"},
+                keterangan="Transaksi prabayar di-void: tindakan belum dikerjakan kembali belum ditagih.",
+                request=request,
+            )
+            kt.id_transaksi = None
+            n += 1
+        return n
+
     def _cancel_series_sesi_pending(self, trx, actor_id_staf, request):
         """Auto-cancel sesi PENDING/SCHEDULED dari pasien_rencana_treatment
         yang lahir dari kunjungan ini (Skenario B.1 DEC-063) — HANYA bila transaksi
@@ -2120,10 +2189,13 @@ class KasirService:
         # series yang harga paketnya baru akan ditagih bersama sesi 1 nanti.
         from app.db.models import KunjunganTindakan as _KT
         from app.services._series import anggota as _anggota
+        # Bayar dulu T2-4: sesi 1 yang belum dikerjakan (dibayar di muka) DILEPAS, bukan
+        # dibatalkan — seriesnya tetap hidup dan harga paketnya ditagih ulang bersama sesi 1.
+        _ditagih = _lk["tindakan"] - self._tindakan_prabayar_hidup(_lk["tindakan"])
         sesi1_list = self.db.execute(
             select(PasienRencanaTreatment)
             .join(_KT, _KT.id_rencana == PasienRencanaTreatment.id_rencana)
-            .where(_KT.id_kunjungan_tindakan.in_(_lk["tindakan"] or {-1}))
+            .where(_KT.id_kunjungan_tindakan.in_(_ditagih or {-1}))
             .where(PasienRencanaTreatment.urutan_sesi == 1)
             .where(PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan)
         ).scalars().all()
@@ -2491,6 +2563,8 @@ class KasirService:
         Logika: void transaksi = pasien batal membeli item transaksi INI. Maka:
         - resep/racikan DIBAYAR milik transaksi ini (`_lingkup_void`) -> BATAL (apoteker
           tidak perlu serahkan);
+        - tindakan prabayar yang belum dikerjakan -> "belum ditagih" lagi
+          (`_lepas_tindakan_prabayar`, bayar dulu T2-4);
         - status kunjungan DIHITUNG ULANG dari isinya (`hitung_ulang_status`, bayar dulu
           T1-4) — bukan lagi dipaksa COMPLETED. Hasilnya bisa MUNDUR: susulan yang belum
           ditagih → ANTRI_BAYAR, tindakan yang belum dikerjakan → ANTRI_TREATMENT, obat
@@ -2501,7 +2575,7 @@ class KasirService:
         kunjungan BERUBAH karena void" (arah mana pun), bukan "dimajukan". Laporan/audit yang
         membaca aksi itu jangan menyimpulkan arah dari namanya — baca data_lama/data_baru.
 
-        Return dict {cancelled_resep, cancelled_racikan, kunjungan_advanced: bool}.
+        Return dict {cancelled_resep, cancelled_racikan, tindakan_dilepas, kunjungan_advanced: bool}.
         """
         from app.db.models import KunjunganResep, Kunjungan, StatusItemResepEnum
         from sqlalchemy import select
@@ -2563,6 +2637,10 @@ class KasirService:
             )
             cancelled_racikan += 1
 
+        # Cascade 1c (bayar dulu T2-4): tindakan prabayar yang belum dikerjakan kembali
+        # "belum ditagih" — SEBELUM status dihitung ulang, supaya (K) melihatnya.
+        tindakan_dilepas = self._lepas_tindakan_prabayar(trx, lingkup, actor_id_staf, request)
+
         # Cascade 2: status kunjungan dari isinya (bayar dulu T1-4).
         # Dulu: ANTRI_OBAT/ANTRI_BAYAR → COMPLETED kecuali masih ada obat transaksi LAIN
         # yang lunas belum diserahkan (Audit T2-2). Itu kini (O) di fungsi bersama.
@@ -2592,6 +2670,7 @@ class KasirService:
         return {
             "cancelled_resep": cancelled_resep,
             "cancelled_racikan": cancelled_racikan,
+            "tindakan_dilepas": tindakan_dilepas,
             "kunjungan_advanced": kunjungan_advanced,
         }
 
@@ -2608,11 +2687,16 @@ class KasirService:
         from sqlalchemy import select
 
         id_kunjungan = trx.id_kunjungan
+        lingkup = self._lingkup_void(trx)["tindakan"]
+        # Bayar dulu T2-4: tindakan prabayar yang belum dikerjakan MASIH memegang kuotanya
+        # (dilepas ke "belum ditagih", bukan dibatalkan). Mengembalikannya di sini lalu
+        # Batalkan tindakan mengembalikannya LAGI = satu hak jadi dua.
+        ditagih = lingkup - self._tindakan_prabayar_hidup(lingkup)
         stmt = select(KunjunganTindakan).where(
             KunjunganTindakan.id_kunjungan == id_kunjungan,
             KunjunganTindakan.id_kuota_member.isnot(None),
             # Audit T2-2: hanya tindakan yang ditagih transaksi INI
-            KunjunganTindakan.id_kunjungan_tindakan.in_(self._lingkup_void(trx)["tindakan"]),
+            KunjunganTindakan.id_kunjungan_tindakan.in_(ditagih or {-1}),
         )
         tindakan_list = list(self.db.execute(stmt).scalars().all())
         reverted = 0
@@ -3029,6 +3113,7 @@ class KasirService:
                     "items_reverse_count": reversed_count,
                     "series_cancelled_count": cancelled_series,
                     "kuota_reverted_count": kuota_reverted,
+                    "tindakan_dilepas_count": cascade_info.get("tindakan_dilepas", 0),
                     "late_void": False,
                 },
                 request=request,
@@ -3201,6 +3286,7 @@ class KasirService:
                     "items_reverse_count": reversed_count,
                     "series_cancelled_count": cancelled_series,
                     "kuota_reverted_count": kuota_reverted,
+                    "tindakan_dilepas_count": cascade_info.get("tindakan_dilepas", 0),
                     "late_void": trx.late_void,       # dulu selalu True, juga untuk hari 0
                     "days_past": days_past,
                     "id_penyetuju": id_penyetuju,
