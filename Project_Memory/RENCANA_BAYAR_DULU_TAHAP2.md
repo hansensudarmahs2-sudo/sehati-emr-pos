@@ -14,7 +14,10 @@
 
 T2-1 `3e00f0c` + fix `8a40950` · T2-2 `28dbc09` · T2-3 `b8de359` · T2-4 `61e3d5e` — di `main`.
 **T2-4 SUDAH DIUJI 2026-10-25** (ditulis di sesi cloud tanpa MySQL, diuji di desktop):
-uji dua arah — 8 test gagal di kode lama, lulus di baru; suite penuh 435 lulus. T2-5, T2-6 belum.
+uji dua arah — 8 test gagal di kode lama, lulus di baru; suite penuh 435 lulus.
+**T2-5 `96c80f8` — di `main`, teruji** (suite 441). Aturan nota: status ≠ SELESAI atau selesai
+sesudah `waktu_bayar`, harga > 0, bukan benefit — menyimpang dari "`waktu_selesai IS NULL`" di
+Task 5 di bawah (SELESAI tanpa waktu = data lama, bukan di muka). T2-6 belum.
 
 ## Global Constraints
 

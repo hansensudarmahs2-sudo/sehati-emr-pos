@@ -282,8 +282,9 @@ Jangan lepaskan pagar itu.
 ## 8. Keadaan per 1 Oktober 2026
 
 ▶ **MULAI DI SINI (2026-10-25):** `Project_Memory/HANDOFF_2026-10-25.md` — bayar dulu tahap 2,
-T2-1..T2-4 sudah di `main` dan **T2-4 SUDAH DIUJI** (2026-10-25, desktop, Python 3.11: suite
-435 lulus; 8 test T2-4 gagal di kode lama). Berikutnya T2-5.
+T2-1..T2-5 sudah di `main` dan teruji (2026-10-25, desktop, Python 3.11: suite 441 lulus;
+test T2-4 gagal di kode lama). Berikutnya T2-6 (dokumentasi + pemeriksa). ⚠ venv desktop
+dibangun ulang 2026-10-25 (Python 3.11 via `uv`) — detail di handoff.
 
 **Sudah jalan di klinik:** pendaftaran · antrian · SOAP + diagnosa terkode (ICD-10 &
 estetik internal) · tindakan · resep & racikan · apotek (termasuk tebus resep luar &

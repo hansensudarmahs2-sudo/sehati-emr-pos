@@ -1,8 +1,8 @@
 # Rancangan — Bayar dulu, tindakan & obat urutan bebas
 
 Status: **DISETUJUI dr. Hansen 2026-10-15** (ditulis 2026-10-15). **TAHAP 1 SELESAI 2026-10-21** (dev; commit fe62830..8367784 + T1-8, 8 task, `RENCANA_BAYAR_DULU_TAHAP1.md`;
-belum di mini PC). **Tahap 2 SEDANG DIKERJAKAN** (2026-10-25): T2-1..T2-4 di `main` (T2-4
-sudah diuji), T2-5/T2-6 belum — `RENCANA_BAYAR_DULU_TAHAP2.md`, `HANDOFF_2026-10-25.md`.
+belum di mini PC). **Tahap 2 SEDANG DIKERJAKAN** (2026-10-25): T2-1..T2-5 di `main` (semua
+teruji), T2-6 belum — `RENCANA_BAYAR_DULU_TAHAP2.md`, `HANDOFF_2026-10-25.md`.
 Penyempurnaan selama pengerjaan: klarifikasi §3.2 (Ruling 6 & 7: transaksi VOID tetap berarti kasir sudah
 menangani; "tidak disentuh" hanya bila tanpa SOAP, isi, dan transaksi), §3.3 (Ruling 10: antrian perawat juga
 menampilkan label KONSULTASI — pintu ke form upsell). Lihat DEC-101.
