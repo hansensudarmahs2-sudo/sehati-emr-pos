@@ -480,13 +480,17 @@ def _prabayar_lalu_void(db):
 
 
 def test_selesai_sesudah_transaksi_pembayar_void_tanpa_komisi(db):
-    """Review Focus 2 (Ruling P1): T1 di-VOID sementara `id_transaksi` B masih menempel
-    (Task 4 belum melepasnya). B lalu selesai → TIDAK berkomisi: transaksinya bukan BAYAR."""
+    """Review Focus 2 (Ruling P1): T1 di-VOID, B lalu selesai → TIDAK berkomisi.
+
+    Sejak T2-4 void MELEPAS `id_transaksi` B, jadi `end_tindakan` tak memanggil komisi sama
+    sekali. Pertahanan sendiri `catat_komisi_tindakan` (transaksi bukan BAYAR → 0) tetap
+    diuji dengan menempelkan kembali penanda ke T1 — bentuk data bila pelepasan terlewat."""
     from tests.integration.test_audit_tahap2 import _void
     staf, k, b, t1 = _prabayar_lalu_void(db)
     _void(db, t1.id_transaksi, staf)
     db.refresh(t1); db.refresh(b)
-    assert V(t1.status_transaksi) == "VOID" and b.id_transaksi == t1.id_transaksi
+    assert V(t1.status_transaksi) == "VOID" and b.id_transaksi is None   # T2-4
+    b.id_transaksi = t1.id_transaksi; db.flush()
     _kerjakan(db, b, staf)
     assert _komisi(db, b) == [] and _komisi(db, b, "VOID") == []
 
@@ -510,3 +514,215 @@ def test_komisi_saat_selesai_ikut_void_bersama_transaksinya(db):
     assert e.value.status_code == 400 and len(_komisi(db, b)) == 1
     KomisiService(db).void_komisi_transaksi(t1.id_transaksi, staf.id_staf)
     assert _komisi(db, b) == [] and len(_komisi(db, b, "VOID")) == 1
+
+
+# ---------------------------------------------------------------- T2-4
+# Void transaksi yang MENAGIH tindakan yang belum dikerjakan (prabayar). Pasien batal membeli:
+# tindakan PENDING/PROSES kembali "belum ditagih" (id_transaksi NULL), tetapi kuota yang
+# dipegangnya TIDAK dikembalikan dan series yang sesi 1-nya tindakan itu TIDAK dibatalkan —
+# tindakannya masih hidup dan masih memegang keduanya. Yang mengembalikan nanti: Batalkan
+# tindakan (Ruling 12), tepat sekali. Dulu: id_transaksi tetap menempel ke transaksi VOID
+# (tindakan tak bisa ditagih lagi, tak bisa dibatalkan — buntu), kuota dikembalikan oleh void
+# DAN akan dikembalikan lagi oleh Batalkan, series dibatalkan padahal sesi 1-nya masih jalan.
+import pytest as _pytest  # noqa: E402
+
+
+def _prabayar_kuota(db, terpakai=2):
+    """SOAP + tindakan kuota PENDING dibayar di muka. `terpakai=2`: satu slot milik kunjungan
+    lain, supaya "dikembalikan dua kali" terlihat (lantai 0 menyamarkannya)."""
+    from tests.integration.test_bayar_dulu_tahap1 import _kuota_pending
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    q, t = _kuota_pending(db, k)
+    q.kuota_terpakai = terpakai; db.flush()
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    trx = _trx_terakhir(db, k)
+    assert t.id_transaksi == trx.id_transaksi
+    return staf, k, q, t, trx
+
+
+def _ids_tagihan(db, k):
+    return [r.id_kunjungan_tindakan
+            for r in KasirService(db).get_tagihan(k.id_kunjungan).rincian_tindakan]
+
+
+@_pytest.mark.parametrize("jalur", ["void", "force"])
+def test_void_prabayar_melepas_tindakan_kuota_tetap_lalu_batalkan_sekali(db, jalur):
+    """Review Focus 1, kedua jalur void."""
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan, _void_jalur
+    staf, k, q, t, trx = _prabayar_kuota(db)
+    _void_jalur(db, trx, staf, jalur)
+    db.refresh(t); db.refresh(q); db.refresh(k); db.refresh(trx)
+    assert V(trx.status_transaksi) == "VOID"
+    assert t.id_transaksi is None                    # dulu: tetap = transaksi VOID
+    assert V(t.status_tindakan) == "PENDING"
+    assert q.kuota_terpakai == 2                     # dulu: 1 — dikembalikan void
+    assert t.id_kunjungan_tindakan in _ids_tagihan(db, k)   # bisa ditagih lagi
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"  # dihitung ulang dari isi
+    _batalkan(db, t, staf)                           # dulu: 400 "sudah dibayar"
+    db.refresh(q); db.refresh(t)
+    assert V(t.status_tindakan) == "BATAL"
+    assert q.kuota_terpakai == 1                     # dikembalikan TEPAT sekali
+
+
+def test_void_prabayar_proses_dilepas_tetap_proses(db):
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PROSES")
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    _void(db, _trx_terakhir(db, k).id_transaksi, staf)
+    db.refresh(t); db.refresh(k)
+    assert t.id_transaksi is None and V(t.status_tindakan) == "PROSES"
+    assert t.id_kunjungan_tindakan in _ids_tagihan(db, k)
+    assert V(k.status_antrian) == "ON_TREATMENT"
+
+
+@_pytest.mark.parametrize("jalur", ["void", "force"])
+def test_void_prabayar_tidak_membatalkan_series_sesi_1_hidup(db, jalur):
+    """Sesi 1 series (pembawa harga paket) dibayar di muka lalu transaksinya di-void: series
+    TIDAK dibatalkan (sesi 1 masih PENDING). Batalkan sesi 1 sesudahnya → series batal
+    (aturan `_batal_tindakan`: sesi 1 belum dibayar)."""
+    from tests.integration.test_audit_tahap2 import _rencana
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan, _void_jalur
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                          id_rencana=s1.id_rencana, status_tindakan="PENDING")
+    db.add(t); db.flush()
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    assert t.id_transaksi is not None
+    _void_jalur(db, _trx_terakhir(db, k), staf, jalur)
+    db.refresh(s1); db.refresh(s2); db.refresh(t)
+    assert (V(s1.status), V(s2.status)) == ("SCHEDULED", "PENDING")   # dulu: CANCELLED
+    assert t.id_transaksi is None
+    _batalkan(db, t, staf)
+    db.refresh(s1); db.refresh(s2)
+    assert (V(s1.status), V(s2.status)) == ("CANCELLED", "CANCELLED")
+
+
+def _penyetuju(db):
+    import secrets
+    from app.core.security import hash_password
+    from app.db.models import MasterStaf
+    from app.db.models._enums import StafRoleEnum
+    admin = MasterStaf(username=f"uji_t24_a_{secrets.token_hex(3)}", password_hash=hash_password("x"),
+                       role=StafRoleEnum.ADMIN, nama_staf="Uji T24 Admin", is_active=True)
+    sup = MasterStaf(username=f"uji_t24_s_{secrets.token_hex(3)}", password_hash=hash_password("x"),
+                     role=StafRoleEnum.SUPERADMIN, nama_staf="Uji T24 Sup", is_active=True,
+                     pin=hash_password("4321"))
+    db.add_all([admin, sup]); db.flush()
+    return admin, sup
+
+
+def test_void_lampau_prabayar_pin_melepas_tindakan_dan_uang_keluar(db):
+    """Pola K4-1: transaksi prabayar KEMARIN di-void hari ini dengan PIN penyetuju → uang
+    keluar tercatat (jenis VOID), tindakan dilepas, kuota tetap, lalu Batalkan sekali."""
+    from datetime import timedelta
+    from app.db.models import TransaksiRefund
+    from app.db.models._enums import StafRoleEnum
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan
+    staf, k, q, t, trx = _prabayar_kuota(db)
+    trx.waktu_bayar = trx.waktu_bayar - timedelta(days=1); db.flush()
+    admin, sup = _penyetuju(db)
+    KasirService(db).force_past_day_void(
+        trx.id_transaksi, "CUSTOMER_CANCEL", "uji void lampau prabayar", [], admin.id_staf,
+        StafRoleEnum.ADMIN, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    db.refresh(trx); db.refresh(t); db.refresh(q)
+    assert (V(trx.status_transaksi), bool(trx.late_void)) == ("VOID", True)
+    if trx.total_tagihan and trx.total_tagihan > 0:
+        assert db.execute(select(TransaksiRefund).where(
+            TransaksiRefund.id_transaksi == trx.id_transaksi,
+            TransaksiRefund.jenis_refund == "VOID")).first() is not None
+    assert t.id_transaksi is None and q.kuota_terpakai == 2
+    assert t.id_kunjungan_tindakan in _ids_tagihan(db, k)
+    _batalkan(db, t, staf)
+    db.refresh(q)
+    assert q.kuota_terpakai == 1
+
+
+def test_void_prabayar_audit_pelepasan(db):
+    from app.db.models import AuditLog
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k, q, t, trx = _prabayar_kuota(db)
+    _void(db, trx.id_transaksi, staf)
+    log = db.execute(select(AuditLog).where(
+        AuditLog.aksi == "VOID_TINDAKAN_DILEPAS",
+        AuditLog.id_target == t.id_kunjungan_tindakan)).scalars().all()
+    assert len(log) == 1
+
+
+def test_kedua_jalur_void_lewat_helper_bersama():
+    """CLAUDE.md §4.1: jalur void ADA DUA. Langkah cascade (series, status, kuota, pelepasan
+    tindakan) hanya boleh dipanggil lewat SATU helper, supaya langkah baru tak hilang di satu
+    jalur (pernah: 3 langkah rollback hilang di force_past_day_void)."""
+    import inspect
+    for fn in (KasirService.void_transaksi, KasirService.force_past_day_void):
+        src = inspect.getsource(fn)
+        assert "self._cascade_void_bersama(" in src
+        for langsung in ("_cancel_series_sesi_pending(", "_cascade_void_kunjungan(",
+                         "_revert_kuota_per_tindakan(", "_lepas_tindakan_hidup("):
+            assert langsung not in src, (fn.__name__, langsung)
+
+
+def test_void_mengunci_kunjungan_sebelum_menulis_tindakan(db):
+    """Ruling P4: kunjungan = titik serialisasi. Void (trx → kunjungan → tindakan) tidak boleh
+    menyentuh baris tindakan sebelum kunci kunjungan."""
+    import re
+    from tests.integration.test_audit_tahap3 import _berkunci
+    from tests.integration.test_audit_tahap4 import _rekam_dengan_commit
+    staf, k, q, t, trx = _prabayar_kuota(db)
+    qs = _rekam_dengan_commit(db, lambda: KasirService(db).void_transaksi(
+        trx.id_transaksi, "SALAH_INPUT", "uji urutan kunci", [], staf.id_staf))
+    i_kj = qs.index(_berkunci(qs, "kunjungan")[0])
+    tulis_kt = [i for i, x in enumerate(qs) if re.match(r"UPDATE kunjungan_tindakan\b", x)]
+    kunci_kt = [qs.index(x) for x in _berkunci(qs, "kunjungan_tindakan")]
+    assert tulis_kt, "void prabayar harus menulis kunjungan_tindakan (melepas id_transaksi)"
+    assert i_kj < min(tulis_kt + kunci_kt)
+
+
+def test_end_tindakan_kunci_kunjungan_dulu_tanpa_for_share(db):
+    """Ruling P4 (deadlock): void kini MENULIS baris tindakan sambil memegang trx + kunjungan.
+    `end_tindakan` dulu mengunci tindakan lalu membaca trx FOR SHARE → void (trx X, menunggu
+    tindakan) vs end (tindakan X, menunggu trx S) = deadlock. Sekarang end: baca-segar →
+    kunjungan FOR UPDATE → tindakan FOR UPDATE → status trx dibaca biasa."""
+    from tests.integration.test_audit_tahap3 import _berkunci
+    from tests.integration.test_audit_tahap4 import _rekam_dengan_commit
+    from app.services.treatment_service import TreatmentService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    b = _tindakan_baru(db, k, "PENDING")
+    _beri_komisi(db, b, staf)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    svc = TreatmentService(db)
+    svc.start_tindakan(b.id_kunjungan_tindakan, staf.id_staf)
+    b.id_perawat_pelaksana = staf.id_staf; db.flush()
+    qs = _rekam_dengan_commit(db, lambda: svc.end_tindakan(b.id_kunjungan_tindakan, staf.id_staf))
+    i_commit = qs.index("<<COMMIT>>")
+    i_kj = qs.index(_berkunci(qs, "kunjungan")[0])
+    i_kt = qs.index(_berkunci(qs, "kunjungan_tindakan")[0])
+    assert i_commit < i_kj < i_kt
+    assert not [x for x in qs[i_commit + 1:i_kj] if x.startswith("SELECT")]
+    assert not [x for x in qs if "FOR SHARE" in x or "LOCK IN SHARE MODE" in x]
+    assert len(_komisi(db, b)) == 1                  # komisi saat selesai tetap tercatat
+
+
+def test_catat_komisi_transaksi_tanpa_id_transaksi_tidak_menyentuh_tindakan(db):
+    """Minor dari T2-3: `id_transaksi=None` dulu menjadi `id_transaksi IS NULL` di kueri
+    tindakan (tindakan BELUM ditagih). Sekarang dilewati eksplisit — tak ada kueri tindakan."""
+    import re
+    from app.services.komisi_service import KomisiService
+    from tests.integration.test_audit_tahap3 import _rekam_sql
+    staf, k = _siapkan(db)
+    c = _tindakan_baru(db, k, "SELESAI")
+    _beri_komisi(db, c, staf)
+    with _rekam_sql(db) as qs:
+        n = KomisiService(db).catat_komisi_transaksi(
+            id_transaksi=None, id_kunjungan=k.id_kunjungan, id_pasien=k.id_pasien,
+            id_dokter_assigned=None, rincian_produk=[])
+    assert n == 0 and _komisi(db, c) == []
+    assert not [x for x in qs if re.search(r"FROM kunjungan_tindakan(?![A-Za-z0-9_])", x)]

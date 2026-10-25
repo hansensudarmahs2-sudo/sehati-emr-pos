@@ -102,7 +102,11 @@ class KomisiService:
         # selama pembayaran) berkomisi atas transaksi yang tidak membayarnya, lalu ikut
         # tertarik bila transaksi itu di-void. `populate_existing`: `mark_tindakan_dibayar`
         # menulis `id_transaksi` lewat UPDATE massal; atribut objek di sesi jangan dipercaya.
-        tindakan_rows = self.db.execute(
+        # T2-4: `id_transaksi=None` dilewati EKSPLISIT — SQLAlchemy menerjemahkan `== None`
+        # menjadi `IS NULL`, yaitu tindakan yang BELUM DITAGIH siapa pun. Hari ini
+        # `catat_komisi_tindakan` kebetulan menolaknya (status transaksi None ≠ BAYAR), tapi
+        # jangan bergantung pada kebetulan itu.
+        tindakan_rows = [] if id_transaksi is None else self.db.execute(
             select(KunjunganTindakan).where(
                 KunjunganTindakan.id_kunjungan == id_kunjungan,
                 KunjunganTindakan.id_transaksi == id_transaksi,
@@ -192,12 +196,22 @@ class KomisiService:
         - sudah ada baris AKTIF untuk tindakan ini (anti-dobel lintas bayar + selesai +
           susulan -- tanpa ini split/reopen menulis komisi dua kali).
 
-        Status transaksi dibaca dengan KUNCI BACA (`FOR SHARE`), bukan baca biasa: di
-        REPEATABLE READ baca biasa memakai potret awal transaksi DB. `end_tindakan` yang
-        berjalan bersamaan dengan pembayaran tindakan itu melihat `id_transaksi` terbaru
-        (barisnya dikunci FOR UPDATE) tapi bisa TIDAK melihat transaksi kasirnya -- lalu
-        tak mencatat, sementara pembayaran juga tak mencatat karena saat itu tindakan belum
-        SELESAI: komisi hilang diam-diam. Sama halnya dengan void yang berjalan bersamaan.
+        Status transaksi dibaca BIASA (tanpa kunci) -- KONTRAK: pemanggil sudah memegang
+        kunci KUNJUNGAN dan tidak membuat potret sebelum kunci itu (Ruling P4, T2-4):
+        - `end_tindakan`: baca-segar → kunjungan FOR UPDATE → tindakan FOR UPDATE. Potret
+          REPEATABLE-READ baru dibuat oleh SELECT biasa pertama SESUDAH kunci kunjungan.
+          Bayar & void sama-sama mengunci kunjungan sebelum menulis apa pun yang relevan
+          dan memegangnya sampai commit, jadi semua yang mereka commit sebelum kita mendapat
+          kunci TERLIHAT, dan yang belum commit belum bisa lewat (menunggu kunci kunjungan).
+          Void yang menang lebih dulu juga sudah melepas `id_transaksi` (dibaca FOR UPDATE).
+          Void yang kalah: membaca BAYAR di sini, komisi tercatat, lalu void ditolak pagar
+          "tindakan sudah selesai" (ia membaca status tindakan FOR UPDATE) -- konsisten.
+        - `catat_komisi_transaksi` dari `proses_bayar`: transaksinya ditulis sesi ini sendiri.
+        Dulu (T2-3) di sini `FOR SHARE` untuk masalah potret yang sama, tapi end_tindakan
+        kala itu mengunci tindakan DULU lalu menunggu kunci baca transaksi -- berlawanan
+        dengan void (trx → kunjungan → tindakan) dan jadi deadlock begitu void menulis baris
+        tindakan. ⚠ Jangan kembalikan FOR SHARE; jangan panggil fungsi ini dari jalur yang
+        tidak mengunci kunjungan lebih dulu (potretnya bisa basi → komisi hilang diam-diam).
 
         Basis = harga MASTER (sama dengan sebelum T2-3); `tanggal` dari pemanggil (tanggal
         bayar atau tanggal selesai) -- laporan komisi membaca `KomisiLedger.tanggal`.
@@ -212,7 +226,6 @@ class KomisiService:
         status_trx = self.db.execute(
             select(TransaksiKasir.status_transaksi)
             .where(TransaksiKasir.id_transaksi == id_transaksi)
-            .with_for_update(read=True)
         ).scalar_one_or_none()
         if getattr(status_trx, "value", status_trx) != "BAYAR":
             return 0

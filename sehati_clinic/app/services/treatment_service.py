@@ -288,6 +288,27 @@ class TreatmentService:
         # Audit T3-8 (2026-10-13): BERKUNCI. Langkah 2 memotong BHP; dulu pagar PROSES di
         # bawah membaca tanpa kunci, jadi klik ganda yang tiba bersamaan sama-sama lolos dan
         # memotong BHP dua kali (laten: treatment_komponen masih kosong di dev).
+        #
+        # Bayar dulu T2-4 (Ruling P4): urutan kunci SERAGAM, kunjungan = titik serialisasi.
+        # Void kini MENULIS baris tindakan (melepas `id_transaksi` tindakan prabayar) sambil
+        # memegang transaksi + kunjungan (trx → kunjungan → tindakan). Dulu end mengunci
+        # tindakan lalu membaca transaksi FOR SHARE (T2-3) — urutan terbalik: void memegang
+        # trx X & menunggu tindakan, end memegang tindakan X & menunggu trx S → deadlock
+        # (MySQL 1213 → 500). Sekarang: baca id_kunjungan TANPA kunci (kolom itu tak pernah
+        # berubah) → baca-segar → kunjungan FOR UPDATE → tindakan FOR UPDATE, sama dengan
+        # bayar (kunjungan → tindakan) dan `batalkan_tindakan`. Status transaksi lalu cukup
+        # dibaca biasa di `catat_komisi_tindakan` — lihat docstring di sana.
+        # ⚠ Jangan sisipkan SELECT biasa di antara `mulai_baca_segar` dan kunci kunjungan:
+        # SELECT itu membuka potret baru yang mendahului kunci.
+        from sqlalchemy import select as _select
+        from app.db.models import KunjunganTindakan as _KT
+        from app.services._baca_segar import mulai_baca_segar
+        _id_kj = self.db.execute(
+            _select(_KT.id_kunjungan).where(_KT.id_kunjungan_tindakan == id_kunjungan_tindakan)
+        ).scalar_one_or_none()
+        mulai_baca_segar(self.db)
+        if _id_kj is not None:
+            self.kunjungan_repo.get_by_id_for_update(_id_kj)
         tindakan = self.treatment_repo.get_tindakan_for_update(id_kunjungan_tindakan)
         if tindakan is None:
             raise HTTPException(
@@ -339,7 +360,8 @@ class TreatmentService:
             # mencatat (`catat_komisi_transaksi`). Tanpa langkah ini tindakan prabayar tidak
             # pernah berkomisi — tagihan susulan yang dulu menangkapnya tak terjadi lagi.
             # Transaksi pembayar yang sudah VOID ditolak di dalam `catat_komisi_tindakan`.
-            # `tindakan` dibaca FOR UPDATE di atas → `id_transaksi`-nya terbaru.
+            # `tindakan` dibaca FOR UPDATE di atas → `id_transaksi`-nya terbaru; void yang
+            # sudah commit sebelum kita mendapat kunci kunjungan telah MELEPASnya (T2-4).
             if tindakan.id_transaksi is not None:
                 from app.services.komisi_service import KomisiService
                 KomisiService(self.db).catat_komisi_tindakan(

@@ -26,6 +26,7 @@ from app.core.security import verify_password
 from app.db.models import (
     StafRoleEnum,
     StatusAksiAuditEnum,
+    StatusTindakanEnum,
     StatusTransaksiEnum,
     TransaksiDetailProduk,
     MasterTreatment,
@@ -1943,6 +1944,12 @@ class KasirService:
         StafRoleEnum.OWNER: 7,
     }
 
+    # Bayar dulu T2-4: tindakan yang BELUM SELESAI dikerjakan dan belum dibatalkan. Void
+    # transaksi yang menagihnya (dibayar di muka) MELEPASnya ke "belum ditagih" — tindakannya
+    # tetap hidup, jadi kuota & series yang dipegangnya TIDAK dikembalikan/dibatalkan void.
+    # Tindakan SELESAI di lingkup void ditolak pagar `_pagari_void_tindakan_selesai`.
+    _TINDAKAN_HIDUP = (StatusTindakanEnum.PENDING, StatusTindakanEnum.PROSES)
+
     @staticmethod
     def _now_utc7():
         """Current datetime di UTC+7 (WIB)."""
@@ -2118,12 +2125,18 @@ class KasirService:
         # series yang lahir di sini dibayar olehnya"; sejak bayar dulu satu-satunya transaksi
         # bisa menagih konsul saja sementara sesi 1 masih PENDING — void-nya membatalkan
         # series yang harga paketnya baru akan ditagih bersama sesi 1 nanti.
+        # Bayar dulu T2-4: sesi 1 yang tindakannya MASIH HIDUP (PENDING/PROSES, dibayar di
+        # muka) TIDAK membatalkan seriesnya — void melepas tindakan itu kembali ke "belum
+        # ditagih" (`_lepas_tindakan_hidup`) dan harga paketnya akan ditagih lagi bersamanya.
+        # Membatalkan series di sini meninggalkan sesi 1 hidup tanpa seriesnya. Kalau pasien
+        # lalu menolak sesi 1, Batalkan tindakan yang membatalkan series (`_batal_tindakan`).
         from app.db.models import KunjunganTindakan as _KT
         from app.services._series import anggota as _anggota
         sesi1_list = self.db.execute(
             select(PasienRencanaTreatment)
             .join(_KT, _KT.id_rencana == PasienRencanaTreatment.id_rencana)
             .where(_KT.id_kunjungan_tindakan.in_(_lk["tindakan"] or {-1}))
+            .where(_KT.status_tindakan.notin_(self._TINDAKAN_HIDUP))
             .where(PasienRencanaTreatment.urutan_sesi == 1)
             .where(PasienRencanaTreatment.id_kunjungan_pembuat == id_kunjungan)
         ).scalars().all()
@@ -2603,8 +2616,17 @@ class KasirService:
 
         Graceful: kegagalan revert per tindakan TIDAK membatalkan void (best-effort).
         Return jumlah kuota yang berhasil di-revert.
+
+        Bayar dulu T2-4: tindakan yang MASIH HIDUP (PENDING/PROSES — dibayar di muka) TIDAK
+        dikembalikan kuotanya. Kuota dipakai saat tindakan DIBUAT (SOAP/upsell), bukan saat
+        dibayar; void hanya melepas tindakan itu kembali ke "belum ditagih", tindakannya
+        tetap ada dan tetap memegang slotnya. Kalau dikembalikan di sini, Batalkan tindakan
+        nanti mengembalikannya LAGI (`_batal_tindakan.kembalikan_kuota` hanya melewati yang
+        BATAL) → pasien mendapat slot gratis. BATAL juga dilewati: yang BATAL sudah
+        dikembalikan saat dibatalkan (aturan yang sama dengan `_batal_tindakan`).
         """
         from app.db.models import KunjunganTindakan
+        from app.db.models._enums import StatusTindakanEnum
         from sqlalchemy import select
 
         id_kunjungan = trx.id_kunjungan
@@ -2613,6 +2635,8 @@ class KasirService:
             KunjunganTindakan.id_kuota_member.isnot(None),
             # Audit T2-2: hanya tindakan yang ditagih transaksi INI
             KunjunganTindakan.id_kunjungan_tindakan.in_(self._lingkup_void(trx)["tindakan"]),
+            KunjunganTindakan.status_tindakan.notin_(
+                self._TINDAKAN_HIDUP + (StatusTindakanEnum.BATAL,)),
         )
         tindakan_list = list(self.db.execute(stmt).scalars().all())
         reverted = 0
@@ -2631,6 +2655,74 @@ class KasirService:
                 # Best-effort: void tetap lanjut meski 1 revert gagal.
                 pass
         return reverted
+
+    def _lepas_tindakan_hidup(self, trx, actor_id_staf, request) -> int:
+        """Bayar dulu T2-4: tindakan yang DITAGIH transaksi ini tapi BELUM dikerjakan
+        (PENDING/PROSES, dibayar di muka) → `id_transaksi = NULL`, kembali "belum ditagih".
+
+        Void = pasien batal membeli item transaksi INI; tindakannya sendiri belum batal.
+        Tanpa langkah ini `id_transaksi` tetap menempel ke transaksi VOID dan tindakannya
+        BUNTU: tak bisa ditagih lagi (`tindakan_bisa_ditagih` = tanpa id_transaksi), tak bisa
+        dibatalkan (`batalkan_tindakan` menolak yang ber-id_transaksi), dan menahan kunjungan
+        di ruang tindakan / tutup kasir. Sesudah dilepas: tagihan memuatnya lagi, dan bila
+        pasien menolaknya, Batalkan mengembalikan kuota/series TEPAT sekali (void tidak
+        mengembalikannya — `_revert_kuota_per_tindakan`, `_cancel_series_sesi_pending`).
+
+        Hanya baris yang penandanya = transaksi ini (Ruling 13). Baris lama yang hanya
+        tertaut lewat snapshot sudah ber-id_transaksi NULL. Kunci: dipanggil sesudah
+        `_kunci_untuk_void` (trx → kunjungan), lalu baris tindakan FOR UPDATE — urutan
+        Ruling P4; status dibaca TERBARU (perawat bisa baru saja menekan Mulai).
+        Return jumlah tindakan yang dilepas. FLUSH, pemanggil commit.
+        """
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan
+
+        ids = self._lingkup_void(trx)["tindakan"]
+        if not ids:
+            return 0
+        rows = self.db.execute(
+            select(KunjunganTindakan)
+            .where(KunjunganTindakan.id_kunjungan_tindakan.in_(ids))
+            .where(KunjunganTindakan.id_transaksi == trx.id_transaksi)
+            .where(KunjunganTindakan.status_tindakan.in_(self._TINDAKAN_HIDUP))
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalars().all()
+        for kt in rows:
+            kt.id_transaksi = None
+            self.audit.log(
+                aksi="VOID_TINDAKAN_DILEPAS",
+                id_staf=actor_id_staf,
+                tabel_target="kunjungan_tindakan",
+                id_target=kt.id_kunjungan_tindakan,
+                data_lama={"id_transaksi": trx.id_transaksi,
+                           "status_tindakan": getattr(kt.status_tindakan, "value",
+                                                      kt.status_tindakan)},
+                data_baru={"id_transaksi": None, "trigger": "void_transaksi",
+                           "kuota_dikembalikan": False},
+                request=request,
+            )
+        self.db.flush()
+        return len(rows)
+
+    def _cascade_void_bersama(self, trx, actor_id_staf, request) -> dict:
+        """SATU urutan cascade untuk KEDUA jalur void (`void_transaksi` &
+        `force_past_day_void`) — CLAUDE.md §4.1: jalur void ada dua, dan `force_past_day_void`
+        pernah kehilangan tiga langkah rollback karena salinan. Langkah baru masuk DI SINI.
+
+        Urutan: series & kuota (keduanya melewati tindakan hidup) → lepas tindakan hidup →
+        resep/racikan + status kunjungan. Status dihitung TERAKHIR supaya tindakan yang baru
+        dilepas terbaca "belum ditagih" oleh `hitung_ulang_status`.
+        """
+        if not trx.id_kunjungan:
+            return {"cancelled_series": 0, "kuota_reverted": 0, "tindakan_dilepas": 0,
+                    "cascade_info": {"cancelled_resep": 0, "kunjungan_advanced": False}}
+        # Audit T2-2: semua cascade PER TRANSAKSI (_lingkup_void), bukan per kunjungan.
+        cancelled_series = self._cancel_series_sesi_pending(trx, actor_id_staf, request)
+        kuota_reverted = self._revert_kuota_per_tindakan(trx, actor_id_staf, request)
+        tindakan_dilepas = self._lepas_tindakan_hidup(trx, actor_id_staf, request)
+        cascade_info = self._cascade_void_kunjungan(trx, actor_id_staf, request)
+        return {"cancelled_series": cancelled_series, "kuota_reverted": kuota_reverted,
+                "tindakan_dilepas": tindakan_dilepas, "cascade_info": cascade_info}
 
     def _catat_uang_keluar_void(self, trx, *, actor_id_staf, id_penyetuju, waktu, alasan) -> int:
         """Baris `transaksi_refund` berjenis VOID untuk void HARI LAMPAU — audit K4-1.
@@ -2992,14 +3084,11 @@ class KasirService:
             trx.late_void = False
 
             reversed_count = self._reverse_stok_per_item(trx, items_reverse_stok, actor_id_staf, request, lot_map=lot_map)
-            cancelled_series = 0
-            cascade_info = {"cancelled_resep": 0, "kunjungan_advanced": False}
-            kuota_reverted = 0
-            if trx.id_kunjungan:
-                # Audit T2-2: semua cascade PER TRANSAKSI (_lingkup_void), bukan per kunjungan.
-                cancelled_series = self._cancel_series_sesi_pending(trx, actor_id_staf, request)
-                cascade_info = self._cascade_void_kunjungan(trx, actor_id_staf, request)
-                kuota_reverted = self._revert_kuota_per_tindakan(trx, actor_id_staf, request)
+            # Bayar dulu T2-4: satu helper untuk KEDUA jalur void (series, kuota, lepas
+            # tindakan prabayar, resep/racikan, status kunjungan).
+            _cv = self._cascade_void_bersama(trx, actor_id_staf, request)
+            cancelled_series, kuota_reverted = _cv["cancelled_series"], _cv["kuota_reverted"]
+            tindakan_dilepas = _cv["tindakan_dilepas"]
 
             # #362E - Revert membership history kalau transaksi mengandung aktivasi.
             # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.
@@ -3029,6 +3118,7 @@ class KasirService:
                     "items_reverse_count": reversed_count,
                     "series_cancelled_count": cancelled_series,
                     "kuota_reverted_count": kuota_reverted,
+                    "tindakan_dilepas_count": tindakan_dilepas,
                     "late_void": False,
                 },
                 request=request,
@@ -3047,6 +3137,7 @@ class KasirService:
                 "items_reverse_stok_count": reversed_count,
                 "series_cancelled_count": cancelled_series,
                 "kuota_reverted_count": kuota_reverted,
+                "tindakan_dilepas_count": tindakan_dilepas,
                 "message": f"Transaksi #{id_transaksi} berhasil di-void.",
             }
         except HTTPException:
@@ -3153,14 +3244,10 @@ class KasirService:
                     waktu=now_naive, alasan=f"{reason_enum.value}: {reason_note.strip()}")
 
             reversed_count = self._reverse_stok_per_item(trx, items_reverse_stok, actor_id_staf, request)
-            cancelled_series = 0
-            cascade_info = {"cancelled_resep": 0, "kunjungan_advanced": False}
-            kuota_reverted = 0
-            if trx.id_kunjungan:
-                # Audit T2-2: semua cascade PER TRANSAKSI (_lingkup_void), bukan per kunjungan.
-                cancelled_series = self._cancel_series_sesi_pending(trx, actor_id_staf, request)
-                cascade_info = self._cascade_void_kunjungan(trx, actor_id_staf, request)
-                kuota_reverted = self._revert_kuota_per_tindakan(trx, actor_id_staf, request)
+            # Bayar dulu T2-4: helper yang SAMA dengan void_transaksi (CLAUDE.md §4.1).
+            _cv = self._cascade_void_bersama(trx, actor_id_staf, request)
+            cancelled_series, kuota_reverted = _cv["cancelled_series"], _cv["kuota_reverted"]
+            tindakan_dilepas = _cv["tindakan_dilepas"]
 
             # #362E - Revert membership history kalau transaksi mengandung aktivasi.
             # ACTIVE (flow lama) -> PENDING; PAID (M2, transaksi MEMBERSHIP) -> PENDING.
@@ -3201,6 +3288,7 @@ class KasirService:
                     "items_reverse_count": reversed_count,
                     "series_cancelled_count": cancelled_series,
                     "kuota_reverted_count": kuota_reverted,
+                    "tindakan_dilepas_count": tindakan_dilepas,
                     "late_void": trx.late_void,       # dulu selalu True, juga untuk hari 0
                     "days_past": days_past,
                     "id_penyetuju": id_penyetuju,
@@ -3238,6 +3326,7 @@ class KasirService:
                 "items_reverse_stok_count": reversed_count,
                 "series_cancelled_count": cancelled_series,
                 "kuota_reverted_count": kuota_reverted,
+                "tindakan_dilepas_count": tindakan_dilepas,
                 "message": f"Transaksi #{id_transaksi} force past-day void ({days_past}d).",
             }
         except HTTPException:

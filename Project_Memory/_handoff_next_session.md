@@ -1,4 +1,48 @@
 ═══════════════════════════════════════════════════════════
+HANDOFF TERBARU — 2026-10-25 (desktop)  ← BACA INI DULU
+(Bagian di bawah garis "HANDOFF LAMA" adalah arsip Juli 2026.)
+═══════════════════════════════════════════════════════════
+
+## Posisi kerja
+Branch `laptop/audit-alur-uang-putaran-21`. Plan: `Project_Memory/RENCANA_BAYAR_DULU_TAHAP2.md`
+(bayar dulu tahap 2 — tindakan prabayar, 6 task), dijalankan dgn superpowers:subagent-driven-development.
+Ledger SDD (git-ignored, ada di disk desktop): `.superpowers/sdd/RENCANA_BAYAR_DULU_TAHAP2/progress.md`
+— berisi Ruling P1–P4, minor tertunda, brief & report per task. **Percayai ledger + git log.**
+
+- T2-1, T2-2, T2-3: complete, review clean, sudah push ke branch + main.
+- **T2-4 (void transaksi prabayar): WIP — kode & 11 test DITULIS, BELUM PERNAH DIJALANKAN.**
+  Di-commit sebagai "WIP ... BELUM TERUJI" di branch saja (TIDAK ke main) atas permintaan
+  dr. Hansen 2026-10-25. Report implementer: `.superpowers/sdd/RENCANA_BAYAR_DULU_TAHAP2/task-4-report.md`.
+- T2-5 (nota "dibayar di muka"), T2-6 (dokumentasi & pemeriksa): belum mulai.
+- Tahap 2 TIDAK boleh deploy ke mini PC tanpa tahap 4.
+
+## PENGHALANG: lingkungan uji desktop rusak (diverifikasi 2026-10-25)
+1. WSL `Ubuntu-E` kini Ubuntu 26.04 / **Python 3.14**; `sehati_clinic/.venv` menunjuk
+   `/usr/bin/python3.12` yang sudah hilang → pytest "No module named pytest".
+2. MySQL dev: `klinik_dev` → `ERROR 1045 Access denied` (dari `~/.my.cnf` maupun `.env`).
+`lingkungan.md` di workspace SDD masih menulis cara lama (venv WSL) — sudah basi.
+
+Pilihan yang sudah diajukan ke dr. Hansen (BELUM diputuskan — tanyakan dulu, jangan pilih sendiri):
+- (a) **Docker seperti laptop** (saran): `docker compose -f docker-compose.yml -f deploy/compose.laptop.yml up -d --build`,
+  test lewat `docker compose exec sehati-app ...` (Python 3.11 = produksi). DB container, bukan db_sehati WSL — mungkin perlu migrasi+seed.
+- (b) Perbaiki WSL: dr. Hansen reset password `klinik_dev`, venv dibangun ulang (tapi 3.14, beda 3 versi dgn produksi).
+
+## Langkah berikut sesudah lingkungan jalan (urut)
+1. RED: kode sudah di-commit, jadi bukti GAGAL di kode lama diambil dari worktree terpisah:
+   `git worktree add <dir> b8de359`, salin test file baru ke sana, jalankan test T2-4.
+2. GREEN: test fokus `tests/integration/test_bayar_dulu_tahap2.py`, lalu suite penuh (baseline gagal: 3 test seed_budi).
+3. Perbaiki bila merah → commit lanjutan → review package dari BASE `b8de359` → task reviewer (SDD).
+4. Baru lanjut T2-5, T2-6, final review.
+
+## Concern implementer T2-4 yang harus dibawa ke review
+1. `end_tindakan` kini memanggil `mulai_baca_segar` (commit di awal) — belum diuji untuk pemanggil yang punya perubahan belum di-flush.
+2. Spec §3.8 dan brief berbeda soal kuota; implementer mengikuti brief (kuota TIDAK dikembalikan saat void untuk tindakan hidup). Perlu ruling controller.
+3. Revert kuota kini juga melewati tindakan BATAL (perubahan kecil di luar brief).
+4. Layar konfirmasi void tidak menampilkan tindakan prabayar yang akan dilepas.
+
+═════════════════ HANDOFF LAMA (arsip 2026-07-04) ═════════════════
+
+═══════════════════════════════════════════════════════════
 SESSION HANDOFF — Sehati Clinic eMR-POS WebApp
 Ditulis: 2026-07-04  →  Untuk: sesi berikutnya (fresh agent)
 ═══════════════════════════════════════════════════════════
