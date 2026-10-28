@@ -319,6 +319,48 @@ def perawat_batalkan_tindakan(
 
 
 # =============================================================================
+# POST /web/ruang-tindakan/tindakan/{id_kunjungan_tindakan}/simpan-hak
+# =============================================================================
+@router.post("/ruang-tindakan/tindakan/{id_kunjungan_tindakan}/simpan-hak")
+def perawat_simpan_hak_tindakan(
+    id_kunjungan_tindakan: int,
+    request: Request,
+    db: DbSession,
+    alasan: str = Form(default=""),
+):
+    """Bayar dulu T4-1: tindakan PENDING yang SUDAH dibayar ditolak pasien → hak.
+
+    Pasangan tombol Batalkan (yang hanya untuk tindakan belum dibayar): role, pola redirect,
+    dan larangan menulis sebelum service sama persis — lihat `perawat_batalkan_tindakan`.
+    """
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_perawat_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+
+    from app.web.routes.kasir import _q_err
+    id_kunjungan = None
+    try:
+        result = TreatmentService(db).simpan_sebagai_hak(
+            id_kunjungan_tindakan, alasan, user.id_staf, request=request)
+        id_kunjungan = result["data"]["id_kunjungan"]
+        q = f"ok={_q_err(result['message'] + ' Status kunjungan: ' + str(result['data']['status_kunjungan_baru']) + '.')}"
+    except HTTPException as e:
+        q = f"err={_q_err(e.detail)}"
+    except Exception as e:
+        q = f"err={_q_err(f'Gagal: {e!s}')}"
+    if id_kunjungan is None:
+        t = TreatmentRepository(db).get_tindakan_by_id(id_kunjungan_tindakan)
+        id_kunjungan = t.id_kunjungan if t is not None else None
+    if id_kunjungan:
+        return RedirectResponse(url=f"/web/ruang-tindakan/kunjungan/{id_kunjungan}?{q}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/web/ruang-tindakan/antrian?{q}",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+# =============================================================================
 # POST /web/ruang-tindakan/kunjungan/{id_kunjungan}/upsell
 # =============================================================================
 @router.post("/ruang-tindakan/kunjungan/{id_kunjungan}/upsell")

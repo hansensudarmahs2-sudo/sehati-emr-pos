@@ -4,8 +4,8 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". Menunggu: lampu hijau untuk mulai T4-1.
-Belum ada kode yang ditulis. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **T4-1 SELESAI 2026-10-28** (sesi cloud; lihat catatan
+di bawah judul T4-1). Berikutnya T4-2. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -89,6 +89,21 @@ Setiap tugas: test dulu (yang menutup cacat harus GAGAL di kode lama) → kode �
 Test baru di `tests/integration/test_bayar_dulu_tahap4.py`.
 
 ### T4-1 Simpan sebagai hak
+> **SELESAI 2026-10-28 (cloud).** `TreatmentService.simpan_sebagai_hak` + `tambah_bulan`, route
+> `POST /web/ruang-tindakan/tindakan/{id}/simpan-hak`, tombol "↪ Simpan sebagai hak" (hanya untuk
+> PENDING ber-`id_transaksi`; Batalkan tetap hanya untuk yang belum dibayar). 20 test baru di
+> `test_bayar_dulu_tahap4.py` — 20/20 GAGAL di kode lama, lulus di kode baru. Suite 484 lulus,
+> 17 dilewati, 0 gagal (MySQL 8 di Docker, login uji). Layar diperiksa lewat TestClient (bukan
+> uji layar dr. Hansen).
+> Penyimpangan kecil dari teks di bawah, disengaja: (1) sesi series TIDAK lewat
+> `bereskan_satu_tindakan` — di sana sesi 1 yang lahir di kunjungan ini membatalkan SELURUH
+> series (benar sebelum bayar, salah sesudahnya); dipakai `kembalikan_kuota`/`kembalikan_sesi`
+> langsung. (2) Sesi yang tidak `SCHEDULED` (data ganjil) → 409 sebelum menulis apa pun, bukan
+> BATAL yang menghapus hak tanpa pengganti. (3) `id_transaksi` tindakan TIDAK dikosongkan (jejak
+> pembayar; nilai hak dibaca dari snapshot).
+> ⚠ **Sampai T4-2 selesai, hak belum benar saat DIPAKAI:** sesi 1 paket yang kembali PENDING lalu
+> dipakai lewat "Pakai Sesi" masih ditagih harga paket lagi, dan hak PRABAYAR masih ditagih harga
+> treatment (`_compute_charge` belum kenal keduanya). Itu isi T4-2 — jangan deploy di antaranya.
 **Berkas:** `treatment_service.py` (`simpan_sebagai_hak`), `_batal_tindakan.py` (dipakai ulang),
 `web/routes/perawat.py` + `perawat_tindakan.html` (tombol untuk tindakan PENDING ber-`id_transaksi`;
 pesan `batalkan_tindakan` untuk yang sudah dibayar diganti menunjuk tombol ini).
@@ -96,7 +111,7 @@ pesan `batalkan_tindakan` untuk yang sudah dibayar diganti menunjuk tombol ini).
   `id_transaksi` terisi, transaksinya `BAYAR`, alasan wajib.
 - Tindakan berharga → `BATAL` + rencana PRABAYAR (`status=PENDING`, `urutan_sesi=1`,
   `id_referensi_sumber`, `tgl_target_akhir = tgl bayar + 6 bulan`, nama snapshot).
-- Kuota / sesi series → P1/P2 (menunggu jawaban). `hitung_ulang_status` + audit `TINDAKAN_JADI_HAK`.
+- Kuota / sesi series → P1/P2 (dijawab 2026-10-28: kuota/sesi dikembalikan). `hitung_ulang_status` + audit `TINDAKAN_JADI_HAK`.
 - Test: hak lahir dengan batas yang benar; kunjungan jadi COMPLETED (bila tak ada sisa lain);
   tutup kasir tidak lagi terhalang; kuota tidak dikembalikan dua kali (hak lalu Batal kunjungan);
   tindakan belum dibayar / PROSES / SELESAI ditolak.
@@ -104,6 +119,8 @@ pesan `batalkan_tindakan` untuk yang sudah dibayar diganti menunjuk tombol ini).
 ### T4-2 Memakai hak
 **Berkas:** `kasir_service.py` (`_compute_charge`), `series_service.py` (`list_active_for_pasien`,
 `use_session`), `pasien_detail.html`.
+- `_compute_charge` WAJIB juga mengenali **sesi 1 yang sudah pernah lunas** (tindakan BATAL lain
+  ber-`id_transaksi` BAYAR menunjuk rencana yang sama) → Rp 0 (P2; hasil T4-1).
 - Hak tampil per rencana (bukan digabung per treatment) dengan nilai & batas; kedaluwarsa
   disembunyikan; `use_session` menolak yang kedaluwarsa (kunci baris sudah ada, Temuan 19).
 - Test: dipakai → tagihan Rp 0, komisi tercatat saat dibayar Rp 0 & selesai; kedaluwarsa ditolak;
