@@ -807,3 +807,94 @@ def test_daftar_bisa_direfund_satu_definisi_dengan_refund(db):
     assert daftar[t.id_kunjungan_tindakan]["nilai"] > 0
     assert daftar[tk.id_kunjungan_tindakan]["bisa"] is False
     assert "Simpan sebagai hak" in daftar[tk.id_kunjungan_tindakan]["alasan_tidak"]
+
+
+# ---------------------------------------------------------------- T4-4 Pagar void
+# Tindakan yang sudah dijadikan hak (atau kuota/sesinya dikembalikan) sesudah dibayar: void
+# transaksinya mengeluarkan SELURUH uang dari omzet, sementara hak gratisnya tetap ada →
+# pasien mendapat tindakan gratis. Refund sudah tertutup `_pagari_void_sudah_refund`.
+def _void_jalur(db, trx, staf, jalur):
+    from tests.integration.test_bayar_dulu_tahap2 import _void_t24
+    return _void_t24(db, trx, staf, jalur)
+
+
+@pytest.mark.parametrize("jalur", ["void", "force", "lampau"])
+@pytest.mark.parametrize("bentuk", ["HAK", "KUOTA", "SESI"])
+def test_void_ditolak_bila_tindakan_sudah_jadi_hak(db, jalur, bentuk):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    if bentuk == "HAK":
+        t = _tindakan_baru(db, k, "PENDING")
+    elif bentuk == "KUOTA":
+        q, t = _kuota_pending(db, k)
+    else:
+        s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+        t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                              id_rencana=s1.id_rencana, status_tindakan="PENDING")
+        db.add(t); db.flush()
+    _resep(db, k, staf)                               # transaksi juga memuat obat
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    _hak(db, t, staf)
+    trx = _trx_terakhir(db, k)
+    with pytest.raises(HTTPException) as e:
+        _void_jalur(db, trx, staf, jalur)
+    assert e.value.status_code == 400 and "hak" in e.value.detail.lower()
+    db.refresh(trx); db.refresh(t)
+    assert V(trx.status_transaksi) == "BAYAR"
+    assert V(t.status_tindakan) == "BATAL" and t.id_transaksi == trx.id_transaksi
+
+
+@pytest.mark.parametrize("jalur", ["void", "force"])
+def test_void_tetap_boleh_bila_tindakan_batal_sebelum_dibayar(db, jalur):
+    """Pembanding: tindakan yang di-Batalkan SEBELUM bayar (BATAL tanpa transaksi) bukan
+    hak — void transaksi obatnya tetap boleh."""
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PENDING")
+    _batalkan(db, t, staf)
+    _resep(db, k, staf)
+    _bayar(db, k, staf)
+    trx = _trx_terakhir(db, k)
+    _void_jalur(db, trx, staf, jalur)
+    db.refresh(trx)
+    assert V(trx.status_transaksi) == "VOID"
+
+
+def test_void_transaksi_lain_di_kunjungan_sama_tidak_terhalang(db):
+    """Lingkup = transaksi yang MEMBAYAR tindakan itu. Hak dari transaksi T1 tidak
+    menghalangi void transaksi susulan T2 yang hanya berisi obat."""
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k, t = _dibayar_di_muka(db)
+    _hak(db, t, staf)
+    _resep(db, k, staf, detik=5)
+    k.status_antrian = "ANTRI_BAYAR"; db.flush()
+    _bayar(db, k, staf)
+    t2 = _trx_terakhir(db, k)
+    assert t2.id_transaksi != t.id_transaksi
+    _void(db, t2.id_transaksi, staf)
+    db.refresh(t2)
+    assert V(t2.status_transaksi) == "VOID"
+
+
+def test_peringatan_void_menyebut_tindakan_dilepas_dan_hak(db):
+    """P4: layar konfirmasi void memberi tahu kasir tindakan prabayar yang akan DILEPAS
+    (kembali belum ditagih) dan tindakan yang sudah jadi hak (void akan ditolak)."""
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t1 = _tindakan_baru(db, k, "PENDING")
+    t2 = _tindakan_baru(db, k, "PENDING")
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    trx = _trx_terakhir(db, k)
+    p = KasirService(db).peringatan_void(trx.id_transaksi)
+    assert sorted(x["id_kunjungan_tindakan"] for x in p["tindakan_dilepas"]) \
+        == sorted([t1.id_kunjungan_tindakan, t2.id_kunjungan_tindakan])
+    assert p["tindakan_jadi_hak"] == []
+    db.refresh(t1)
+    _hak(db, t1, staf)
+    p = KasirService(db).peringatan_void(trx.id_transaksi)
+    assert [x["id_kunjungan_tindakan"] for x in p["tindakan_dilepas"]] == [t2.id_kunjungan_tindakan]
+    assert [x["id_kunjungan_tindakan"] for x in p["tindakan_jadi_hak"]] == [t1.id_kunjungan_tindakan]
+    assert all(x["nama"] for x in p["tindakan_dilepas"] + p["tindakan_jadi_hak"])

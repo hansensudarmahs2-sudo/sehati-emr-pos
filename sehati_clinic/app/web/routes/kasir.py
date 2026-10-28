@@ -146,6 +146,11 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         # Bayar dulu T4-3: tindakan dibayar di muka yang belum dikerjakan — kotak "Kembalikan
         # uang". Dari server, apa pun mode halamannya (mode susulan tak memuat item lunas).
         refund_tindakan=_refund_tindakan,
+        # Bayar dulu T4-4 (P4): modal force-void memberi tahu tindakan yang akan dilepas /
+        # sudah jadi hak — sama dengan modal void di halaman sukses bayar.
+        peringatan_void=(KasirService(db).peringatan_void(tagihan_dict["id_transaksi_existing"])
+                         if tagihan_dict.get("can_force_void_past_day")
+                         and tagihan_dict.get("id_transaksi_existing") else None),
         penyetuju_refund=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
                           if any(r["hari_lampau"] for r in _refund_tindakan) else []),
         flash=request.query_params.get("ok"),

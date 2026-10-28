@@ -3279,6 +3279,43 @@ class KasirService:
             ),
         )
 
+    def _tindakan_jadi_hak(self, trx) -> list[dict]:
+        """Tindakan yang DIBAYAR transaksi ini lalu BATAL — disimpan sebagai hak (bayar dulu
+        T4-1: hak PRABAYAR, kuota kembali, atau sesi kembali) atau direfund (T4-3).
+
+        Hanya `id_transaksi == trx` + BATAL: `simpan_sebagai_hak` & `refund_tindakan` TIDAK
+        mengosongkan `id_transaksi`, sedangkan BATAL yang tak pernah dibayar (Batalkan, Batal
+        kunjungan) selalu NULL dan bayar menolak menautkan tindakan BATAL (409). Jadi pasangan
+        ini persis "dibatalkan SESUDAH dibayar" — tanpa menebak dari cadangan snapshot."""
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan
+        rows = self.db.execute(
+            select(KunjunganTindakan.id_kunjungan_tindakan, MasterTreatment.nama_treatment)
+            .join(MasterTreatment, MasterTreatment.id_treatment == KunjunganTindakan.id_treatment)
+            .where(KunjunganTindakan.id_transaksi == trx.id_transaksi)
+            .where(KunjunganTindakan.status_tindakan == "BATAL")
+            .order_by(KunjunganTindakan.id_kunjungan_tindakan)
+        ).all()
+        return [{"id_kunjungan_tindakan": i, "nama": n} for i, n in rows]
+
+    def _pagari_void_tindakan_jadi_hak(self, trx) -> None:
+        """Bayar dulu T4-4 (spek §3.8): tolak void bila ada tindakan transaksi ini yang sudah
+        dijadikan hak sesudah dibayar. Void mengeluarkan SELURUH uang transaksi dari omzet,
+        sementara haknya (rencana PRABAYAR / kuota / sesi yang dikembalikan) tetap ada →
+        pasien memperoleh tindakan gratis. Refund tertutup lebih dulu oleh
+        `_pagari_void_sudah_refund` (dipanggil sebelum ini). Dipanggil di KEDUA jalur void."""
+        hak = self._tindakan_jadi_hak(trx)
+        if not hak:
+            return
+        nama = ", ".join(h["nama"] for h in hak[:3]) + (f", +{len(hak) - 3} lainnya" if len(hak) > 3 else "")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Transaksi ini tidak bisa di-void: {len(hak)} tindakan yang dibayarnya sudah "
+                    f"disimpan sebagai hak pasien ({nama}). Void akan mengeluarkan uangnya dari "
+                    f"omzet sementara haknya tetap bisa dipakai. Kalau uangnya memang harus "
+                    f"kembali, kembalikan per tindakan/hak lewat kasir."),
+        )
+
     def _pagari_void_tindakan_selesai(self, trx, reason_enum) -> None:
         """Tolak void bila ada tindakan yang SUDAH SELESAI dikerjakan — APA PUN alasannya.
 
@@ -3322,13 +3359,41 @@ class KasirService:
         """
         trx = self.db.get(TransaksiKasir, id_transaksi)
         if trx is None:
-            return {"ada_tindakan_selesai": False, "tindakan": []}
+            return {"ada_tindakan_selesai": False, "tindakan": [],
+                    "tindakan_dilepas": [], "tindakan_jadi_hak": []}
         selesai = self._tindakan_selesai_di_transaksi(trx)
         return {
             "ada_tindakan_selesai": bool(selesai),
             "tindakan": selesai,
             "pakai_kuota": any(s["pakai_kuota"] for s in selesai),
+            # Bayar dulu T4-4 (P4, dr. Hansen 2026-10-28): void transaksi prabayar MELEPAS
+            # tindakan yang belum dikerjakan (kembali "belum ditagih", T2-4) — kasir perlu
+            # tahu sebelum menekan void. Dan tindakan yang sudah jadi hak → void ditolak.
+            "tindakan_dilepas": self._tindakan_akan_dilepas(trx),
+            "tindakan_jadi_hak": self._tindakan_jadi_hak(trx),
         }
+
+    def _tindakan_akan_dilepas(self, trx) -> list[dict]:
+        """Untuk LAYAR saja: tindakan PENDING/PROSES yang ditagih transaksi ini. Definisi yang
+        sama dengan `_tindakan_prabayar_hidup` (status, dalam `_lingkup_void`), tapi TANPA
+        kunci baris — halaman GET tidak boleh memegang kunci. Lingkup ambigu (409) → kosong:
+        void-nya sendiri akan ditolak dengan pesan lengkap."""
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan
+        try:
+            ids = self._lingkup_void(trx)["tindakan"]
+        except HTTPException:
+            return []
+        if not ids:
+            return []
+        rows = self.db.execute(
+            select(KunjunganTindakan.id_kunjungan_tindakan, MasterTreatment.nama_treatment)
+            .join(MasterTreatment, MasterTreatment.id_treatment == KunjunganTindakan.id_treatment)
+            .where(KunjunganTindakan.id_kunjungan_tindakan.in_(ids))
+            .where(KunjunganTindakan.status_tindakan.in_(("PENDING", "PROSES")))
+            .order_by(KunjunganTindakan.id_kunjungan_tindakan)
+        ).all()
+        return [{"id_kunjungan_tindakan": i, "nama": n} for i, n in rows]
 
     def void_transaksi(
         self,
@@ -3357,6 +3422,7 @@ class KasirService:
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
         self._pagari_void_sudah_refund(trx)
+        self._pagari_void_tindakan_jadi_hak(trx)   # bayar dulu T4-4
         self._pagari_void_membership_pengganti(trx)
 
         now = self._now_utc7()
@@ -3495,6 +3561,7 @@ class KasirService:
         self._pagari_void_tindakan_selesai(trx, reason_enum)
         self._pagari_void_item_diserahkan(trx)
         self._pagari_void_sudah_refund(trx)
+        self._pagari_void_tindakan_jadi_hak(trx)   # bayar dulu T4-4
         self._pagari_void_membership_pengganti(trx)
 
         now = self._now_utc7()

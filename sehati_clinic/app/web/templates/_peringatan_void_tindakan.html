@@ -1,0 +1,24 @@
+{# Bayar dulu T4-4 (P4, dr. Hansen 2026-10-28) — dipakai KEDUA modal void (kasir_bayar_sukses:
+   void hari ini; kasir_tagihan: void hari lampau). Isi dari `KasirService.peringatan_void`.
+   - tindakan_jadi_hak: sudah disimpan sebagai hak sesudah dibayar → server MENOLAK void
+     (`_pagari_void_tindakan_jadi_hak`); kotak ini hanya memberi tahu lebih dulu.
+   - tindakan_dilepas: belum dikerjakan → void MELEPASNYA (kembali "belum ditagih", T2-4);
+     kuota/series tetap dipegang tindakan itu. #}
+{% if pv and pv.tindakan_jadi_hak %}
+<div class="bg-red-50 border border-red-300 rounded-lg p-3 text-sm">
+    <div class="font-semibold text-red-800 mb-1">⛔ Tidak bisa di-void — {{ pv.tindakan_jadi_hak|length }} tindakan sudah disimpan sebagai hak pasien</div>
+    <ul class="text-xs text-red-800 space-y-0.5 mb-1">
+        {% for t in pv.tindakan_jadi_hak %}<li>• {{ t.nama }} <span class="font-mono">#{{ t.id_kunjungan_tindakan }}</span></li>{% endfor %}
+    </ul>
+    <div class="text-xs text-red-700">Kalau uangnya harus kembali, kembalikan per tindakan/hak lewat kasir.</div>
+</div>
+{% endif %}
+{% if pv and pv.tindakan_dilepas %}
+<div class="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm">
+    <div class="font-semibold text-amber-800 mb-1">ⓘ {{ pv.tindakan_dilepas|length }} tindakan prabayar akan dilepas</div>
+    <ul class="text-xs text-amber-800 space-y-0.5 mb-1">
+        {% for t in pv.tindakan_dilepas %}<li>• {{ t.nama }} <span class="font-mono">#{{ t.id_kunjungan_tindakan }}</span></li>{% endfor %}
+    </ul>
+    <div class="text-xs text-amber-800">Tindakan ini belum dikerjakan. Sesudah void ia kembali <b>belum ditagih</b> — muncul lagi di tagihan, atau dibatalkan di ruang tindakan bila pasien tidak jadi.</div>
+</div>
+{% endif %}

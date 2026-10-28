@@ -4,8 +4,8 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". **T4-1, T4-2, T4-3 SELESAI 2026-10-28** (sesi cloud; lihat
-catatan di bawah judul masing-masing). Berikutnya T4-4. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **T4-1 s/d T4-4 SELESAI 2026-10-28** (sesi cloud; lihat
+catatan di bawah judul masing-masing). Berikutnya T4-5. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -172,6 +172,16 @@ halaman tagihan untuk tindakan PENDING yang sudah dibayar).
   ditolak; hak yang sudah dipakai / kedaluwarsa ditolak; `jejak_uji_ui` invarian uang tetap hijau.
 
 ### T4-4 Pagar void
+> **SELESAI 2026-10-28 (cloud).** `_pagari_void_tindakan_jadi_hak` di KEDUA jalur void (sesudah
+> `_pagari_void_sudah_refund`): tindakan `id_transaksi == trx` + `BATAL` = "dibatalkan SESUDAH
+> dibayar" (T4-1/T4-3 tidak mengosongkan `id_transaksi`; BATAL yang tak pernah dibayar selalu
+> NULL). Lingkup per transaksi: hak dari T1 tidak menghalangi void susulan T2. P4:
+> `peringatan_void` kini memuat `tindakan_dilepas` (tanpa kunci baris — halaman GET) dan
+> `tindakan_jadi_hak`; potongan `_peringatan_void_tindakan.html` dipakai modal void hari ini
+> (sukses bayar) DAN modal force-void (halaman tagihan, yang dulu tak punya peringatan apa pun).
+> 13 test baru (10 gagal di kode lama: 3 bentuk × 3 jalur + peringatan; 3 pembanding lulus di
+> keduanya). Suite 528 lulus / 17 dilewati / 0 gagal; `cek_smoke_web` 669 halaman 0 bermasalah;
+> `cek_status_kunjungan` 0 selisih.
 **Berkas:** `kasir_service.py` (pagar baru di KEDUA jalur void + `peringatan_void` bila P4 disetujui).
 - Tolak void bila ada tindakan dalam lingkupnya yang `BATAL` sesudah dibayar (jadi hak, atau
   kuota/sesinya dikembalikan). Refund sudah tertutup `_pagari_void_sudah_refund`.
