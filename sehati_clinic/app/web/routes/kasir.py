@@ -612,6 +612,42 @@ async def kasir_tunda_item(id_kunjungan: int, request: Request, db: DbSession):
 
 
 # =============================================================================
+# GET /web/kasir/hak-tindakan - daftar hak tindakan belum dipakai (T4-5)
+# =============================================================================
+@router.get("/kasir/hak-tindakan", response_class=HTMLResponse)
+def kasir_hak_tindakan(request: Request, db: DbSession, hangus: int = 0):
+    """Bayar dulu T4-5 — "hak tindakan belum dipakai" untuk Finance (spek §3.7).
+
+    Peran = `require_kasir_role` (Kasir/Admin/Owner/Superadmin), SENGAJA bukan
+    `REPORTS_ROLES`: halaman ini memuat uang yang masih menjadi kewajiban klinik dan tombol
+    pengembalian uang — artinya sama dengan halaman kasir lain (CLAUDE.md §4.1)."""
+    from datetime import date as _date
+    from app.services._hak_prabayar import daftar_belum_dipakai
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    items = daftar_belum_dipakai(db, termasuk_hangus=bool(hangus))
+    today = _date.today()
+    for i in items:
+        # Penanda TAMPILAN untuk kolom PIN (pola halaman Obat Tertunda); server memutuskan.
+        i["hari_lampau"] = i["tgl_bayar"] is not None and i["tgl_bayar"] < today
+    berlaku = [i for i in items if i["berlaku"]]
+    ctx = build_shell_context(
+        user, db=db, current_path="/web/kasir/hak-tindakan",
+        page_subtitle="Hak Tindakan Belum Dipakai",
+        items=items, termasuk_hangus=bool(hangus),
+        jumlah_berlaku=len(berlaku),
+        total_berlaku=sum((i["nilai"] or 0) for i in berlaku),
+        penyetuju_refund=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
+                          if any(i["hari_lampau"] for i in berlaku) else []),
+        ok=request.query_params.get("ok"), err=request.query_params.get("err"),
+    )
+    return templates.TemplateResponse(request, "kasir_hak_tindakan.html", ctx)
+
+
+# =============================================================================
 # POST /web/kasir/refund-tindakan - kembalikan uang tindakan prabayar / hak (T4-3)
 # =============================================================================
 @router.post("/kasir/refund-tindakan", response_class=HTMLResponse)

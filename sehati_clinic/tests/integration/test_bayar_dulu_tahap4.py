@@ -898,3 +898,77 @@ def test_peringatan_void_menyebut_tindakan_dilepas_dan_hak(db):
     assert [x["id_kunjungan_tindakan"] for x in p["tindakan_dilepas"]] == [t2.id_kunjungan_tindakan]
     assert [x["id_kunjungan_tindakan"] for x in p["tindakan_jadi_hak"]] == [t1.id_kunjungan_tindakan]
     assert all(x["nama"] for x in p["tindakan_dilepas"] + p["tindakan_jadi_hak"])
+
+
+# ---------------------------------------------------------------- T4-5 Daftar hak + ekspor Finance
+def _baris_hak(db, **kw):
+    from app.services._hak_prabayar import daftar_belum_dipakai
+    return {r["id_rencana"]: r for r in daftar_belum_dipakai(db, **kw)}
+
+
+def test_daftar_hak_belum_dipakai(db):
+    """Hak PENDING tampil dengan pasien, tindakan, nilai, tgl bayar, batas, sisa hari; yang
+    sudah dipakai / direfund tidak; yang kedaluwarsa hanya bila diminta (hangus)."""
+    from datetime import timedelta
+    from decimal import Decimal
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    trx = _trx_terakhir(db, k)
+    r = _baris_hak(db)[h.id_rencana]
+    assert r["jenis"] == "HAK" and r["id_pasien"] == k.id_pasien and r["no_rm"] and r["nama_pasien"]
+    assert r["nama_tindakan"] == h.nama_tindakan
+    assert Decimal(str(r["nilai"])) == Decimal(str(_subtotal(db, t)))
+    assert r["tgl_bayar"] == trx.waktu_bayar.date() and r["id_transaksi"] == trx.id_transaksi
+    assert r["berlaku_sampai"] == h.tgl_target_akhir and r["sisa_hari"] > 0 and r["berlaku"] is True
+    assert r["id_kunjungan_tindakan_asal"] == t.id_kunjungan_tindakan
+    h.tgl_target_akhir = date.today() - timedelta(days=1); db.flush()
+    assert h.id_rencana not in _baris_hak(db)
+    hangus = _baris_hak(db, termasuk_hangus=True)[h.id_rencana]
+    assert hangus["berlaku"] is False and hangus["sisa_hari"] < 0
+
+
+def test_daftar_hak_tanpa_yang_dipakai_atau_direfund(db):
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    staf2, k2, t2, h2 = _hak_dari_tindakan_baru(db)
+    _pakai(db, h, _kunjungan_lain(db, k, staf), staf)
+    _refund(db, staf2, rencana=h2)
+    ids = _baris_hak(db, termasuk_hangus=True)
+    assert h.id_rencana not in ids and h2.id_rencana not in ids
+
+
+def test_daftar_hak_memuat_sesi_1_paket_yang_jadi_hak(db):
+    """Asal C: sesi 1 paket lunas lalu disimpan sebagai hak — kewajiban klinik juga.
+    Batas tidak ada (series dokter tidak ditegakkan, `_hak_prabayar`)."""
+    from decimal import Decimal
+    staf, k, t, sesi = _series_lunas(db)
+    _hak(db, t, staf)
+    r = _baris_hak(db)[sesi[0].id_rencana]
+    assert r["jenis"] == "SESI_1_PAKET" and r["berlaku_sampai"] is None and r["berlaku"] is True
+    assert Decimal(str(r["nilai"])) == Decimal(str(_subtotal(db, t)))
+    assert r["id_kunjungan_tindakan_asal"] == t.id_kunjungan_tindakan
+    assert sesi[1].id_rencana not in _baris_hak(db)   # sesi 2..N bukan uang
+
+
+def test_ekspor_refunds_raw_memuat_tindakan_refund(db):
+    """Refund TINDAKAN di ekspor Finance ditambatkan ke tindakannya — tanpa itu ia tampak
+    seperti refund transaksi utuh (pola kolom jembatan, Temuan 13/33)."""
+    from app.services.export_service import ExportService
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    rows = [r for r in ExportService(db).export_refunds_raw(date.today(), date.today())
+            if r["id_kunjungan_tindakan"] == t.id_kunjungan_tindakan]
+    assert len(rows) == 1
+    assert rows[0]["jenis_refund"] == "TINDAKAN" and rows[0]["id_resep"] is None
+
+
+def test_ekspor_refunds_raw_kolom_sama_dengan_kamus(db):
+    """Kolom yang DIEKSPOR = kolom di kamus data (`_export_columns`), dua arah. Pemeriksa yang
+    hilang di Temuan 33: kolom bisa ada di kamus tapi tak pernah dikirim, atau sebaliknya."""
+    from app.services._export_columns import COLUMNS_METADATA
+    from app.services.export_service import ExportService
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    rows = ExportService(db).export_refunds_raw(date.today(), date.today())
+    kamus = [c["name"] for c in COLUMNS_METADATA["refunds_raw"]["columns"]]
+    assert rows and all(list(r.keys()) == kamus for r in rows)
+    jenis = next(c for c in COLUMNS_METADATA["refunds_raw"]["columns"] if c["name"] == "jenis_refund")
+    assert "TINDAKAN" in jenis["description"]

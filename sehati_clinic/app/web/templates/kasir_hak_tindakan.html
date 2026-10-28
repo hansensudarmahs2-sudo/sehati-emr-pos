@@ -1,0 +1,103 @@
+{% extends "_app.html" %}
+{% block title %}Hak Tindakan{% endblock %}
+{% block page_title %}↪ Hak Tindakan Belum Dipakai{% endblock %}
+
+{% block page_content %}
+{# Bayar dulu T4-5 (spek DESAIN_BAYAR_DULU_BERCABANG.md §3.7). Daftar dari
+   `_hak_prabayar.daftar_belum_dipakai` — SATU definisi dengan Pakai Sesi & refund.
+   Tombol per baris memanggil route refund yang sama dengan halaman tagihan (T4-3);
+   kolom PIN hanya penanda tampilan, server (`_otorisasi_refund_lampau`) yang memutuskan. #}
+<div class="max-w-6xl">
+
+  {% if ok %}<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg mb-3 text-sm">✓ {{ ok }}</div>{% endif %}
+  {% if err %}<div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm">⚠ {{ err }}</div>{% endif %}
+
+  <p class="text-sm text-slate-500 mb-3">
+    Tindakan yang <b>sudah dibayar</b> tapi tidak dikerjakan dan disimpan sebagai hak pasien.
+    Uangnya sudah masuk omzet di tanggal bayar; selama belum dipakai ini <b>kewajiban klinik</b>.
+    Hak prabayar berlaku 6 bulan dari tanggal bayar — lewat itu hangus (tidak bisa dipakai / direfund).
+  </p>
+
+  <div class="flex items-center justify-between mb-3 text-sm">
+    <div class="text-slate-700">
+      {{ jumlah_berlaku }} hak berlaku · total nilai
+      <b>Rp {{ "{:,.0f}".format(total_berlaku|float).replace(",", ".") }}</b>
+    </div>
+    {% if termasuk_hangus %}
+    <a href="/web/kasir/hak-tindakan" class="text-xs text-blue-600 hover:underline">Sembunyikan yang hangus</a>
+    {% else %}
+    <a href="/web/kasir/hak-tindakan?hangus=1" class="text-xs text-blue-600 hover:underline">Tampilkan juga yang hangus</a>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    {% if items %}
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+        <tr>
+          <th class="text-left px-4 py-2 font-medium">Pasien</th>
+          <th class="text-left px-4 py-2 font-medium">Tindakan</th>
+          <th class="text-right px-4 py-2 font-medium">Nilai</th>
+          <th class="text-left px-4 py-2 font-medium">Dibayar</th>
+          <th class="text-left px-4 py-2 font-medium">Berlaku s/d</th>
+          <th class="text-right px-4 py-2 font-medium">Aksi</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for i in items %}
+        <tr class="{% if not i.berlaku %}bg-slate-50 text-slate-400{% elif i.sisa_hari is not none and i.sisa_hari <= 30 %}bg-red-50{% else %}hover:bg-blue-50/30{% endif %} align-top">
+          <td class="px-4 py-3">
+            <a href="/web/pasien/{{ i.id_pasien }}" class="font-medium text-slate-800 hover:underline">{{ i.nama_pasien }}</a>
+            <div class="font-mono text-xs text-slate-500">{{ i.no_rm }}</div>
+          </td>
+          <td class="px-4 py-3">
+            <div class="text-slate-700">{{ i.nama_tindakan }}</div>
+            <div class="text-xs text-slate-500">{% if i.jenis == "SESI_1_PAKET" %}Sesi 1 paket series (lunas){% else %}Hak prabayar{% endif %} · tindakan #{{ i.id_kunjungan_tindakan_asal }}</div>
+          </td>
+          <td class="px-4 py-3 text-right font-mono whitespace-nowrap">{% if i.nilai is not none %}Rp {{ "{:,.0f}".format(i.nilai|float).replace(",", ".") }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div>{{ i.tgl_bayar.strftime('%d-%m-%Y') if i.tgl_bayar else '—' }}</div>
+            <div class="font-mono text-xs text-slate-500">trx #{{ i.id_transaksi }}</div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            {% if i.berlaku_sampai %}
+            <div class="{% if i.berlaku and i.sisa_hari <= 30 %}text-red-700 font-semibold{% endif %}">{{ i.berlaku_sampai.strftime('%d-%m-%Y') }}</div>
+            <div class="text-xs">{% if i.berlaku %}{{ i.sisa_hari }} hari lagi{% else %}HANGUS{% endif %}</div>
+            {% else %}<span class="text-xs text-slate-500">tanpa batas</span>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            {% if i.berlaku and i.nilai %}
+            <form method="POST" action="/web/kasir/refund-tindakan" class="inline-flex flex-wrap items-center justify-end gap-1"
+                  data-confirm="Kembalikan Rp {{ '{:,.0f}'.format(i.nilai|float).replace(',', '.') }} ke {{ i.nama_pasien }} untuk {{ i.nama_tindakan }}? Hak dibatalkan dan uang keluar dari laci hari ini.">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="id_rencana" value="{{ i.id_rencana }}">
+              <input type="hidden" name="kembali" value="/web/kasir/hak-tindakan">
+              <input type="text" name="alasan" required minlength="5" maxlength="255" placeholder="Alasan"
+                     class="border border-slate-300 rounded px-1 py-0.5 text-xs" style="width:110px">
+              <select name="metode_refund" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                <option value="TUNAI">Tunai</option>
+                <option value="TRANSFER">Transfer</option>
+              </select>
+              {% if i.hari_lampau %}
+              <select name="id_staf_otorisasi" required title="Penyetuju refund hari lampau"
+                      class="border border-amber-400 bg-amber-50 rounded px-1 py-0.5 text-xs">
+                <option value="">— penyetuju —</option>
+                {% for s in penyetuju_refund %}<option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>{% endfor %}
+              </select>
+              <input type="password" name="pin_otorisasi" required inputmode="numeric" autocomplete="off"
+                     placeholder="PIN" class="border border-amber-400 bg-amber-50 rounded px-1 py-0.5 text-xs" style="width:56px">
+              {% endif %}
+              <button type="submit" class="px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">↩ Kembalikan uang</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-sm text-slate-400 text-center py-8">Tidak ada hak tindakan yang belum dipakai.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

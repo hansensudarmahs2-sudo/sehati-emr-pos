@@ -4,8 +4,8 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". **T4-1 s/d T4-4 SELESAI 2026-10-28** (sesi cloud; lihat
-catatan di bawah judul masing-masing). Berikutnya T4-5. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **T4-1 s/d T4-5 SELESAI 2026-10-28** (sesi cloud; lihat
+catatan di bawah judul masing-masing). Berikutnya T4-6 (pemeriksa + dokumentasi). Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -189,6 +189,18 @@ halaman tagihan untuk tindakan PENDING yang sudah dibayar).
 - Test di kedua jalur (`void_transaksi`, `force_past_day_void` + PIN).
 
 ### T4-5 Daftar hak untuk Finance + ekspor
+> **SELESAI 2026-10-28 (cloud).** `_hak_prabayar.daftar_belum_dipakai` (jenis `HAK` dan
+> `SESI_1_PAKET` — asal C; hangus hanya bila diminta) → halaman `GET /web/kasir/hak-tindakan`
+> (menu "↪ Hak Tindakan" untuk Owner/Superadmin/Admin/Kasir; peran `require_kasir_role`, bukan
+> `REPORTS_ROLES`): total nilai yang berlaku, baris merah ≤ 30 hari, tombol "↩ Kembalikan uang"
+> per baris → route refund T4-3 (kolom PIN bila tanggal bayar lampau). Ekspor: `refunds_raw`
+> + kolom `id_kunjungan_tindakan`, deskripsi `jenis_refund` memuat TINDAKAN. Test baru menjaga
+> kolom ekspor `refunds_raw` == kamus data (urutan & nama) — pemeriksa yang tak ada saat
+> Temuan 33. 5 test baru, 5/5 gagal di kode lama. Suite 533 lulus / 17 dilewati / 0 gagal;
+> `cek_finance_pack` 5/5; `cek_smoke_web` 696 halaman 0 bermasalah.
+> ⚠ `Project_Memory/RawDataExport/01_DATA_DICTIONARY.md` SUDAH BASI sebelum ini (tak memuat
+> `jenis_refund` sejak #54-F) dan skrip regenerasinya tidak ada di repo — tidak disentuh.
+> Kamus yang berlaku = `_export_columns.py` (ikut ZIP & `/web/export/dictionary.*`).
 **Berkas:** layar laporan sederhana "Hak tindakan belum dipakai" (pasien, tindakan, nilai, tgl
 bayar, batas, sisa hari) dengan tombol Kembalikan uang per baris (memanggil T4-3);
 `export_service.py` + `_export_columns.py` (`id_kunjungan_tindakan`, deskripsi jenis TINDAKAN).

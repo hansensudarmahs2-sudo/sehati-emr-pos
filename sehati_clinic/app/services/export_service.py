@@ -671,6 +671,9 @@ class ExportService:
                 TransaksiRefund.jenis_refund,
                 TransaksiRefund.id_resep,
                 TransaksiRefund.id_kunjungan_racikan,
+                # Bayar dulu T4-5: refund per TINDAKAN (jenis TINDAKAN, T4-3) ditambatkan ke
+                # tindakan pembayarnya — sejajar id_resep/id_kunjungan_racikan.
+                TransaksiRefund.id_kunjungan_tindakan,
                 # T32: penyetuju PIN untuk refund atas transaksi hari lampau.
                 TransaksiRefund.id_staf_otorisasi,
                 # Retur dari pasien (2026-10-05): satu retur = satu baris refund.
@@ -699,12 +702,13 @@ class ExportService:
                 "jenis_refund": r[10],
                 "id_resep": int(r[11]) if r[11] else None,
                 "id_kunjungan_racikan": int(r[12]) if r[12] else None,
-                "id_staf_otorisasi": int(r[13]) if r[13] else None,
-                "nomor_retur": r[14],
-                "jenis_retur": (r[15].value if hasattr(r[15], "value") else r[15]) if r[15] else None,
-                "nilai_retur": float(r[16]) if r[16] is not None else None,
-                "selisih_dibayar": float(r[17]) if r[17] is not None else None,
-                "nilai_hangus": float(r[18]) if r[18] is not None else None,
+                "id_kunjungan_tindakan": int(r[13]) if r[13] else None,
+                "id_staf_otorisasi": int(r[14]) if r[14] else None,
+                "nomor_retur": r[15],
+                "jenis_retur": (r[16].value if hasattr(r[16], "value") else r[16]) if r[16] else None,
+                "nilai_retur": float(r[17]) if r[17] is not None else None,
+                "selisih_dibayar": float(r[18]) if r[18] is not None else None,
+                "nilai_hangus": float(r[19]) if r[19] is not None else None,
                 "kode_entitas": "KLN",
             }
             for r in self.db.execute(stmt).all()
