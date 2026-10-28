@@ -118,6 +118,7 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         return HTMLResponse(f"<div style='padding:2rem'>Error: {e!s}</div>", status_code=500)
 
     tagihan_dict = tagihan_resp.model_dump()
+    _refund_tindakan = KasirService(db).tindakan_bisa_direfund(id_kunjungan)
 
     # P0-2: token idempotency per-render form Bayar. Double-click/retry kirim token
     # sama → ditolak backstop UNIQUE di proses_bayar. Split billing = render baru = token baru.
@@ -142,6 +143,11 @@ def kasir_tagihan_page(id_kunjungan: int, request: Request, db: DbSession):
         # K4-1: void HARI LAMPAU = uang keluar → PIN penyetuju ≠ pemroses (pagar T32).
         penyetuju_void=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
                         if (tagihan_dict.get("days_past") or 0) > 0 else []),
+        # Bayar dulu T4-3: tindakan dibayar di muka yang belum dikerjakan — kotak "Kembalikan
+        # uang". Dari server, apa pun mode halamannya (mode susulan tak memuat item lunas).
+        refund_tindakan=_refund_tindakan,
+        penyetuju_refund=(daftar_penyetuju_refund(db, kecuali_id_staf=user.id_staf)
+                          if any(r["hari_lampau"] for r in _refund_tindakan) else []),
         flash=request.query_params.get("ok"),
         error=request.query_params.get("err"),
     )
@@ -597,6 +603,52 @@ async def kasir_tunda_item(id_kunjungan: int, request: Request, db: DbSession):
                                 status_code=status.HTTP_303_SEE_OTHER)
 
     return RedirectResponse(url=f"{_kembali}?ok={quote(_pesan)}",
+                            status_code=status.HTTP_303_SEE_OTHER)
+
+
+# =============================================================================
+# POST /web/kasir/refund-tindakan - kembalikan uang tindakan prabayar / hak (T4-3)
+# =============================================================================
+@router.post("/kasir/refund-tindakan", response_class=HTMLResponse)
+async def kasir_refund_tindakan(request: Request, db: DbSession):
+    """Bayar dulu T4-3. Peran = kasir (Kasir/Admin/Owner/Superadmin), sama dengan refund obat
+    tertunda: yang mengeluarkan uang dari laci yang menanggung angkanya saat tutup kasir.
+    Satu route untuk tiga asal (`KasirService.refund_tindakan`): `id_kunjungan_tindakan`
+    (halaman tagihan) atau `id_rencana` (hak — daftar hak T4-5).
+    PIN TIDAK PERNAH dimasukkan ke URL/pesan — hanya diteruskan ke service."""
+    user = get_user_from_cookie(request, db)
+    if user is None:
+        return RedirectResponse(url="/web/login", status_code=status.HTTP_303_SEE_OTHER)
+    if not require_kasir_role(user):
+        return HTMLResponse("<div style='padding:2rem'>403</div>", status_code=403)
+    f = await request.form()
+
+    def _int(nama):
+        try:
+            return int(f.get(nama) or 0) or None
+        except (TypeError, ValueError):
+            return None
+    # Hanya path internal (anti open-redirect): "/web/..." tanpa "//".
+    kembali = (f.get("kembali") or "").strip()
+    if not kembali.startswith("/web/") or "//" in kembali or "?" in kembali:
+        kembali = "/web/kasir"
+    try:
+        hasil = KasirService(db).refund_tindakan(
+            id_kunjungan_tindakan=_int("id_kunjungan_tindakan"), id_rencana=_int("id_rencana"),
+            alasan=(f.get("alasan") or "").strip(),
+            metode_refund=(f.get("metode_refund") or "TUNAI").strip().upper(),
+            actor_id_staf=user.id_staf,
+            id_staf_otorisasi=_int("id_staf_otorisasi"),
+            pin_otorisasi=(f.get("pin_otorisasi") or "").strip() or None,
+            request=request,
+        )
+    except HTTPException as e:
+        return RedirectResponse(url=f"{kembali}?err={_q_err(e.detail)}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(url=f"{kembali}?err={_q_err(f'Gagal: {e!s}')}",
+                                status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"{kembali}?ok={_q_err(hasil['message'])}",
                             status_code=status.HTTP_303_SEE_OTHER)
 
 

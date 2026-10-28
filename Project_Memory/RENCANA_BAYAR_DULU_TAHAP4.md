@@ -4,8 +4,8 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". **T4-1 dan T4-2 SELESAI 2026-10-28** (sesi cloud; lihat
-catatan di bawah judul masing-masing). Berikutnya T4-3. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **T4-1, T4-2, T4-3 SELESAI 2026-10-28** (sesi cloud; lihat
+catatan di bawah judul masing-masing). Berikutnya T4-4. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -142,6 +142,23 @@ pesan `batalkan_tindakan` untuk yang sudah dibayar diganti menunjuk tombol ini).
   (test penutup cacat untuk keputusan `id_kunjungan_pembuat = NULL`).
 
 ### T4-3 Kembalikan uang per tindakan
+> **SELESAI 2026-10-28 (cloud).** `KasirService.refund_tindakan` (tiga asal: A tindakan PENDING
+> lunas · B hak PRABAYAR · **C sesi 1 paket yang sudah jadi hak** — C tidak tertulis di bawah tapi
+> tanpa itu hak sesi 1 dari T4-1 tak punya jalan uang kembali), `_syarat_refund_tindakan` (SATU
+> pemeriksaan, dipakai juga `tindakan_bisa_direfund` untuk layar), route
+> `POST /web/kasir/refund-tindakan` (peran kasir; `kembali` hanya path `/web/…`), kotak
+> "↩ Tindakan dibayar, belum dikerjakan" di halaman tagihan (dari server, tampil di mode apa pun —
+> mode susulan tidak memuat item lunas), label "refund tindakan" di kotak Pengembalian.
+> Refund SELALU ditambatkan ke tindakan PEMBAYAR (`id_kunjungan_tindakan`) — anti-dobel satu
+> jangkar untuk A/B/C. Rp 0 (kuota, sesi 2..N, tindakan yang memakai hak) ditolak dengan petunjuk
+> "Simpan sebagai hak". Sesi 1 paket: hanya bila tak ada sesi lain SCHEDULED/DONE.
+> 20 test baru, 20/20 gagal di kode lama. Suite 515 lulus / 17 dilewati / 0 gagal;
+> `jejak_uji_ui` 18 lulus 0 gagal (skenario refund hari ini + hak hari lampau ber-PIN);
+> `cek_smoke_web` 647 halaman 0 bermasalah; `cek_finance_pack` 5/5; `cek_status_kunjungan` 0.
+> Belum: ekspor `refunds_raw.id_kunjungan_tindakan` + deskripsi jenis TINDAKAN (T4-5, sesuai
+> rencana) — sampai itu, Finance melihat refund TINDAKAN tanpa jangkar tindakannya.
+> Catatan terbuka (tidak diubah): pesan sukses `refund_item_tertunda` punya cacat format yang
+> sama ("(TUNAI). dibukukan") — kosmetik, dibiarkan.
 **Berkas:** `kasir_service.py` (`refund_tindakan`), route kasir, `kasir_tagihan.html` (kotak di
 halaman tagihan untuk tindakan PENDING yang sudah dibayar).
 - Satu fungsi untuk dua asal: tindakan PENDING ber-`id_transaksi`, ATAU hak PRABAYAR `PENDING`

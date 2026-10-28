@@ -116,6 +116,7 @@ def daftar_pengembalian(db: Session, id_transaksi_list) -> dict:
             "id_retur": id_retur, "nomor_retur": nomor,
             "jenis": (jenis.value if hasattr(jenis, "value") else jenis) if jenis else None,
             "pemroses": nama_p or "-", "penyetuju": nama_s, "alasan": ref.alasan or "",
+            "jenis_refund": ref.jenis_refund,   # T4-3: label "refund tindakan" di layar
         })
     return out
 
@@ -1700,6 +1701,309 @@ class KasirService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Gagal refund item: {e!s}",
             )
+
+    # =========================================================================
+    # REFUND PER TINDAKAN — bayar dulu tahap 4, T4-3
+    # =========================================================================
+    _PETUNJUK_HAK = ("Pakai 'Simpan sebagai hak' di ruang tindakan (kuota/sesi dikembalikan, "
+                     "hak bisa dipakai di kunjungan lain).")
+
+    def _syarat_refund_tindakan(self, kt, rencana=None) -> dict:
+        """SATU pemeriksaan untuk `refund_tindakan` DAN kotak di halaman tagihan
+        (`tindakan_bisa_direfund`) — yang ditawarkan layar pasti diterima server.
+
+        `kt` = tindakan yang MEMBAYAR (bukan tindakan yang memakai hak). `rencana` = hak
+        PRABAYAR / sesi 1 yang sudah jadi hak (asal B/C), None untuk asal A.
+        Return {trx, nilai, series}; raise HTTPException(400) dengan alasan bila tidak bisa.
+
+        - Nilai = snapshot `transaksi_detail_tindakan.subtotal` transaksi pembayarnya —
+          sudah BERSIH (harga − porsi diskon), rumus yang sama dengan nilai hak
+          (`_hak_prabayar.nilai`). Tidak ada rumus uang baru (spek §3.8).
+        - Rp 0 (kuota member, sesi 2..N, tindakan yang memakai hak) → tidak ada uang di
+          tindakan itu; haknya dikembalikan lewat "Simpan sebagai hak" (P1).
+        - Sesi 1 series (harga PAKET): hanya bila belum ada sesi lain dari series itu yang
+          terpakai; refund = seluruh paket dan series dibatalkan (P2). Refund sebagian paket
+          = rumus baru, di luar spek → ditolak dengan petunjuk simpan sebagai hak.
+        """
+        from sqlalchemy import select
+        from app.db.models import PasienRencanaTreatment, StatusRencanaTreatmentEnum
+        from app.services import _hak_prabayar
+        from app.services._series import anggota, sesi1_dari
+
+        if kt.id_transaksi is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Tindakan ini belum dibayar — tidak ada uang yang dikembalikan.")
+        trx = self.db.get(TransaksiKasir, kt.id_transaksi)
+        if trx is None or trx.status_transaksi != "BAYAR":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"Transaksi #{kt.id_transaksi} tidak berstatus BAYAR — tidak bisa direfund.")
+        if kt.id_kuota_member is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Tindakan ini dibayar dengan kuota membership (Rp 0). " + self._PETUNJUK_HAK)
+        nilai = self.db.execute(
+            select(TransaksiDetailTindakan.subtotal)
+            .where(TransaksiDetailTindakan.id_transaksi == trx.id_transaksi)
+            .where(TransaksiDetailTindakan.id_kunjungan_tindakan == kt.id_kunjungan_tindakan)
+        ).scalars().first()
+        nilai = Decimal(str(nilai or 0)).quantize(Decimal("0.01"))
+        if nilai <= 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Nilai yang dibayar untuk tindakan ini Rp 0 (sesi series / hak "
+                                "yang sudah lunas sebelumnya). " + self._PETUNJUK_HAK)
+        series: list = []
+        r = rencana if rencana is not None else (
+            self.db.get(PasienRencanaTreatment, kt.id_rencana) if kt.id_rencana else None)
+        if r is not None and not _hak_prabayar.adalah_hak(r) and (r.urutan_sesi or 1) == 1:
+            s1 = sesi1_dari(self.db, r) or r
+            series = anggota(self.db, s1)
+            terpakai = [x for x in series if x.id_rencana != s1.id_rencana and x.status in (
+                StatusRencanaTreatmentEnum.SCHEDULED, StatusRencanaTreatmentEnum.DONE)]
+            if terpakai:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Series '{r.nama_tindakan}' sudah dipakai {len(terpakai)} sesi lain — uang "
+                    f"paket tidak bisa dikembalikan sebagian. " + self._PETUNJUK_HAK)
+        return {"trx": trx, "nilai": nilai, "series": series}
+
+    def tindakan_bisa_direfund(self, id_kunjungan: int) -> list[dict]:
+        """Tindakan PENDING ber-`id_transaksi` di kunjungan ini, untuk kotak "Kembalikan uang"
+        di halaman tagihan. Dibangun di SERVER dan tampil apa pun mode halamannya: dalam mode
+        tagihan susulan, tabel tindakan hanya memuat item yang BELUM dibayar."""
+        from sqlalchemy import select
+        from app.db.models import KunjunganTindakan, MasterTreatment
+        rows = self.db.execute(
+            select(KunjunganTindakan, MasterTreatment.nama_treatment)
+            .join(MasterTreatment, MasterTreatment.id_treatment == KunjunganTindakan.id_treatment)
+            .where(KunjunganTindakan.id_kunjungan == id_kunjungan)
+            .where(KunjunganTindakan.status_tindakan == "PENDING")
+            .where(KunjunganTindakan.id_transaksi.is_not(None))
+            .order_by(KunjunganTindakan.id_kunjungan_tindakan)
+        ).all()
+        hasil = []
+        for kt, nama in rows:
+            d = {"id_kunjungan_tindakan": kt.id_kunjungan_tindakan, "nama": nama,
+                 "id_transaksi": kt.id_transaksi, "bisa": False, "nilai": None,
+                 "hari_lampau": False, "alasan_tidak": None}
+            try:
+                s = self._syarat_refund_tindakan(kt)
+                d.update(bisa=True, nilai=s["nilai"], hari_lampau=self._hari_lampau(s["trx"]))
+            except HTTPException as e:
+                d["alasan_tidak"] = e.detail
+            hasil.append(d)
+        return hasil
+
+    def _hari_lampau(self, trx) -> bool:
+        """Definisi "hari lampau" yang SAMA dengan refund obat (T32) dan void."""
+        return (trx.waktu_bayar is not None
+                and not self._is_same_calendar_day_utc7(trx.waktu_bayar, self._now_utc7()))
+
+    def refund_tindakan(
+        self,
+        *,
+        id_kunjungan_tindakan: Optional[int] = None,
+        id_rencana: Optional[int] = None,
+        alasan: str,
+        metode_refund: str = "TUNAI",
+        actor_id_staf: int,
+        id_staf_otorisasi: Optional[int] = None,
+        pin_otorisasi: Optional[str] = None,
+        request: Optional[Request] = None,
+    ) -> dict:
+        """Kembalikan uang tindakan yang sudah dibayar tapi tidak dikerjakan (spek §3.6/§3.7,
+        rencana T4-3). Tiga asal, satu jalan:
+
+        A. `id_kunjungan_tindakan` — tindakan PENDING ber-`id_transaksi`. Tindakan → BATAL;
+           sesi 1 paket → seluruh series CANCELLED.
+        B. `id_rencana` hak PRABAYAR PENDING yang belum kedaluwarsa → rencana CANCELLED.
+        C. `id_rencana` sesi 1 series yang lunas lalu disimpan sebagai hak (T4-1, P2) →
+           seluruh series CANCELLED.
+
+        Refund SELALU ditambatkan ke tindakan yang MEMBAYAR (`transaksi_refund.
+        id_kunjungan_tindakan`) — satu jangkar untuk anti-dobel (A lalu B tak mungkin
+        dua kali) dan untuk ekspor Finance. `jenis_refund = 'TINDAKAN'`.
+
+        Pola T32 dipakai apa adanya: header transaksi TIDAK disentuh, uang keluar di TANGGAL
+        refund lewat `_refund_bukuan`, PIN Admin/Superadmin/Owner ≠ pemroses hanya untuk
+        transaksi hari lampau (P3), metode dari `metode_sah`. Komisi: tindakan yang belum
+        dikerjakan belum berkomisi (tahap 2) — tidak ada yang ditarik.
+        """
+        import logging
+        from sqlalchemy import select
+        from app.db.models import (KunjunganTindakan, PasienRencanaTreatment,
+                                   StatusRencanaTreatmentEnum, TransaksiRefund)
+        from app.services import _hak_prabayar
+        from app.services._batal_tindakan import batalkan_series
+        from app.services._status_kunjungan import hitung_ulang_status
+
+        _log = logging.getLogger(__name__)
+        if (id_kunjungan_tindakan is None) == (id_rencana is None):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pilih tepat satu: tindakan ATAU hak.")
+        if not (alasan or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Alasan pengembalian WAJIB diisi — ini uang keluar.")
+        from app.core.metode_bayar import metode_sah
+        try:
+            metode_refund = metode_sah(metode_refund or "TUNAI")
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+        # ---- 1. Tindakan pembayar (sebelum baca-segar: kolom-kolom ini tak pernah berubah)
+        if id_rencana is not None:
+            _r0 = self.db.get(PasienRencanaTreatment, id_rencana)
+            if _r0 is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, f"Hak #{id_rencana} tidak ditemukan.")
+            if _hak_prabayar.adalah_hak(_r0):
+                _id_kt = _r0.id_referensi_sumber
+            else:
+                # C: tindakan lunas sesi 1 yang disimpan sebagai hak (BATAL + transaksi BAYAR).
+                _id_kt = self.db.execute(
+                    select(KunjunganTindakan.id_kunjungan_tindakan)
+                    .join(TransaksiKasir, TransaksiKasir.id_transaksi == KunjunganTindakan.id_transaksi)
+                    .where(KunjunganTindakan.id_rencana == id_rencana)
+                    .where(KunjunganTindakan.status_tindakan == "BATAL")
+                    .where(TransaksiKasir.status_transaksi == "BAYAR")
+                    .order_by(KunjunganTindakan.id_kunjungan_tindakan.desc()).limit(1)
+                ).scalar_one_or_none() if (_r0.urutan_sesi or 1) == 1 else None
+            if not _id_kt:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    "Rencana ini bukan hak yang sudah dibayar — tidak ada uang "
+                                    "yang dikembalikan.")
+        else:
+            _id_kt = id_kunjungan_tindakan
+        _id_kj = self.db.execute(
+            select(KunjunganTindakan.id_kunjungan)
+            .where(KunjunganTindakan.id_kunjungan_tindakan == _id_kt)).scalar_one_or_none()
+
+        # ---- 2. Kunci: baca-segar → kunjungan → tindakan → (rencana) → refund ------------
+        # Urutan sama dengan bayar/serah/void/refund obat (`refund_item_tertunda`).
+        # ⚠ Jangan sisipkan SELECT biasa di antara mulai_baca_segar dan kunci kunjungan.
+        mulai_baca_segar(self.db)
+        if _id_kj is not None:
+            self.kunjungan_repo.get_by_id_for_update(_id_kj)
+        kt = self.db.execute(
+            select(KunjunganTindakan).where(KunjunganTindakan.id_kunjungan_tindakan == _id_kt)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if kt is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Tindakan {_id_kt} tidak ditemukan.")
+        st = getattr(kt.status_tindakan, "value", kt.status_tindakan)
+        rencana = None
+        if id_rencana is None:
+            if st != "PENDING":
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    f"Hanya tindakan yang belum dikerjakan yang bisa dikembalikan "
+                                    f"uangnya. Status tindakan ini '{st}'.")
+            label = f"tindakan #{kt.id_kunjungan_tindakan}"
+        else:
+            rencana = self.db.execute(
+                select(PasienRencanaTreatment).where(PasienRencanaTreatment.id_rencana == id_rencana)
+                .with_for_update().execution_options(populate_existing=True)
+            ).scalar_one()
+            if rencana.status != StatusRencanaTreatmentEnum.PENDING:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    f"Hak '{rencana.nama_tindakan}' berstatus "
+                                    f"'{getattr(rencana.status, 'value', rencana.status)}' — hanya "
+                                    f"hak yang belum dipakai yang bisa dikembalikan uangnya.")
+            if _hak_prabayar.adalah_hak(rencana) and not _hak_prabayar.berlaku(rencana):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    f"Hak '{rencana.nama_tindakan}' sudah kedaluwarsa (berlaku "
+                                    f"sampai {rencana.tgl_target_akhir:%d-%m-%Y}) — tidak bisa "
+                                    f"direfund (spek §3.7).")
+            if st != "BATAL":
+                raise HTTPException(status.HTTP_409_CONFLICT,
+                                    "Tindakan asal hak ini tidak berstatus BATAL. Hubungi Admin.")
+            label = f"hak #{rencana.id_rencana} (tindakan #{kt.id_kunjungan_tindakan})"
+
+        syarat = self._syarat_refund_tindakan(kt, rencana)
+        trx, nilai, series = syarat["trx"], syarat["nilai"], syarat["series"]
+
+        _sudah = self.db.execute(
+            select(TransaksiRefund.id_refund)
+            .where(TransaksiRefund.id_kunjungan_tindakan == kt.id_kunjungan_tindakan)
+            .limit(1).with_for_update()
+        ).first()
+        if _sudah:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label} sudah pernah direfund.")
+
+        # ---- 3. PIN hanya untuk transaksi hari lampau (P3, sama dengan T32) -------------
+        hari_lampau = self._hari_lampau(trx)
+        id_penyetuju = None
+        if hari_lampau:
+            id_penyetuju = self._otorisasi_refund_lampau(
+                trx=trx, label=label, actor_id_staf=actor_id_staf,
+                id_staf_otorisasi=id_staf_otorisasi, pin_otorisasi=pin_otorisasi,
+                request=request,
+            )
+
+        try:
+            now = self._now_utc7().replace(tzinfo=None)
+            self.db.add(TransaksiRefund(
+                id_transaksi=trx.id_transaksi,
+                tgl_refund=now,
+                nilai_refund=nilai,
+                metode_refund=metode_refund,
+                alasan=f"Pengembalian tindakan prabayar — {label}. {alasan.strip()}",
+                id_staf_refund=actor_id_staf,
+                id_staf_otorisasi=id_penyetuju,
+                jenis_refund="TINDAKAN",
+                id_kunjungan_tindakan=kt.id_kunjungan_tindakan,
+            ))
+            trigger = f"refund_tindakan_{kt.id_kunjungan_tindakan}"
+            n_series = 0
+            if series:
+                n_series = batalkan_series(self.db, self.audit, series, trigger=trigger,
+                                           actor_id_staf=actor_id_staf, request=request)
+            elif rencana is not None:
+                n_series = batalkan_series(self.db, self.audit, [rencana], trigger=trigger,
+                                           actor_id_staf=actor_id_staf, request=request)
+            status_baru = None
+            if id_rencana is None:
+                kt.status_tindakan = "BATAL"
+                self.db.flush()
+                status_baru = hitung_ulang_status(self.db, kt.id_kunjungan)
+            # Header transaksi asal TIDAK disentuh (T32) — lihat `refund_item_tertunda`.
+            self.audit.log(
+                aksi="REFUND_TINDAKAN",
+                id_staf=actor_id_staf,
+                tabel_target="transaksi_kasir",
+                id_target=trx.id_transaksi,
+                data_lama={"total_tagihan": float(trx.total_tagihan or 0)},
+                data_baru={
+                    "total_tagihan": float(trx.total_tagihan or 0),   # tidak berubah (T32)
+                    "nilai_refund": float(nilai),
+                    "metode_refund": metode_refund,
+                    "id_kunjungan_tindakan": kt.id_kunjungan_tindakan,
+                    "id_rencana": id_rencana,
+                    "rencana_dibatalkan": n_series,
+                    "hari_lampau": hari_lampau,
+                    "id_staf_otorisasi": id_penyetuju,
+                    "status_kunjungan": status_baru,
+                },
+                keterangan=(f"Refund {label} sebesar {nilai}, dibukukan hari ini."
+                            + (f" Disetujui staf #{id_penyetuju} (transaksi hari lampau)."
+                               if id_penyetuju else "")
+                            + f" Alasan: {alasan.strip()!r}"),
+                request=request,
+            )
+            self.db.commit()
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            _log.exception("GAGAL refund tindakan (%s)", label)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail=f"Gagal refund tindakan: {e!s}")
+        return {
+            "status": "success",
+            # Ribuan diformat TERPISAH: `.replace(",", ".")` atas seluruh kalimat ikut
+            # mengganti koma kalimatnya ("(TUNAI). dibukukan").
+            "message": (f"Uang {label} dikembalikan: Rp {f'{nilai:,.0f}'.replace(',', '.')} "
+                        f"({metode_refund}), dibukukan hari ini."),
+            "data": {"id_transaksi": trx.id_transaksi, "id_kunjungan": kt.id_kunjungan,
+                     "nilai_refund": float(nilai), "id_staf_otorisasi": id_penyetuju,
+                     "status_kunjungan_baru": status_baru},
+        }
 
     def trx_dan_nilai_bersih(
         self,

@@ -147,6 +147,8 @@
                     {% if r.id_retur %}<a href="/web/kasir/retur/nota/{{ r.id_retur }}" target="_blank"
                        class="text-blue-600 hover:underline font-mono">{{ r.nomor_retur }}</a>
                     <span class="text-slate-500">{{ "tukar" if r.jenis == "TUKAR" else "uang kembali" }}</span>
+                    {% elif r.jenis_refund == "TINDAKAN" %}<span class="text-slate-500">refund tindakan</span>
+                    {% elif r.jenis_refund == "VOID" %}<span class="text-slate-500">void hari lampau</span>
                     {% else %}<span class="text-slate-500">refund obat tertunda</span>{% endif %}
                 </td>
                 <td class="py-1 text-right font-mono">Rp {{ "{:,.0f}".format(r.nilai|float).replace(",", ".") }}</td>
@@ -360,6 +362,55 @@
             return false;
         }
     </script>
+    {% endif %}
+
+    {# Bayar dulu T4-3: tindakan yang SUDAH dibayar tapi belum dikerjakan → kembalikan uang.
+       Daftar & syaratnya dari server (`KasirService.tindakan_bisa_direfund`, SATU pemeriksaan
+       dengan `refund_tindakan`). Yang tak bisa direfund (kuota / sesi Rp 0) membawa alasannya
+       — haknya dikembalikan lewat "Simpan sebagai hak" di ruang tindakan. PIN hanya untuk
+       transaksi hari lampau; server tetap yang memutuskan. #}
+    {% if refund_tindakan and not tagihan.is_voided %}
+    <div class="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4 text-sm">
+        <div class="font-semibold text-amber-800 mb-1">↩ Tindakan dibayar, belum dikerjakan</div>
+        <div class="text-xs text-amber-800 mb-3">Pasien tidak jadi? Kembalikan uangnya di sini, atau simpan sebagai hak di ruang tindakan.</div>
+        <div class="space-y-3">
+            {% for r in refund_tindakan %}
+            <div class="bg-white rounded-lg border border-amber-200 p-3">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="font-medium text-slate-800">{{ r.nama }} <span class="text-xs text-slate-500 font-mono">#{{ r.id_kunjungan_tindakan }} · trx #{{ r.id_transaksi }}</span></div>
+                    {% if r.bisa %}<div class="font-mono text-slate-800">Rp {{ "{:,.0f}".format(r.nilai|float).replace(",", ".") }}</div>{% endif %}
+                </div>
+                {% if r.bisa %}
+                <form method="POST" action="/web/kasir/refund-tindakan" class="mt-2 flex flex-wrap items-center gap-2"
+                      data-confirm="Kembalikan Rp {{ '{:,.0f}'.format(r.nilai|float).replace(',', '.') }} untuk {{ r.nama }}? Tindakan dibatalkan dan uang keluar dari laci hari ini.">
+                    {{ csrf_input(request) }}
+                    <input type="hidden" name="id_kunjungan_tindakan" value="{{ r.id_kunjungan_tindakan }}">
+                    <input type="hidden" name="kembali" value="/web/kasir/tagihan/{{ tagihan.id_kunjungan }}">
+                    <input type="text" name="alasan" required minlength="5" maxlength="255" placeholder="Alasan (wajib)"
+                           class="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-300 rounded">
+                    <select name="metode_refund" class="px-2 py-1 text-xs border border-slate-300 rounded">
+                        <option value="TUNAI">TUNAI</option>
+                        <option value="TRANSFER">TRANSFER</option>
+                    </select>
+                    {% if r.hari_lampau %}
+                    <select name="id_staf_otorisasi" required class="px-2 py-1 text-xs border border-amber-400 bg-amber-50 rounded">
+                        <option value="">— penyetuju (hari lampau) —</option>
+                        {% for s in penyetuju_refund %}<option value="{{ s.id_staf }}">{{ s.nama_staf }}</option>{% endfor %}
+                    </select>
+                    <input type="password" name="pin_otorisasi" required inputmode="numeric" autocomplete="off" placeholder="PIN"
+                           class="w-20 px-2 py-1 text-xs border border-amber-400 bg-amber-50 rounded">
+                    {% endif %}
+                    <button type="submit" class="inline-flex items-center px-3 py-1 text-xs border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 font-medium">
+                        ↩ Kembalikan uang
+                    </button>
+                </form>
+                {% else %}
+                <div class="text-xs text-slate-500 mt-1">{{ r.alasan_tidak }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
     {% endif %}
 
     {# Breakdown: Tindakan #}

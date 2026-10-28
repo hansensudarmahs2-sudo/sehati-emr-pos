@@ -508,3 +508,302 @@ def test_sesi_1_lunas_dipakai_lagi_di_kunjungan_sama_lalu_batalkan_series_hidup(
     _batalkan(db, t1b, staf)
     db.refresh(s1); db.refresh(s2); db.refresh(lain)
     assert V(s1.status) == "PENDING" and V(s2.status) == "PENDING"
+
+
+# ---------------------------------------------------------------- T4-3 Kembalikan uang per tindakan
+# Tiga asal, satu fungsi (`KasirService.refund_tindakan`):
+#   A. tindakan PENDING yang sudah dibayar (id_kunjungan_tindakan);
+#   B. hak PRABAYAR yang belum dipakai & belum kedaluwarsa (id_rencana);
+#   C. sesi 1 paket yang lunas lalu disimpan sebagai hak (id_rencana, P2).
+# Nilai = snapshot `transaksi_detail_tindakan.subtotal` (BERSIH). Header transaksi TIDAK
+# disentuh (T32); uang keluar di TANGGAL refund lewat `_refund_bukuan`. PIN hanya untuk
+# transaksi hari lampau (P3).
+def _refund(db, staf, *, t=None, rencana=None, **kw):
+    from app.services.kasir_service import KasirService
+    kw.setdefault("alasan", "pasien minta uang kembali")
+    return KasirService(db).refund_tindakan(
+        id_kunjungan_tindakan=t.id_kunjungan_tindakan if t is not None else None,
+        id_rencana=rencana.id_rencana if rencana is not None else None,
+        actor_id_staf=staf.id_staf, **kw)
+
+
+def _refund_rows(db, t):
+    from app.db.models import TransaksiRefund
+    return db.execute(select(TransaksiRefund).where(
+        TransaksiRefund.id_kunjungan_tindakan == t.id_kunjungan_tindakan)).scalars().all()
+
+
+def _subtotal(db, t):
+    from app.db.models import TransaksiDetailTindakan
+    return db.execute(select(TransaksiDetailTindakan.subtotal).where(
+        TransaksiDetailTindakan.id_kunjungan_tindakan == t.id_kunjungan_tindakan,
+        TransaksiDetailTindakan.id_transaksi == t.id_transaksi)).scalar_one()
+
+
+def _kemarin(db, k):
+    from datetime import timedelta
+    trx = _trx_terakhir(db, k)
+    trx.waktu_bayar = trx.waktu_bayar - timedelta(days=1); db.flush()
+    return trx
+
+
+def test_refund_tindakan_prabayar_nilai_bersih_header_utuh(db, monkeypatch):
+    """Diskon member 10% atas dua tindakan: refund satu = subtotal BERSIH-nya, bukan harga
+    master; header transaksi tidak berubah; tindakan BATAL; kunjungan bisa selesai."""
+    from decimal import Decimal
+    from app.services.membership_service import DiskonMembership, MembershipService
+    monkeypatch.setattr(MembershipService, "get_diskon_for_pasien",
+                        lambda self, i: DiskonMembership(Decimal("10"), Decimal("0"), "UJI", True))
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t1 = _tindakan_baru(db, k, "PENDING")
+    t2 = _tindakan_baru(db, k, "PENDING")
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    trx = _trx_terakhir(db, k)
+    total_awal = trx.total_tagihan
+    db.refresh(t1); db.refresh(t2)
+    sub = _subtotal(db, t1)
+    from app.db.models import MasterTreatment
+    assert sub < Decimal(str(db.get(MasterTreatment, t1.id_treatment).harga))   # diskon nyata
+    hasil = _refund(db, staf, t=t1, metode_refund="TUNAI")
+    db.refresh(trx); db.refresh(t1); db.refresh(k)
+    rows = _refund_rows(db, t1)
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r.jenis_refund, Decimal(str(r.nilai_refund)), r.id_transaksi, r.metode_refund) \
+        == ("TINDAKAN", Decimal(str(sub)), trx.id_transaksi, "TUNAI")
+    assert r.id_staf_otorisasi is None                # hari yang sama: tanpa PIN
+    assert trx.total_tagihan == total_awal            # T32: header tidak disentuh
+    assert V(t1.status_tindakan) == "BATAL"
+    assert V(k.status_antrian) == "ANTRI_TREATMENT"   # t2 masih menunggu
+    assert hasil["data"]["nilai_refund"] == float(sub)
+    log = db.execute(select(AuditLog).where(AuditLog.aksi == "REFUND_TINDAKAN",
+                                            AuditLog.id_target == trx.id_transaksi)).scalar_one()
+    assert str(t1.id_kunjungan_tindakan) in str(log.data_baru)
+
+
+def test_refund_dibukukan_di_tanggal_refund_dan_keluar_laci(db):
+    """Transaksi kemarin, refund hari ini (PIN): omzet KEMARIN tidak berubah, refund hari
+    ini bertambah, dan metode refund masuk hitungan laci (refund_per_metode)."""
+    from datetime import datetime, time, timedelta
+    from decimal import Decimal
+    from app.services import _refund_bukuan as rb
+    from tests.integration.test_bayar_dulu_tahap2 import _penyetuju
+    staf, k, t = _dibayar_di_muka(db)
+    trx = _kemarin(db, k)
+    hari_ini = (datetime.combine(date.today(), time.min), datetime.combine(date.today(), time.max))
+    kemarin = (hari_ini[0] - timedelta(days=1), hari_ini[1] - timedelta(days=1))
+    ref_kemarin, ref_ini = rb.refund_total(db, *kemarin), rb.refund_total(db, *hari_ini)
+    laci_ini = rb.refund_per_metode(db, *hari_ini).get("TUNAI", Decimal("0"))
+    admin, sup = _penyetuju(db)
+    _refund(db, admin, t=t, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    sub = Decimal(str(_subtotal(db, t)))
+    assert rb.refund_total(db, *kemarin) == ref_kemarin
+    assert rb.refund_total(db, *hari_ini) == ref_ini + sub
+    assert rb.refund_per_metode(db, *hari_ini).get("TUNAI") == laci_ini + sub
+    assert _refund_rows(db, t)[0].id_staf_otorisasi == sup.id_staf
+
+
+def test_refund_hari_lampau_wajib_pin_penyetuju_lain(db):
+    from tests.integration.test_bayar_dulu_tahap2 import _penyetuju
+    staf, k, t = _dibayar_di_muka(db)
+    _kemarin(db, k)
+    admin, sup = _penyetuju(db)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, admin, t=t)
+    assert e.value.status_code == 401
+    with pytest.raises(HTTPException) as e:
+        _refund(db, sup, t=t, id_staf_otorisasi=sup.id_staf, pin_otorisasi="4321")
+    assert e.value.status_code == 400                 # penyetuju = pemroses
+    db.refresh(t)
+    assert V(t.status_tindakan) == "PENDING" and _refund_rows(db, t) == []
+
+
+def test_refund_dua_kali_ditolak(db):
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t)
+    assert e.value.status_code == 400
+    assert len(_refund_rows(db, t)) == 1
+
+
+def test_refund_menyelesaikan_kunjungan_dan_void_lalu_ditolak(db):
+    from tests.integration.test_audit_tahap2 import _void
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    db.refresh(k)
+    assert V(k.status_antrian) == "COMPLETED"
+    with pytest.raises(HTTPException):                # _pagari_void_sudah_refund
+        _void(db, _trx_terakhir(db, k).id_transaksi, staf)
+
+
+@pytest.mark.parametrize("status", ["PROSES", "SELESAI"])
+def test_refund_tindakan_sudah_dikerjakan_ditolak(db, status):
+    staf, k, t = _dibayar_di_muka(db, status)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t)
+    assert e.value.status_code == 400 and _refund_rows(db, t) == []
+
+
+def test_refund_belum_dibayar_ditolak(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PENDING")
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t)
+    assert e.value.status_code == 400 and "belum dibayar" in e.value.detail
+
+
+def test_refund_kuota_rp0_ditolak_menunjuk_simpan_hak(db):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    q, t = _kuota_pending(db, k)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t)
+    assert e.value.status_code == 400 and "Simpan sebagai hak" in e.value.detail
+
+
+def test_refund_metode_tidak_sah_ditolak(db):
+    staf, k, t = _dibayar_di_muka(db)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t, metode_refund="BARTER")
+    assert e.value.status_code == 400
+
+
+def test_refund_alasan_wajib(db):
+    staf, k, t = _dibayar_di_muka(db)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t, alasan=" ")
+    assert e.value.status_code == 400
+
+
+def test_refund_hak_prabayar(db):
+    """B: hak yang belum dipakai → uang kembali, hak CANCELLED, refund menunjuk tindakan
+    ASAL hak (bukan rencana) — supaya anti-dobel dan ekspor punya satu jangkar."""
+    from decimal import Decimal
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    _refund(db, staf, rencana=h)
+    db.refresh(h)
+    assert V(h.status) == "CANCELLED"
+    rows = _refund_rows(db, t)
+    assert len(rows) == 1 and rows[0].jenis_refund == "TINDAKAN"
+    assert Decimal(str(rows[0].nilai_refund)) == Decimal(str(_subtotal(db, t)))
+    with pytest.raises(HTTPException):
+        _refund(db, staf, rencana=h)
+
+
+def test_refund_hak_kedaluwarsa_atau_terpakai_ditolak(db):
+    from datetime import timedelta
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    h.tgl_target_akhir = date.today() - timedelta(days=1); db.flush()
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, rencana=h)
+    assert e.value.status_code == 400 and "kedaluwarsa" in e.value.detail.lower()
+    h.tgl_target_akhir = date.today(); db.flush()
+    k2 = _kunjungan_lain(db, k, staf)
+    _pakai(db, h, k2, staf)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, rencana=h)
+    assert e.value.status_code == 400
+    assert _refund_rows(db, t) == []
+
+
+def test_refund_tindakan_dari_hak_rp0_ditolak(db):
+    """Tindakan yang memakai hak dibayar Rp 0 — uangnya ada di hak asal. Ditolak dengan
+    petunjuk: simpan sebagai hak dulu (hak kembali), lalu kembalikan uang haknya."""
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    k2 = _kunjungan_lain(db, k, staf)
+    t2 = _pakai(db, h, k2, staf)
+    _bayar(db, k2, staf, konfirmasi_prabayar=True)
+    db.refresh(t2)
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t2)
+    assert e.value.status_code == 400 and "Simpan sebagai hak" in e.value.detail
+
+
+def _series_lunas(db, n=3):
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    sesi = [_rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")]
+    sesi += [_rencana(db, k, i, k.id_kunjungan, "PENDING") for i in range(2, n + 1)]
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=sesi[0].id_treatment,
+                          id_rencana=sesi[0].id_rencana, status_tindakan="PENDING")
+    db.add(t); db.flush()
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    return staf, k, t, sesi
+
+
+def test_refund_sesi_1_paket_membatalkan_series(db):
+    """P2: sesi 1 (harga paket) dibayar, belum ada sesi lain terpakai → refund SELURUH
+    paket (snapshot), semua sesi CANCELLED."""
+    from decimal import Decimal
+    staf, k, t, sesi = _series_lunas(db)
+    _refund(db, staf, t=t)
+    for s in sesi:
+        db.refresh(s)
+    assert [V(s.status) for s in sesi] == ["CANCELLED"] * 3
+    assert Decimal(str(_refund_rows(db, t)[0].nilai_refund)) == Decimal(str(_subtotal(db, t)))
+
+
+def test_refund_sesi_1_ditolak_bila_sesi_lain_terpakai(db):
+    staf, k, t, sesi = _series_lunas(db)
+    sesi[1].status = "SCHEDULED"; db.flush()          # sesi 2 sudah dipakai di kunjungan lain
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, t=t)
+    assert e.value.status_code == 400 and "Simpan sebagai hak" in e.value.detail
+    db.refresh(sesi[0])
+    assert V(sesi[0].status) == "SCHEDULED" and _refund_rows(db, t) == []
+
+
+def test_refund_sesi_1_yang_sudah_jadi_hak(db):
+    """C: sesi 1 lunas → simpan sebagai hak (sesi 1 PENDING lagi) → uang kembali lewat
+    rencana sesi 1; series dibatalkan; refund menunjuk tindakan lunas asalnya."""
+    staf, k, t, sesi = _series_lunas(db)
+    _hak(db, t, staf)
+    _refund(db, staf, rencana=sesi[0])
+    for s in sesi:
+        db.refresh(s)
+    assert [V(s.status) for s in sesi] == ["CANCELLED"] * 3
+    assert len(_refund_rows(db, t)) == 1
+
+
+def test_refund_sesi_series_dokter_tanpa_pernah_lunas_ditolak(db):
+    """Rencana series dokter biasa (belum pernah lunas) bukan hak — tidak bisa direfund."""
+    staf, k = _siapkan(db)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "PENDING")
+    with pytest.raises(HTTPException) as e:
+        _refund(db, staf, rencana=s1)
+    assert e.value.status_code == 400
+
+
+def test_refund_mengunci_kunjungan_sebelum_tindakan(db):
+    from tests.integration.test_audit_tahap3 import _berkunci
+    from tests.integration.test_audit_tahap4 import _rekam_dengan_commit
+    staf, k, t = _dibayar_di_muka(db)
+    q = _rekam_dengan_commit(db, lambda: _refund(db, staf, t=t))
+    i_commit = q.index("<<COMMIT>>")
+    i_kj = q.index(_berkunci(q, "kunjungan")[0])
+    i_t = q.index(_berkunci(q, "kunjungan_tindakan")[0])
+    i_r = q.index(_berkunci(q, "transaksi_refund")[0])
+    assert i_commit < i_kj < i_t < i_r
+    assert not [x for x in q[i_commit + 1:i_kj] if x.startswith("SELECT")]
+
+
+def test_daftar_bisa_direfund_satu_definisi_dengan_refund(db):
+    """Kotak di halaman tagihan memakai pemeriksaan yang SAMA dengan refund: yang ditawarkan
+    pasti diterima, yang tidak ditawarkan membawa alasan."""
+    from app.services.kasir_service import KasirService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t = _tindakan_baru(db, k, "PENDING")
+    q, tk = _kuota_pending(db, k)
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    daftar = {d["id_kunjungan_tindakan"]: d for d in KasirService(db).tindakan_bisa_direfund(k.id_kunjungan)}
+    assert daftar[t.id_kunjungan_tindakan]["bisa"] is True
+    assert daftar[t.id_kunjungan_tindakan]["nilai"] > 0
+    assert daftar[tk.id_kunjungan_tindakan]["bisa"] is False
+    assert "Simpan sebagai hak" in daftar[tk.id_kunjungan_tindakan]["alasan_tidak"]
