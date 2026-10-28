@@ -70,11 +70,21 @@ class SeriesService:
         ).scalars().all()
 
         # Group per (id_treatment, id_kunjungan_pembuat)
+        #
+        # Bayar dulu T4-2: hak PRABAYAR = SATU baris per rencana (`jenis = "HAK"`), dengan
+        # nilai & batas. Hak lahir dengan `id_kunjungan_pembuat = NULL` (T4-1), jadi dengan
+        # kunci lama semua hak satu treatment tergabung jadi satu "series" dan tombol hanya
+        # menawarkan yang pertama. Hak kedaluwarsa tidak ditampilkan (`_hak_prabayar.berlaku`).
+        from app.services import _hak_prabayar
         groups: dict[tuple, dict] = {}
         for r in rows:
-            key = (r.id_treatment, r.id_kunjungan_pembuat)
+            hak = _hak_prabayar.adalah_hak(r)
+            if hak and not _hak_prabayar.berlaku(r):
+                continue
+            key = ("HAK", r.id_rencana) if hak else (r.id_treatment, r.id_kunjungan_pembuat)
             if key not in groups:
                 groups[key] = {
+                    "jenis": "HAK" if hak else "SERIES",
                     "id_treatment": r.id_treatment,
                     "nama_tindakan": r.nama_tindakan,
                     "id_kunjungan_pembuat": r.id_kunjungan_pembuat,
@@ -85,6 +95,14 @@ class SeriesService:
                     "sudah_terpakai": 0,
                     "rencana_pending": [],
                 }
+                if hak:
+                    n = _hak_prabayar.nilai(self.db, r)
+                    groups[key].update({
+                        "id_rencana_hak": r.id_rencana,
+                        "nilai": float(n) if n is not None else None,
+                        "berlaku_sampai": r.tgl_target_akhir,
+                        "sisa_hari": _hak_prabayar.sisa_hari(r),
+                    })
             g = groups[key]
             g["total_sesi"] += 1
             status_v = r.status.value if hasattr(r.status, "value") else str(r.status)
@@ -168,6 +186,18 @@ class SeriesService:
                         f"dibayar. Selesaikan pembayaran sesi 1 di kasir dulu."),
             )
 
+    @staticmethod
+    def _pagari_hak_berlaku(rencana) -> None:
+        """Tolak hak PRABAYAR yang sudah lewat `tgl_target_akhir` (409). Rencana sumber lain
+        tidak disentuh — batas series dokter tidak ditegakkan (`_hak_prabayar`)."""
+        from app.services import _hak_prabayar
+        if _hak_prabayar.adalah_hak(rencana) and not _hak_prabayar.berlaku(rencana):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Hak '{rencana.nama_tindakan}' sudah kedaluwarsa (berlaku sampai "
+                        f"{rencana.tgl_target_akhir:%d-%m-%Y}). Tidak bisa dipakai lagi."),
+            )
+
     def use_session(
         self,
         id_rencana: int,
@@ -225,6 +255,10 @@ class SeriesService:
                     f"Hanya status PENDING yang bisa di-pakai."
                 ),
             )
+
+        # Bayar dulu T4-2: hak PRABAYAR yang lewat batasnya hangus (spek §3.7) — sama dengan
+        # daftar yang menyembunyikannya; ini pagar untuk halaman basi / klien API.
+        self._pagari_hak_berlaku(rencana)
 
         # Audit T2-6 (2026-10-13): harga PAKET series ditagih bersama tindakan SESI 1
         # (`KasirService._compute_charge`); sesi 2..N selalu Rp 0. Dulu sesi 2..N bisa

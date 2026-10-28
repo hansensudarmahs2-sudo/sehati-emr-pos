@@ -87,7 +87,12 @@ def bereskan_satu_tindakan(db: Session, audit, tindakan, *, actor_id_staf, reque
         if r is not None:
             # Sesi 1 series yang LAHIR di kunjungan ini (tindakan ini belum dibayar — dicek
             # pemanggil) → seluruh series ini; selain itu sesi yang dijadwalkan → PENDING.
-            if r.id_kunjungan_pembuat == tindakan.id_kunjungan and (r.urutan_sesi or 1) <= 1:
+            # Bayar dulu T4-2: KECUALI sesi 1 yang paketnya pernah lunas (tindakan lunasnya
+            # disimpan sebagai hak, T4-1/P2) lalu dipakai lagi di kunjungan yang sama — paket
+            # sudah dibayar, jadi sesinya kembali PENDING, series tidak dibatalkan.
+            from app.services._hak_prabayar import sesi1_pernah_lunas
+            if (r.id_kunjungan_pembuat == tindakan.id_kunjungan and (r.urutan_sesi or 1) <= 1
+                    and not sesi1_pernah_lunas(db, r, tindakan.id_kunjungan_tindakan)):
                 hasil["series_cancel"] = batalkan_series(
                     db, audit, anggota(db, r), trigger=trigger,
                     actor_id_staf=actor_id_staf, request=request)

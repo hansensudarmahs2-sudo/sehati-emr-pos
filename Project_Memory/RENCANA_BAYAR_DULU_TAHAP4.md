@@ -4,8 +4,8 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". **T4-1 SELESAI 2026-10-28** (sesi cloud; lihat catatan
-di bawah judul T4-1). Berikutnya T4-2. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **T4-1 dan T4-2 SELESAI 2026-10-28** (sesi cloud; lihat
+catatan di bawah judul masing-masing). Berikutnya T4-3. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -101,7 +101,7 @@ Test baru di `tests/integration/test_bayar_dulu_tahap4.py`.
 > langsung. (2) Sesi yang tidak `SCHEDULED` (data ganjil) → 409 sebelum menulis apa pun, bukan
 > BATAL yang menghapus hak tanpa pengganti. (3) `id_transaksi` tindakan TIDAK dikosongkan (jejak
 > pembayar; nilai hak dibaca dari snapshot).
-> ⚠ **Sampai T4-2 selesai, hak belum benar saat DIPAKAI:** sesi 1 paket yang kembali PENDING lalu
+> ✅ (Ditutup T4-2.) ~~**Sampai T4-2 selesai, hak belum benar saat DIPAKAI:**~~ sesi 1 paket yang kembali PENDING lalu
 > dipakai lewat "Pakai Sesi" masih ditagih harga paket lagi, dan hak PRABAYAR masih ditagih harga
 > treatment (`_compute_charge` belum kenal keduanya). Itu isi T4-2 — jangan deploy di antaranya.
 **Berkas:** `treatment_service.py` (`simpan_sebagai_hak`), `_batal_tindakan.py` (dipakai ulang),
@@ -117,6 +117,20 @@ pesan `batalkan_tindakan` untuk yang sudah dibayar diganti menunjuk tombol ini).
   tindakan belum dibayar / PROSES / SELESAI ditolak.
 
 ### T4-2 Memakai hak
+> **SELESAI 2026-10-28 (cloud).** Modul baru `app/services/_hak_prabayar.py` = SATU definisi
+> (`adalah_hak`, `berlaku`, `sisa_hari`, `nilai`, `sesi1_pernah_lunas`) — T4-3/T4-5 wajib
+> memakainya. `_compute_charge`: hak PRABAYAR dan sesi 1 yang pernah lunas → Rp 0 (sebelum
+> aturan harga paket). `list_active_for_pasien`: hak = satu baris per rencana (`jenis="HAK"`,
+> `nilai`, `berlaku_sampai`, `sisa_hari`), kedaluwarsa disembunyikan; `use_session` + rute
+> "daftar + pakai sesi" menolak kedaluwarsa (rute menolak SEBELUM membuat kunjungan). Layar:
+> kartu hak di detail pasien ("↪ Pakai Hak"), "↪ Hak — … (s/d tgl)" di daftar pasien.
+> Tambahan di luar teks rencana, keduanya disengaja: (1) nota menulis "Hak prabayar" untuk hak
+> yang dipakai (dulu akan tertulis "Paket series"); (2) **celah gabungan T4-1+T4-2 ditutup**:
+> sesi 1 lunas → hak → dipakai lagi di kunjungan PEMBUAT yang sama → Batalkan membatalkan
+> SELURUH series (`bereskan_satu_tindakan`). Terbukti test merah dulu, lalu diperbaiki.
+> 11 test baru (6 gagal di kode lama; 3 pembanding lulus di keduanya; 2 test celah Batalkan).
+> Suite 495 lulus / 17 dilewati / 0 gagal; `cek_smoke_web` 614 halaman 0 bermasalah;
+> `cek_status_kunjungan --hari 30` 0 selisih. Layar dicek lewat TestClient, bukan uji layar.
 **Berkas:** `kasir_service.py` (`_compute_charge`), `series_service.py` (`list_active_for_pasien`,
 `use_session`), `pasien_detail.html`.
 - `_compute_charge` WAJIB juga mengenali **sesi 1 yang sudah pernah lunas** (tindakan BATAL lain

@@ -318,7 +318,15 @@ class KasirService:
             if tindakan.id_rencana is not None and not pakai_kuota:
                 rencana = self.db.get(_PRT, tindakan.id_rencana)
                 if rencana is not None:
-                    if rencana.urutan_sesi == 1:
+                    from app.services import _hak_prabayar
+                    if (_hak_prabayar.adalah_hak(rencana) or _hak_prabayar.sesi1_pernah_lunas(
+                            self.db, rencana, tindakan.id_kunjungan_tindakan)):
+                        # Bayar dulu T4-2: hak yang SUDAH dibayar di muka (spek §3.7) — hak
+                        # PRABAYAR, atau sesi 1 paket yang tindakannya lunas lalu disimpan
+                        # sebagai hak (P2). Wajib SEBELUM aturan sesi 1 di bawah: keduanya
+                        # ber-`urutan_sesi = 1` dan akan ditagih harga paket lagi.
+                        charge = Decimal("0")
+                    elif rencana.urutan_sesi == 1:
                         # Audit T4-11: anggota SERIES INI saja (app/services/_series.py). Dulu
                         # semua rencana treatment yang sama dari kunjungan ini — dua series
                         # di satu kunjungan → sesi 1 ditagih N1+N2 sesi.

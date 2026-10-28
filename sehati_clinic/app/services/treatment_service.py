@@ -608,7 +608,6 @@ class TreatmentService:
             MasterTreatment,
             PasienRencanaTreatment,
             StatusRencanaTreatmentEnum,
-            TransaksiDetailTindakan,
             TransaksiKasir,
         )
         from app.db.models._enums import SumberRencanaEnum
@@ -707,11 +706,8 @@ class TreatmentService:
                 self.db.add(hak)
                 self.db.flush()
                 id_rencana_hak = hak.id_rencana
-                nilai = self.db.execute(
-                    _select(TransaksiDetailTindakan.subtotal)
-                    .where(TransaksiDetailTindakan.id_transaksi == trx.id_transaksi)
-                    .where(TransaksiDetailTindakan.id_kunjungan_tindakan == tindakan.id_kunjungan_tindakan)
-                ).scalars().first()
+                from app.services._hak_prabayar import nilai as _nilai_hak
+                nilai = _nilai_hak(self.db, hak)
                 data_audit.update({"id_rencana": id_rencana_hak,
                                    "nilai": str(nilai) if nilai is not None else None,
                                    "berlaku_sampai": hak.tgl_target_akhir.isoformat()})

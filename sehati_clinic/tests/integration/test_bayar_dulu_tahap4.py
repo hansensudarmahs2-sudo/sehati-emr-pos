@@ -285,3 +285,226 @@ def test_tanggal_dari_waktu_bayar_bukan_hari_ini(db):
     h = _prabayar_dari(db, t)[0]
     assert h.tgl_target_akhir == tambah_bulan(trx.waktu_bayar.date(), 6)
     assert h.tgl_target_akhir != tambah_bulan(date.today(), 6)
+
+
+# ---------------------------------------------------------------- T4-2 Memakai hak
+# Hak yang lahir di T4-1 dipakai lewat "Pakai Sesi" di kunjungan lain. Dulu (sebelum T4-2):
+# hak PRABAYAR ditagih harga treatment LAGI (`_compute_charge`: rencana sesi 1 = harga
+# paket × jumlah sesi), sesi 1 paket yang kembali PENDING ditagih harga paket LAGI, semua hak
+# satu treatment digabung jadi satu baris, dan hak kedaluwarsa tetap bisa dipakai.
+def _kunjungan_lain(db, k, staf, status="ANTRI_TREATMENT"):
+    from app.db.models import Kunjungan
+    k2 = Kunjungan(id_pasien=k.id_pasien, status_antrian=status,
+                   id_staf_fo=staf.id_staf, nomor_antrean=997)
+    db.add(k2); db.flush()
+    return k2
+
+
+def _pakai(db, rencana, k2, staf):
+    from app.services.series_service import SeriesService
+    SeriesService(db).use_session(rencana.id_rencana, k2.id_kunjungan, staf.id_staf)
+    return db.execute(select(KunjunganTindakan).where(
+        KunjunganTindakan.id_kunjungan == k2.id_kunjungan,
+        KunjunganTindakan.id_rencana == rencana.id_rencana,
+        KunjunganTindakan.status_tindakan != "BATAL")).scalar_one()
+
+
+def _harga_di_tagihan(db, k, t):
+    from app.services.kasir_service import KasirService
+    tagihan = KasirService(db).get_tagihan(k.id_kunjungan)
+    return [r.harga for r in tagihan.rincian_tindakan if r.id_kunjungan_tindakan == t.id_kunjungan_tindakan]
+
+
+def _hak_dari_tindakan_baru(db):
+    staf, k, t = _dibayar_di_muka(db)
+    _hak(db, t, staf)
+    return staf, k, t, _prabayar_dari(db, t)[0]
+
+
+def test_hak_dipakai_ditagih_rp0_dan_berkomisi(db):
+    from tests.integration.test_bayar_dulu_tahap2 import _beri_komisi, _kerjakan, _komisi
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    k2 = _kunjungan_lain(db, k, staf)
+    t2 = _pakai(db, h, k2, staf)
+    _beri_komisi(db, t2, staf)                        # master uji tanpa komisi (lihat helper)
+    db.refresh(h)
+    assert V(h.status) == "SCHEDULED"
+    assert _harga_di_tagihan(db, k2, t2) == [0]       # dulu: harga treatment lagi
+    _bayar(db, k2, staf, konfirmasi_prabayar=True)
+    db.refresh(t2)
+    assert t2.id_transaksi is not None
+    _kerjakan(db, t2, staf)
+    assert len(_komisi(db, t2)) == 1                  # seperti sesi series Rp 0: basis master
+
+
+def test_hak_kedaluwarsa_tidak_tampil_dan_ditolak(db):
+    from datetime import timedelta
+    from app.services.series_service import SeriesService
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    svc = SeriesService(db)
+    assert [g["id_rencana_hak"] for g in svc.list_active_for_pasien(k.id_pasien)
+            if g["jenis"] == "HAK"] == [h.id_rencana]
+    h.tgl_target_akhir = date.today() - timedelta(days=1); db.flush()
+    assert [g for g in svc.list_active_for_pasien(k.id_pasien) if g["jenis"] == "HAK"] == []
+    k2 = _kunjungan_lain(db, k, staf)
+    with pytest.raises(HTTPException) as e:
+        svc.use_session(h.id_rencana, k2.id_kunjungan, staf.id_staf)
+    assert e.value.status_code == 409 and "kedaluwarsa" in e.value.detail.lower()
+    db.refresh(h)
+    assert V(h.status) == "PENDING"
+
+
+def test_hak_hari_terakhir_masih_berlaku(db):
+    from app.services.series_service import SeriesService
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    h.tgl_target_akhir = date.today(); db.flush()
+    k2 = _kunjungan_lain(db, k, staf)
+    _pakai(db, h, k2, staf)
+
+
+def test_hak_tampil_per_rencana_dengan_nilai_dan_batas(db):
+    """Dua hak treatment yang sama = dua baris (dulu: digabung per treatment, tombol hanya
+    untuk yang pertama). Nilai = subtotal BERSIH yang dibayar (snapshot)."""
+    from app.db.models import TransaksiDetailTindakan
+    from app.services.series_service import SeriesService
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    t1 = _tindakan_baru(db, k, "PENDING")
+    t2 = _tindakan_baru(db, k, "PENDING")
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t1); db.refresh(t2)
+    _hak(db, t1, staf); _hak(db, t2, staf)
+    hak = [g for g in SeriesService(db).list_active_for_pasien(k.id_pasien) if g["jenis"] == "HAK"]
+    assert len(hak) == 2
+    for g, t in zip(sorted(hak, key=lambda g: g["id_rencana_hak"]), (t1, t2)):
+        sub = db.execute(select(TransaksiDetailTindakan.subtotal).where(
+            TransaksiDetailTindakan.id_kunjungan_tindakan == t.id_kunjungan_tindakan)).scalar_one()
+        assert g["nilai"] == float(sub)
+        assert g["berlaku_sampai"] == _prabayar_dari(db, t)[0].tgl_target_akhir
+        assert g["sisa_hari"] > 0
+        assert [r["id_rencana"] for r in g["rencana_pending"]] == [g["id_rencana_hak"]]
+
+
+def test_hak_dan_series_dokter_treatment_sama_tidak_saling_mengubah_harga(db):
+    """Keputusan T4-1 `id_kunjungan_pembuat = NULL`: hak dan series dokter treatment yang
+    SAMA di kunjungan yang SAMA. Harga paket series tetap per_sesi × 3, hak Rp 0, dan
+    keduanya tampil terpisah."""
+    from decimal import Decimal
+    from app.db.models import MasterTreatment
+    from app.services.series_service import SeriesService
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    k2 = _kunjungan_lain(db, k, staf, "ANTRI_BAYAR")
+    _soap(db, k2, staf)
+    sesi = []
+    for i, st in ((1, "SCHEDULED"), (2, "PENDING"), (3, "PENDING")):
+        r = PasienRencanaTreatment(id_pasien=k.id_pasien, id_treatment=h.id_treatment,
+                                   urutan_sesi=i, nama_tindakan="Uji Series",
+                                   id_kunjungan_pembuat=k2.id_kunjungan, status=st)
+        db.add(r); db.flush(); sesi.append(r)
+    ts1 = KunjunganTindakan(id_kunjungan=k2.id_kunjungan, id_treatment=h.id_treatment,
+                            id_rencana=sesi[0].id_rencana, status_tindakan="PENDING")
+    db.add(ts1); db.flush()
+    th = _pakai(db, h, k2, staf)
+    tr = db.get(MasterTreatment, h.id_treatment)
+    per_sesi = Decimal(str(tr.harga_paket if tr.harga_paket is not None else tr.harga))
+    assert _harga_di_tagihan(db, k2, ts1) == [per_sesi * 3]
+    assert _harga_di_tagihan(db, k2, th) == [0]
+    jenis = sorted(g["jenis"] for g in SeriesService(db).list_active_for_pasien(k.id_pasien))
+    assert jenis == ["SERIES"]                        # hak sudah dipakai (SCHEDULED)
+
+
+def test_sesi_1_paket_yang_jadi_hak_dipakai_lagi_rp0(db):
+    """P2: sesi 1 paket lunas → hak (kembali PENDING) → dipakai di kunjungan lain: Rp 0,
+    dan sesi 2 tetap boleh dipakai (paket memang sudah lunas)."""
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                          id_rencana=s1.id_rencana, status_tindakan="PENDING")
+    db.add(t); db.flush()
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    _hak(db, t, staf)
+    k2 = _kunjungan_lain(db, k, staf)
+    t1b = _pakai(db, s1, k2, staf)
+    assert _harga_di_tagihan(db, k2, t1b) == [0]      # dulu: harga paket lagi
+    k3 = _kunjungan_lain(db, k, staf)
+    _pakai(db, s2, k3, staf)
+
+
+@pytest.mark.parametrize("status_trx", [None, "VOID"])
+def test_sesi_1_yang_belum_pernah_lunas_tetap_harga_paket(db, status_trx):
+    """Pembanding: "pernah lunas" = tindakan BATAL lain ber-transaksi BAYAR. Tindakan batal
+    tanpa transaksi, atau transaksinya VOID, BUKAN bukti lunas."""
+    from decimal import Decimal
+    from app.db.models import MasterTreatment
+    from app.services._series import jumlah_sesi
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    t0 = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                           id_rencana=s1.id_rencana, status_tindakan="BATAL")
+    db.add(t0); db.flush()
+    if status_trx:
+        _resep(db, k, staf)
+        _bayar(db, k, staf)
+        trx = _trx_terakhir(db, k)
+        trx.status_transaksi = status_trx
+        t0.id_transaksi = trx.id_transaksi; db.flush()
+    t1 = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                           id_rencana=s1.id_rencana, status_tindakan="PENDING")
+    db.add(t1); db.flush()
+    tr = db.get(MasterTreatment, s1.id_treatment)
+    per_sesi = Decimal(str(tr.harga_paket if tr.harga_paket is not None else tr.harga))
+    assert _harga_di_tagihan(db, k, t1) == [per_sesi * jumlah_sesi(db, s1)]
+
+
+def test_nota_hak_ditulis_hak_prabayar_bukan_paket_series(db):
+    from app.services.print_service import PrintService
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    k2 = _kunjungan_lain(db, k, staf)
+    t2 = _pakai(db, h, k2, staf)
+    _bayar(db, k2, staf, konfirmasi_prabayar=True)
+    snap = PrintService(db)._baris_snapshot(_trx_terakhir(db, k2).id_transaksi)
+    baris = [i for i in snap["items"] if i["tipe"] == "TND"]
+    assert len(baris) == 1 and baris[0]["harga"] == 0
+    assert baris[0]["ket_prabayar"].startswith("Hak prabayar")
+    assert baris[0]["ket_dimuka"] is None
+
+
+def test_hak_dipakai_lalu_batalkan_kembali_jadi_hak(db):
+    """Hak dipakai di kunjungan lain, belum dibayar, pasien menolak lagi → Batalkan →
+    haknya kembali PENDING (tidak hilang, tidak dibatalkan)."""
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    k2 = _kunjungan_lain(db, k, staf)
+    t2 = _pakai(db, h, k2, staf)
+    _batalkan(db, t2, staf)
+    db.refresh(h)
+    assert V(h.status) == "PENDING"
+
+
+def test_sesi_1_lunas_dipakai_lagi_di_kunjungan_sama_lalu_batalkan_series_hidup(db):
+    """Sesi 1 paket lunas → hak → dipakai lagi di kunjungan PEMBUAT yang sama (masih aktif
+    karena ada tindakan lain) → Batalkan. Dulu `bereskan_satu_tindakan` membaca "sesi 1 yang
+    lahir di kunjungan ini, belum dibayar" → seluruh series CANCELLED padahal paketnya lunas."""
+    from tests.integration.test_bayar_dulu_tahap1 import _batalkan
+    staf, k = _siapkan(db)
+    _soap(db, k, staf)
+    s1 = _rencana(db, k, 1, k.id_kunjungan, "SCHEDULED")
+    s2 = _rencana(db, k, 2, k.id_kunjungan, "PENDING")
+    t = KunjunganTindakan(id_kunjungan=k.id_kunjungan, id_treatment=s1.id_treatment,
+                          id_rencana=s1.id_rencana, status_tindakan="PENDING")
+    lain = _tindakan_baru(db, k, "PENDING")           # menahan kunjungan tetap aktif
+    db.add(t); db.flush()
+    _bayar(db, k, staf, konfirmasi_prabayar=True)
+    db.refresh(t)
+    _hak(db, t, staf)
+    db.refresh(k)
+    assert V(k.status_antrian) not in ("COMPLETED", "BATAL")
+    t1b = _pakai(db, s1, k, staf)
+    _batalkan(db, t1b, staf)
+    db.refresh(s1); db.refresh(s2); db.refresh(lain)
+    assert V(s1.status) == "PENDING" and V(s2.status) == "PENDING"
