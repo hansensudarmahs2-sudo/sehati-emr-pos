@@ -1,6 +1,10 @@
 # Bayar Dulu — Tahap 4: Hak Pasien & Uang Kembali per Tindakan — Rencana
 
-Status: **RANCANGAN — menunggu persetujuan dr. Hansen** (ditulis 2026-10-28, sesi cloud).
+Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Hansen 2026-10-28**
+— semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
+dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
+(P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
+baris "tindakan prabayar akan dilepas". Menunggu: lampu hijau untuk mulai T4-1.
 Belum ada kode yang ditulis. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
