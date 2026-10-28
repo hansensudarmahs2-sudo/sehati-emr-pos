@@ -15,9 +15,18 @@ Kenapa tiap test ada:
 - refund         : refund hari ini atas transaksi kemarin mengurangi laci HARI INI.
 - satu_sesi      : satu laci = satu sesi terbuka, satu sesi per tanggal.
 - sesi_kemarin   : menutup sesi kemarin tidak boleh terhalang antrian HARI INI.
+
+Jam skenario DIJANGKAR ke jam tetap hari ini (`_jam`), bukan relatif `datetime.now()`.
+Service menilai per TANGGAL sesi (T28: satu laci per tanggal = DATE(shift_mulai)).
+Dulu `sesi = now - 2 jam` + `bayar = now`: antara 00.00–02.00 WIB sesinya bertanggal
+KEMARIN dan bayarnya HARI INI, jadi service — benar — tidak memuatnya dan test gagal
+(terbukti 2026-10-29 00.43 WIB: `assert 2650 in []`). Pola `now - 5 menit` punya celah
+yang sama di 00.00–00.05. Jam tetap membuat hasilnya tidak bergantung kapan dijalankan,
+tanpa `pytest.skip`. Waktu yang "di masa depan" (mis. jam 12.00 saat dijalankan 00.30)
+tidak masalah: yang dibandingkan service hanya tanggal dan urutan jamnya.
 """
 import random
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
@@ -77,15 +86,18 @@ def _sesi(db, pembuka, shift_mulai):
     return s
 
 
+def _jam(jam, menit=0):
+    """Jam tetap HARI INI — semua waktu skenario jatuh di tanggal sesi yang sama."""
+    return datetime.combine(date.today(), time(jam, menit))
+
+
 def _tunai(svc, sesi):
     return svc.get_closing_preview()["metode"][0]["penjualan_sistem"]
 
 
 def test_bayar_sebelum_buka_tetap_dihitung_dan_diperingatkan(db):
     kasir = _staf(db, StafRoleEnum.KASIR)
-    buka = datetime.now().replace(second=0, microsecond=0)
-    if buka.hour < 1:
-        pytest.skip("Terlalu dekat tengah malam untuk skenario 'sebelum buka'.")
+    buka = _jam(10)
     svc = KasirClosingService(db)
     sesi = _sesi(db, kasir, buka)
     base = _tunai(svc, sesi)
@@ -101,9 +113,9 @@ def test_bayar_oleh_petugas_lain_dihitung(db):
     kasir = _staf(db, StafRoleEnum.KASIR)
     fo = _staf(db, StafRoleEnum.ADMIN)
     svc = KasirClosingService(db)
-    sesi = _sesi(db, kasir, datetime.now() - timedelta(minutes=5))
+    sesi = _sesi(db, kasir, _jam(10))
     base = _tunai(svc, sesi)
-    _bayar(db, fo, Decimal("120000"), datetime.now())
+    _bayar(db, fo, Decimal("120000"), _jam(10, 5))
     p = svc.get_closing_preview()
     assert p["metode"][0]["penjualan_sistem"] == base + Decimal("120000")
     baris_fo = [x for x in p["per_petugas"] if x["id_staf"] == fo.id_staf]
@@ -113,12 +125,12 @@ def test_bayar_oleh_petugas_lain_dihitung(db):
 def test_refund_hari_ini_atas_transaksi_kemarin_mengurangi_laci_hari_ini(db):
     kasir = _staf(db, StafRoleEnum.KASIR)
     svc = KasirClosingService(db)
-    sesi = _sesi(db, kasir, datetime.now() - timedelta(minutes=5))
+    sesi = _sesi(db, kasir, _jam(10))
     base = _tunai(svc, sesi)
-    t = _bayar(db, kasir, Decimal("300000"), datetime.now() - timedelta(days=1))
+    t = _bayar(db, kasir, Decimal("300000"), _jam(10) - timedelta(days=1))
     assert _tunai(svc, sesi) == base  # transaksi kemarin bukan laci hari ini
     db.add(TransaksiRefund(id_transaksi=t.id_transaksi, nilai_refund=Decimal("50000"),
-                           metode_refund="TUNAI", tgl_refund=datetime.now(),
+                           metode_refund="TUNAI", tgl_refund=_jam(10, 5),
                            id_staf_refund=kasir.id_staf, alasan="uji T28"))
     db.flush()
     assert _tunai(svc, sesi) == base - Decimal("50000")
@@ -161,13 +173,13 @@ def test_bayar_sesudah_tutup_diperingatkan_angka_tidak_berubah(db):
     # (DB dev bisa punya antrian hari ini yang — benar — memblokir tutup_kasir).
     kasir = _staf(db, StafRoleEnum.KASIR)
     svc = KasirClosingService(db)
-    tutup = _sesi(db, kasir, datetime.now() - timedelta(hours=2))
+    tutup = _sesi(db, kasir, _jam(10))
     tutup.status = "CLOSED"
-    tutup.shift_tutup = datetime.now() - timedelta(minutes=10)
+    tutup.shift_tutup = _jam(11, 50)
     tutup.total_expected = Decimal("0")
     db.flush()
     expected_tutup = tutup.total_expected
-    t = _bayar(db, kasir, Decimal("75000"), datetime.now())
+    t = _bayar(db, kasir, Decimal("75000"), _jam(12))
     sesudah = svc._pembayaran_di_luar_jendela(tutup, sesudah_tutup=True)
     assert t.id_transaksi in [x["id_transaksi"] for x in sesudah]
     db.refresh(tutup)
