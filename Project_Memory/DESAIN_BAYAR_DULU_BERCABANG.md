@@ -3,7 +3,11 @@
 Status: **DISETUJUI dr. Hansen 2026-10-15** (ditulis 2026-10-15). **TAHAP 1 SELESAI 2026-10-21** (dev; commit fe62830..8367784 + T1-8, 8 task, `RENCANA_BAYAR_DULU_TAHAP1.md`;
 belum di mini PC). **TAHAP 2 SELESAI di dev 2026-10-25** (T2-1..T2-6 di `main`, teruji: suite 441 lulus,
 `cek_status_kunjungan --hari 30` 0 selisih; belum di mini PC dan TIDAK boleh tanpa tahap 4) —
-`RENCANA_BAYAR_DULU_TAHAP2.md`, `HANDOFF_2026-10-25.md`. Berikutnya: tahap 4 (hak pasien + uang kembali per tindakan).
+`RENCANA_BAYAR_DULU_TAHAP2.md`, `HANDOFF_2026-10-25.md`. **TAHAP 4 SELESAI di dev 2026-10-28** (T4-1..T4-6,
+cabang `claude/hopeful-pasteur-172ozo`, sesi cloud; belum di `main`, belum diuji layar) — `RENCANA_BAYAR_DULU_TAHAP4.md`,
+`HANDOFF_2026-10-28.md`. Celah spek dijawab dr. Hansen (P1–P4): Rp 0 → kuota/sesi kembali; sesi 1 paket → hak = sesi 1
+dipakai lagi tanpa tagihan, refund penuh hanya bila belum ada sesi lain terpakai; PIN refund hanya hari lampau; layar
+void memberi tahu tindakan yang "dilepas". Tahap 3 (laporan) belum. Deploy tahap 1+2+4 BERSAMA.
 Penyempurnaan selama pengerjaan: klarifikasi §3.2 (Ruling 6 & 7: transaksi VOID tetap berarti kasir sudah
 menangani; "tidak disentuh" hanya bila tanpa SOAP, isi, dan transaksi), §3.3 (Ruling 10: antrian perawat juga
 menampilkan label KONSULTASI — pintu ke form upsell). Lihat DEC-101.

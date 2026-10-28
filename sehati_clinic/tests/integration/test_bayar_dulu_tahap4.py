@@ -972,3 +972,82 @@ def test_ekspor_refunds_raw_kolom_sama_dengan_kamus(db):
     assert rows and all(list(r.keys()) == kamus for r in rows)
     jenis = next(c for c in COLUMNS_METADATA["refunds_raw"]["columns"] if c["name"] == "jenis_refund")
     assert "TINDAKAN" in jenis["description"]
+
+
+# ---------------------------------------------------------------- T4-6 Pemeriksa (dua arah)
+def _cek(db, *ts):
+    from scripts.cek_tindakan_lunas_batal import periksa
+    return periksa(db, ids=[t.id_kunjungan_tindakan for t in ts])
+
+
+def _semua_jalur_sah(db):
+    """Enam tindakan, satu per jalur sah tahap 4."""
+    staf, k, t_hak = _dibayar_di_muka(db); _hak(db, t_hak, staf)
+    staf, k, t_ref = _dibayar_di_muka(db); _refund(db, staf, t=t_ref)
+    staf, k, t_hak_ref, h = _hak_dari_tindakan_baru(db); _refund(db, staf, rencana=h)
+    staf, k = _siapkan(db); _soap(db, k, staf)
+    q, t_kuota = _kuota_pending(db, k)
+    _bayar(db, k, staf, konfirmasi_prabayar=True); db.refresh(t_kuota); _hak(db, t_kuota, staf)
+    staf, k, t_sesi, sesi = _series_lunas(db); _hak(db, t_sesi, staf)
+    staf, k, t_sesi_ref, sesi2 = _series_lunas(db); _hak(db, t_sesi_ref, staf)
+    _refund(db, staf, rencana=sesi2[0])
+    return [t_hak, t_ref, t_hak_ref, t_kuota, t_sesi, t_sesi_ref]
+
+
+def test_pemeriksa_lulus_di_semua_jalur_sah(db):
+    ts = _semua_jalur_sah(db)
+    h = _cek(db, *ts)
+    assert h["temuan"] == [] and h["dinilai"] == 6
+
+
+def test_pemeriksa_gagal_bila_batal_tanpa_pasangan(db):
+    """Jalan pintas palsu: status BATAL ditulis langsung pada tindakan yang sudah dibayar."""
+    staf, k, t = _dibayar_di_muka(db)
+    assert _cek(db, t)["temuan"] == [] and _cek(db, t)["dinilai"] == 0
+    t.status_tindakan = "BATAL"; db.flush()
+    h = _cek(db, t)
+    assert len(h["temuan"]) == 1 and "TANPA pasangan" in h["temuan"][0]
+
+
+def test_pemeriksa_gagal_bila_rencana_hak_dihapus(db):
+    staf, k, t, h = _hak_dari_tindakan_baru(db)
+    db.delete(h); db.flush()
+    assert any("rencana PRABAYAR = 0" in x for x in _cek(db, t)["temuan"])
+
+
+def test_pemeriksa_gagal_bila_refund_dihapus(db):
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    for r in _refund_rows(db, t):
+        db.delete(r)
+    db.flush()
+    assert any("TANPA pasangan" in x for x in _cek(db, t)["temuan"])
+
+
+def test_pemeriksa_gagal_bila_refund_ganda_atau_kuota_direfund(db):
+    from app.db.models import TransaksiRefund
+    staf, k, t = _dibayar_di_muka(db)
+    _refund(db, staf, t=t)
+    r = _refund_rows(db, t)[0]
+    db.add(TransaksiRefund(id_transaksi=r.id_transaksi, nilai_refund=r.nilai_refund,
+                           metode_refund="TUNAI", jenis_refund="TINDAKAN",
+                           id_kunjungan_tindakan=t.id_kunjungan_tindakan)); db.flush()
+    assert any("lebih dari sekali" in x for x in _cek(db, t)["temuan"])
+    staf, k = _siapkan(db); _soap(db, k, staf)
+    q, tk = _kuota_pending(db, k)
+    _bayar(db, k, staf, konfirmasi_prabayar=True); db.refresh(tk); _hak(db, tk, staf)
+    db.add(TransaksiRefund(id_transaksi=tk.id_transaksi, nilai_refund=1, metode_refund="TUNAI",
+                           jenis_refund="TINDAKAN", id_kunjungan_tindakan=tk.id_kunjungan_tindakan))
+    db.flush()
+    assert any("kuota" in x for x in _cek(db, tk)["temuan"])
+
+
+def test_pemeriksa_arah_balik_refund_ke_tindakan_hidup(db):
+    """Refund TINDAKAN yang menunjuk tindakan yang masih PENDING (uang keluar, tindakan
+    tetap bisa dikerjakan)."""
+    from app.db.models import TransaksiRefund
+    staf, k, t = _dibayar_di_muka(db)
+    db.add(TransaksiRefund(id_transaksi=t.id_transaksi, nilai_refund=1, metode_refund="TUNAI",
+                           jenis_refund="TINDAKAN", id_kunjungan_tindakan=t.id_kunjungan_tindakan))
+    db.flush()
+    assert any("berstatus PENDING" in x for x in _cek(db, t)["temuan"])

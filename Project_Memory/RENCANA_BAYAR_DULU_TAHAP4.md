@@ -4,8 +4,9 @@ Status: **RANCANGAN** (ditulis 2026-10-28, sesi cloud). **P1–P4 DIJAWAB dr. Ha
 — semua sesuai usulan: (P1) Rp 0 → kuota/sesi dikembalikan; (P2) sesi 1 paket: hak = sesi 1
 dipakai lagi tanpa ditagih ulang, refund penuh hanya bila belum ada sesi lain terpakai;
 (P3) PIN refund hanya untuk transaksi hari lampau (sama dengan T32); (P4) layar void diberi
-baris "tindakan prabayar akan dilepas". **T4-1 s/d T4-5 SELESAI 2026-10-28** (sesi cloud; lihat
-catatan di bawah judul masing-masing). Berikutnya T4-6 (pemeriksa + dokumentasi). Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
+baris "tindakan prabayar akan dilepas". **TAHAP 4 SELESAI (T4-1..T4-6) 2026-10-28** di cabang
+`claude/hopeful-pasteur-172ozo` (sesi cloud). Berikutnya: uji layar dr. Hansen (U77–U83) → `main` →
+deploy tahap 1+2+4 bersama. Lihat `HANDOFF_2026-10-28.md`. Spek induk: `DESAIN_BAYAR_DULU_BERCABANG.md` §3.6 (cabang "sudah
 dibayar"), §3.7, §3.8 — disetujui 2026-10-15. Dokumen ini memetakan spek itu ke kode yang ada
 hari ini dan menandai tempat spek tidak cukup (§2, butir P1–P4).
 
@@ -209,6 +210,13 @@ bayar, batas, sisa hari) dengan tombol Kembalikan uang per baris (memanggil T4-3
 - Kelas Tailwind hanya yang sudah ada (`scripts/cek_kelas_tailwind.py`).
 
 ### T4-6 Pemeriksa + dokumentasi
+> **SELESAI 2026-10-28 (cloud).** `scripts/cek_tindakan_lunas_batal.py` — aturannya lebih tepat
+> daripada "TEPAT SATU pasangan" di bawah: hak yang kemudian direfund punya DUA jejak sah (rencana
+> PRABAYAR CANCELLED + refund). Aturan akhir: audit `TINDAKAN_JADI_HAK` 0/1; bentuk HAK ⇔ tepat 1
+> rencana PRABAYAR; refund ≤ 1 dan tidak pernah untuk KUOTA; tanpa audit → tepat 1 refund; plus
+> arah balik (refund/hak menunjuk tindakan BATAL yang dibayar transaksi itu). Dua arah: 6 test.
+> Dokumentasi: CLAUDE.md §4.1/§5/§8, DESAIN status, UJI_UI U77–U83, `HANDOFF_2026-10-28.md`.
+> Hasil pemeriksa & dua kegagalan test artefak (jam/data) di handoff §3.
 - Pemeriksa baru `scripts/cek_tindakan_lunas_batal.py` (HANYA membaca): setiap tindakan `BATAL`
   ber-`id_transaksi` di transaksi BAYAR harus punya TEPAT SATU pasangan — rencana PRABAYAR,
   refund TINDAKAN, atau audit kuota/sesi kembali. Ini wujud "setiap rupiah punya pasangan"
