@@ -655,8 +655,16 @@ class PrintService:
                     benefit_items.append({"nama_treatment": nama, "tier": tier,
                                           "periode": periode, "nominal": normal})
                 elif kt.id_rencana is not None:
-                    ket = "Paket series (prabayar)"
-                    ket_pendek = "Paket series"
+                    # Bayar dulu T4-2: hak PRABAYAR yang dipakai (tindakan dibayar di muka di
+                    # kunjungan lain, lalu disimpan sebagai hak) — bukan paket series.
+                    from app.db.models import PasienRencanaTreatment as _PRT
+                    from app.services._hak_prabayar import adalah_hak as _adalah_hak
+                    if _adalah_hak(self.db.get(_PRT, kt.id_rencana)):
+                        ket = "Hak prabayar (dibayar sebelumnya)"
+                        ket_pendek = "Hak prabayar"
+                    else:
+                        ket = "Paket series (prabayar)"
+                        ket_pendek = "Paket series"
             if ket:
                 nilai_benefit += normal
             # Bayar dulu T2-5: tindakan DIBAYAR sebelum dikerjakan. Ditentukan dari WAKTU,

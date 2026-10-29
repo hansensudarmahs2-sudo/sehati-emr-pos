@@ -33,6 +33,15 @@ from app.services.audit_service import AuditService
 from app.services.inventory_service import InventoryService
 
 
+def tambah_bulan(d: date, n: int) -> date:
+    """`d` + `n` bulan kalender; tanggal yang tak ada di bulan tujuan dijepit ke hari
+    terakhirnya (31 Agu + 6 → 28/29 Feb). Batas hak prabayar (bayar dulu T4-1)."""
+    import calendar
+    bulan = d.month - 1 + n
+    tahun, bulan = d.year + bulan // 12, bulan % 12 + 1
+    return date(tahun, bulan, min(d.day, calendar.monthrange(tahun, bulan)[1]))
+
+
 class TreatmentService:
     def __init__(self, db: Session):
         self.db = db
@@ -490,9 +499,9 @@ class TreatmentService:
         if tindakan.id_transaksi is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=("Hanya tindakan yang belum dikerjakan dan belum dibayar yang bisa "
-                        "dibatalkan. Tindakan yang sudah dibayar: tunggu fitur hak "
-                        "pasien/refund (tahap 4)."),
+                detail=("Tindakan ini sudah dibayar — tidak bisa dibatalkan biasa (uangnya "
+                        "ada). Pakai tombol 'Simpan sebagai hak' (dipakai di kunjungan lain) "
+                        "atau minta kasir mengembalikan uangnya."),
             )
         if st != "PENDING":
             raise HTTPException(
@@ -552,6 +561,206 @@ class TreatmentService:
                 "id_kunjungan_tindakan": id_kunjungan_tindakan,
                 "id_kunjungan": tindakan.id_kunjungan,
                 "status_baru": "BATAL",
+                "status_kunjungan_baru": status_baru,
+            },
+        }
+
+    # =========================================================================
+    # SIMPAN SEBAGAI HAK — tindakan SUDAH dibayar lalu ditolak (bayar dulu tahap 4, T4-1)
+    # =========================================================================
+    _BULAN_HAK = 6
+
+    def simpan_sebagai_hak(
+        self,
+        id_kunjungan_tindakan: int,
+        alasan: str,
+        actor_id_staf: int,
+        request: Optional[Request] = None,
+    ) -> dict:
+        """Pasien menolak tindakan yang belum dikerjakan tapi SUDAH dibayar di muka.
+
+        Spec DESAIN_BAYAR_DULU_BERCABANG.md §3.6 cabang "sudah dibayar", rencana
+        RENCANA_BAYAR_DULU_TAHAP4.md T4-1. Uangnya ada, jadi tindakan tidak boleh hilang
+        begitu saja: ia ditukar dengan hak yang dipakai di kunjungan lain. Bentuk haknya
+        mengikuti CARA tindakan itu dibayar — aturan yang sama dengan `_compute_charge`:
+
+        - kuota member (Rp 0)  → kuota dikembalikan (P1, dr. Hansen 2026-10-28). Kuota sudah
+          hak dengan batasnya sendiri; hak PRABAYAR Rp 0 hanya menggandakannya.
+        - sesi series (sesi 1 pembawa harga paket, atau sesi 2..N Rp 0) → sesi itu kembali
+          PENDING, bisa dipakai lagi lewat "Pakai Sesi" (P1/P2). ⚠ BUKAN
+          `bereskan_satu_tindakan`: di sana sesi 1 yang lahir di kunjungan ini membatalkan
+          SELURUH series — benar sebelum bayar, salah sesudahnya (paketnya sudah lunas).
+        - selain itu (harga treatment) → hak PRABAYAR baru, berlaku sampai tanggal BAYAR +
+          6 bulan. `id_kunjungan_pembuat` SENGAJA NULL (asal lewat `id_referensi_sumber` =
+          tindakan ini): `_series` mengelompokkan series per (pasien, treatment, kunjungan
+          pembuat) — dengan kunjungan pembuat terisi, hak ini terbaca "sesi 1 series
+          berikutnya" dan memotong series dokter treatment yang sama.
+
+        `id_transaksi` tindakan TIDAK dikosongkan — itu jejak transaksi yang membayarnya
+        (nilai hak = snapshot `transaksi_detail_tindakan`, tanpa rumus baru). Omzet tidak
+        berubah: uangnya sudah dibukukan saat dibayar.
+
+        Hanya PENDING (CLAUDE.md §7). Peran pemanggil = Batalkan (`require_perawat_role`).
+        """
+        from sqlalchemy import select as _select
+        from app.db.models import KunjunganTindakan as _KT
+        from app.db.models import (
+            MasterTreatment,
+            PasienRencanaTreatment,
+            StatusRencanaTreatmentEnum,
+            TransaksiKasir,
+        )
+        from app.db.models._enums import SumberRencanaEnum
+        from app.services._baca_segar import mulai_baca_segar
+        from app.services._batal_tindakan import kembalikan_kuota, kembalikan_sesi
+        from app.services._status_kunjungan import hitung_ulang_status
+
+        alasan_bersih = (alasan or "").strip()
+        if len(alasan_bersih) < self._MIN_ALASAN_BATAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Alasan wajib diisi (minimal {self._MIN_ALASAN_BATAL} karakter).",
+            )
+        # Urutan kunci SAMA dengan `batalkan_tindakan` (lihat komentarnya): baca-segar →
+        # kunjungan → tindakan. Void mengunci kunjungan yang sama, jadi sesudah kunci ini
+        # transaksi pembayar tak bisa berubah status di bawah kita — ia dibaca biasa, TIDAK
+        # dikunci (void mengunci transaksi → kunjungan; urutan sebaliknya = deadlock).
+        _id_kj = self.db.execute(
+            _select(_KT.id_kunjungan).where(_KT.id_kunjungan_tindakan == id_kunjungan_tindakan)
+        ).scalar_one_or_none()
+        mulai_baca_segar(self.db)
+        if _id_kj is not None:
+            self.kunjungan_repo.get_by_id_for_update(_id_kj)
+        tindakan = self.treatment_repo.get_tindakan_for_update(id_kunjungan_tindakan)
+        if tindakan is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tindakan {id_kunjungan_tindakan} tidak ditemukan.",
+            )
+        st = getattr(tindakan.status_tindakan, "value", tindakan.status_tindakan)
+        if st != "PENDING":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Hanya tindakan yang belum dikerjakan yang bisa disimpan sebagai hak. "
+                        f"Status tindakan ini '{st}'."),
+            )
+        if tindakan.id_transaksi is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tindakan ini belum dibayar — pakai tombol 'Batalkan'.",
+            )
+        trx = self.db.get(TransaksiKasir, tindakan.id_transaksi)
+        if trx is None or trx.status_transaksi != "BAYAR":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Transaksi #{tindakan.id_transaksi} yang menagih tindakan ini tidak "
+                        f"berstatus BAYAR. Muat ulang halaman."),
+            )
+        rencana = None
+        if tindakan.id_kuota_member is None and tindakan.id_rencana is not None:
+            rencana = self.db.get(PasienRencanaTreatment, tindakan.id_rencana)
+            if rencana is None or rencana.status != StatusRencanaTreatmentEnum.SCHEDULED:
+                # Hanya sesi SCHEDULED yang bisa kembali PENDING. Menulis BATAL tanpa itu =
+                # hak pasien hilang tanpa pengganti — tolak, biar dibereskan Admin.
+                st_r = getattr(getattr(rencana, "status", None), "value", None)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(f"Sesi series #{tindakan.id_rencana} berstatus '{st_r}', tidak "
+                            f"bisa dikembalikan sebagai hak. Hubungi Admin."),
+                )
+
+        try:
+            data_audit: dict = {"status_tindakan": "BATAL", "alasan": alasan_bersih,
+                                "id_transaksi": trx.id_transaksi}
+            id_rencana_hak = None
+            if tindakan.id_kuota_member is not None:
+                bentuk = "KUOTA"
+                data_audit["kuota_dikembalikan"] = kembalikan_kuota(
+                    self.db, [tindakan], actor_id_staf=actor_id_staf,
+                    id_kunjungan=tindakan.id_kunjungan, request=request)
+            elif rencana is not None:
+                bentuk = "SESI"
+                kembalikan_sesi(self.db, self.audit, [rencana],
+                                trigger=f"hak_tindakan_{id_kunjungan_tindakan}",
+                                actor_id_staf=actor_id_staf, request=request)
+                data_audit["id_rencana_dikembalikan"] = rencana.id_rencana
+            else:
+                bentuk = "HAK"
+                tr = self.db.get(MasterTreatment, tindakan.id_treatment)
+                tgl_bayar = (trx.waktu_bayar or datetime.now()).date()
+                hak = PasienRencanaTreatment(
+                    id_pasien=self.kunjungan_repo.get_by_id(tindakan.id_kunjungan).id_pasien,
+                    id_treatment=tindakan.id_treatment,
+                    urutan_sesi=1,
+                    nama_tindakan=((tr.nama_treatment if tr else None)
+                                   or f"Tindakan #{tindakan.id_treatment}")[:100],
+                    sumber_rencana=SumberRencanaEnum.PRABAYAR,
+                    id_referensi_sumber=tindakan.id_kunjungan_tindakan,
+                    id_kunjungan_pembuat=None,
+                    status=StatusRencanaTreatmentEnum.PENDING,
+                    tgl_target_mulai=tgl_bayar,
+                    tgl_target_akhir=tambah_bulan(tgl_bayar, self._BULAN_HAK),
+                    catatan_dokter=(f"Hak prabayar dari tindakan #{tindakan.id_kunjungan_tindakan} "
+                                    f"(transaksi #{trx.id_transaksi})."),
+                )
+                self.db.add(hak)
+                self.db.flush()
+                id_rencana_hak = hak.id_rencana
+                from app.services._hak_prabayar import nilai as _nilai_hak
+                nilai = _nilai_hak(self.db, hak)
+                data_audit.update({"id_rencana": id_rencana_hak,
+                                   "nilai": str(nilai) if nilai is not None else None,
+                                   "berlaku_sampai": hak.tgl_target_akhir.isoformat()})
+            data_audit["bentuk"] = bentuk
+
+            tindakan.status_tindakan = "BATAL"
+            self.db.flush()
+            kunjungan = self.kunjungan_repo.get_by_id(tindakan.id_kunjungan)
+            status_lama = getattr(kunjungan.status_antrian, "value", kunjungan.status_antrian)
+            status_baru = hitung_ulang_status(self.db, tindakan.id_kunjungan)
+            data_audit["status_kunjungan"] = status_baru
+            self.audit.log(
+                aksi="TINDAKAN_JADI_HAK",
+                id_staf=actor_id_staf,
+                tabel_target="kunjungan_tindakan",
+                id_target=id_kunjungan_tindakan,
+                data_lama={"status_tindakan": "PENDING"},
+                data_baru=data_audit,
+                keterangan=f"Tindakan dibayar tapi tidak dikerjakan → hak ({bentuk}): {alasan_bersih}",
+                request=request,
+            )
+            if status_baru != status_lama:
+                self.audit.log(
+                    aksi="STATUS_UPDATE",
+                    id_staf=actor_id_staf,
+                    tabel_target="kunjungan",
+                    id_target=tindakan.id_kunjungan,
+                    data_lama={"status_antrian": status_lama},
+                    data_baru={"status_antrian": status_baru},
+                    keterangan="Auto-transition: tindakan disimpan sebagai hak (status dihitung dari isi kunjungan).",
+                    request=request,
+                )
+            self.db.commit()
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gagal menyimpan sebagai hak: {e!s}",
+            )
+        pesan = {"KUOTA": "Kuota membership dikembalikan.",
+                 "SESI": "Sesi series dikembalikan — bisa dipakai lagi lewat 'Pakai Sesi'.",
+                 "HAK": "Hak tindakan disimpan — bisa dipakai di kunjungan lain."}[bentuk]
+        return {
+            "status": "success",
+            "message": pesan,
+            "data": {
+                "id_kunjungan_tindakan": id_kunjungan_tindakan,
+                "id_kunjungan": tindakan.id_kunjungan,
+                "bentuk": bentuk,
+                "id_rencana": id_rencana_hak,
                 "status_kunjungan_baru": status_baru,
             },
         }

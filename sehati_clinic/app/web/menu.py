@@ -96,6 +96,14 @@ MENU_KASIR_CARI_TRANSAKSI = {
     "icon": "🔍",
     "active_when": "/web/kasir/cari-transaksi",
 }
+MENU_KASIR_HAK_TINDAKAN = {
+    # Bayar dulu T4-5: tindakan dibayar tapi belum dipakai (kewajiban klinik) + uang kembali.
+    # Peran = KASIR_ROLES (lihat route `kasir_hak_tindakan`).
+    "label": "Hak Tindakan",
+    "url": "/web/kasir/hak-tindakan",
+    "icon": "↪",
+    "active_when": "/web/kasir/hak-tindakan",
+}
 MENU_KASIR_TUTUP = {
     "label": "Tutup Kasir",
     "url": "/web/kasir/tutup",
@@ -255,7 +263,7 @@ _MENU_BY_ROLE = {
     "Owner": [
         {"group": "Operasional", "items": [
             MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_KASIR_HAK_TINDAKAN, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
             MENU_DOKTER_ANTRIAN, MENU_DRAF_SOAP, MENU_RUANG_TINDAKAN,
@@ -278,7 +286,7 @@ _MENU_BY_ROLE = {
     "Superadmin": [
         {"group": "Operasional", "items": [
             MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_KASIR_HAK_TINDAKAN, MENU_APOTEK, MENU_TEBUS_RESEP, MENU_APOTEK_STOK,
         ]},
         {"group": "Klinis", "items": [
             MENU_DOKTER_ANTRIAN, MENU_DRAF_SOAP, MENU_RUANG_TINDAKAN,
@@ -310,7 +318,7 @@ _MENU_BY_ROLE = {
     "Admin": [
         {"group": "Operasional", "items": [
             MENU_PASIEN, MENU_PASIEN_BARU, MENU_KUNJUNGAN_ANTRIAN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
-            MENU_KASIR_CARI_TRANSAKSI,
+            MENU_KASIR_CARI_TRANSAKSI, MENU_KASIR_HAK_TINDAKAN,
         ]},
         {"group": "Manajemen", "items": [
             MENU_REPORTS,
@@ -339,7 +347,7 @@ _MENU_BY_ROLE = {
     ],
     "Kasir": [
         {"group": "Operasional", "items": [
-            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_PASIEN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
+            MENU_KASIR, MENU_KASIR_TUTUP, MENU_KASIR_CARI_TRANSAKSI, MENU_KASIR_HAK_TINDAKAN, MENU_PASIEN, MENU_BOOKING, MENU_FOLLOWUP, MENU_OBAT_TERTUNDA, MENU_MEMBERSHIP_AKTIVASI,
         ]},
         # REPORTS-COMPART (#324): Kasir bisa akses Rekap Shift Saya
         {"group": "Laporan", "items": [

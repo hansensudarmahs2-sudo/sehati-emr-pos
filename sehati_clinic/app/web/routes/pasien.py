@@ -107,6 +107,9 @@ def pasien_search_partial(
                         "urutan_sesi": r["urutan_sesi"],
                         "nama_tindakan": g["nama_tindakan"],
                         "total_sesi": g["total_sesi"],
+                        # Bayar dulu T4-2: hak prabayar tampil sebagai "Hak", bukan "Sesi 1/1".
+                        "jenis": g.get("jenis", "SERIES"),
+                        "berlaku_sampai": g.get("berlaku_sampai"),
                     })
             hasil.append({
                 "id_pasien": p.id_pasien,
@@ -637,6 +640,16 @@ def pasien_buat_antrian_series(
             )
         nama_tindakan = rencana.nama_tindakan or "treatment"
         urutan_sesi = rencana.urutan_sesi
+        # Bayar dulu T4-2: hak kedaluwarsa ditolak SEBELUM kunjungan dibuat — kalau baru
+        # ditolak `use_session` (langkah 2), pasien terlanjur punya kunjungan kosong di antrian.
+        from app.services import _hak_prabayar
+        is_hak = _hak_prabayar.adalah_hak(rencana)
+        SeriesService._pagari_hak_berlaku(rencana)
+    except HTTPException as e:
+        return RedirectResponse(
+            url=f"/web/pasien?err={quote(str(e.detail))}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     except Exception as e:
         return RedirectResponse(
             url=f"/web/pasien?err={quote(f'Gagal validasi rencana: {e!s}')}",
@@ -648,7 +661,8 @@ def pasien_buat_antrian_series(
         payload = KunjunganLamaRequest(
             id_pasien=id_pasien,
             status_antrian="ANTRI_TREATMENT",
-            keluhan_utama=f"Lanjut series {nama_tindakan} sesi {urutan_sesi}",
+            keluhan_utama=(f"Pakai hak prabayar {nama_tindakan}" if is_hak
+                           else f"Lanjut series {nama_tindakan} sesi {urutan_sesi}"),
             sumber_pendaftaran="WALK_IN",
             antropometri=None,
         )
@@ -697,8 +711,10 @@ def pasien_buat_antrian_series(
         )
 
     msg = (
-        f"Pasien masuk Ruang Tindakan untuk lanjut series {nama_tindakan} "
-        f"sesi {urutan_sesi}, nomor antrian #{nomor_antrean}."
+        f"Pasien masuk Ruang Tindakan untuk "
+        + (f"hak prabayar {nama_tindakan}" if is_hak
+           else f"lanjut series {nama_tindakan} sesi {urutan_sesi}")
+        + f", nomor antrian #{nomor_antrean}."
     )
     return RedirectResponse(
         url=f"/web/pasien?ok={quote(msg)}",

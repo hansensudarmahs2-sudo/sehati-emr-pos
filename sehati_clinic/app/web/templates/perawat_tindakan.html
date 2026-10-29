@@ -152,8 +152,8 @@
                         </button>
                     </form>
                     {# Ruling 12 (bayar dulu): pasien menolak tindakan yang BELUM dikerjakan dan
-                       BELUM dibayar. Yang sudah dibayar tidak diberi tombol — itu hak pasien /
-                       refund (tahap 4). Alasan wajib (masuk audit TINDAKAN_BATAL). #}
+                       BELUM dibayar → Batalkan. Yang sudah dibayar → Simpan sebagai hak (di
+                       bawah, tahap 4). Alasan wajib (masuk audit). #}
                     {% if not t.id_transaksi %}
                     <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/batalkan"
                           data-confirm="Batalkan tindakan {{ t.nama_treatment }}? Kuota/sesi series yang dipakai dikembalikan."
@@ -165,6 +165,22 @@
                         <button type="submit"
                                 class="inline-flex items-center px-3 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition font-medium">
                             ✗ Batalkan
+                        </button>
+                    </form>
+                    {% else %}
+                    {# Bayar dulu T4-1: sudah dibayar (di muka) tapi pasien menolak → hak. Kuota
+                       member / sesi series dikembalikan; selain itu lahir hak prabayar yang
+                       berlaku 6 bulan dari tanggal bayar. Uang kembali = kasir (T4-3). #}
+                    <form method="POST" action="/web/ruang-tindakan/tindakan/{{ t.id_kunjungan_tindakan }}/simpan-hak"
+                          data-confirm="Simpan {{ t.nama_treatment }} sebagai hak pasien? Tindakan sudah dibayar — tidak dikerjakan hari ini, bisa dipakai di kunjungan lain (maks 6 bulan dari tanggal bayar). Kuota/sesi series dikembalikan."
+                          class="inline-flex items-center gap-2">
+                        {{ csrf_input(request) }}
+                        <input type="text" name="alasan" required minlength="5" maxlength="255"
+                               placeholder="Alasan tidak dikerjakan (wajib)"
+                               class="px-2 py-1 text-xs border border-slate-300 rounded">
+                        <button type="submit"
+                                class="inline-flex items-center px-3 py-2 text-sm border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 transition font-medium">
+                            ↪ Simpan sebagai hak
                         </button>
                     </form>
                     {% endif %}
