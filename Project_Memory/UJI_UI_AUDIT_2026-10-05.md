@@ -185,3 +185,5 @@ Persiapan: transaksi yang obatnya SUDAH diserahkan ≤ 7 hari lalu (mis. #270 SE
 | 2026-10-05 | dr. Hansen | U16 ✅ | — | Void ditolak karena obat sudah diserahkan → memunculkan modul retur |
 | 2026-10-05 | dr. Hansen | U34, U35, U40, U41 ✅ | jejak_20261005_125333 | Retur alergi Cream CP → draf → disetujui `dokter` → alergi tercatat |
 | 2026-10-05 | dr. Hansen | U36, U37, U38, U39 ✅ | jejak_20261005_193003 | Azithromycin 5 unit: retur sebagian ×2, tukar lebih mahal, lalu tukar lebih murah atas produk pengganti. Omzet 4 pembaca sepakat (Rp 720.000); stok 9.997 = lot. Memunculkan permintaan peringatan tukar (U44) |
+
+> **U77–U83 langkah demi langkah:** `PANDUAN_UJI_U77_U83.md` (urutan dua hari — U81 butuh transaksi kemarin).
